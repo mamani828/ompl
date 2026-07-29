@@ -70,6 +70,8 @@ if (OMPL_BUILD_TESTS)
 
     # Test the (environment-agnostic) signed distance field module
     add_ompl_test(test_sdf sdf/test_sdf.cpp)
+    # Test allocation-free Picard trajectory iteration
+    add_ompl_test(test_picard_iteration picard/test_picard_iteration.cpp)
 
     # Test VAMP integration
     if(OMPL_HAVE_VAMP)

@@ -6,9 +6,9 @@ if(NOT SKBUILD)
 endif()
 
 file(GLOB_RECURSE OMPL_SOURCE_CODE datastructures/*.cpp util/*.cpp base/*.cpp
-  geometric/*.cpp control/*.cpp multilevel/*.cpp tools/*.cpp)
+  geometric/*.cpp control/*.cpp multilevel/*.cpp tools/*.cpp picard/*.cpp)
 file(GLOB_RECURSE OMPL_HEADERS datastructures/*.h util/*.h base/*.h
-  geometric/*.h control/*.h multilevel/*.h tools/*.h sdf/*.h)
+  geometric/*.h control/*.h multilevel/*.h tools/*.h sdf/*.h picard/*.h)
 
 #############################################
 # Add enabled extensions to the source code #
