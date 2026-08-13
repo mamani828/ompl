@@ -47,7 +47,9 @@
 #include <ompl/cbf/ExecutedPath.h>
 #include <ompl/cbf/FilteredMotionValidator.h>
 #include <ompl/cbf/FilteredStateSpace.h>
+#include <ompl/cbf/RopeShortcut.h>
 #include <ompl/geometric/PathGeometric.h>
+#include <ompl/geometric/PathSimplifier.h>
 #include <ompl/geometric/planners/rrt/RRTConnect.h>
 #include <ompl/robots/UR5.h>
 
@@ -183,6 +185,12 @@ namespace
 
     using ompl::demo::worstSelfOverlap;
 
+    /// Anchor spacing for the rope shortcut, in radians, applied to both rows after they
+    /// solve. Non-positive disables it, which is the A/B: until this existed neither row
+    /// was shortcut at all, so the length comparison between them was between two
+    /// unsimplified paths and said as much about RRTConnect's zigzag as about the filter.
+    double shortcutDelta = -1.0;
+
     struct Result
     {
         bool solved{false};
@@ -203,7 +211,18 @@ namespace
         std::size_t coarse{0};  ///< steps the filter certified past `stepSize`
         double travel{0.0};     ///< joint-space radians rolled, so `travel / steps` is the
                                 ///< distance one filter call bought
-        std::size_t misses{0};  ///< solution edges re-derived rather than replayed
+        std::size_t misses{0};   ///< solution edges re-derived rather than replayed
+        std::size_t evicted{0};  ///< ledger edges dropped for capacity; must stay zero
+
+        // Shortcutting, reported apart from the columns above. In particular
+        // `shortcutSeconds` is *not* folded into `seconds`: it is post-processing, and a
+        // sweep that costs more than the solve it shortens is a thing worth seeing.
+        double lengthBefore{0.0};       ///< executed arc length before shortcutting, radians
+        double lengthAfter{0.0};        ///< and after
+        double shortcutSeconds{0.0};
+        std::size_t shortcutsAccepted{0};
+        std::size_t shortcutRollouts{0};  ///< candidate pairs that cost a rollout (cbf row only)
+        std::size_t shortcutScreened{0};  ///< candidate pairs refused on geometry, at no QP cost
     };
 
     /// Saved result for one goal/direction so the complete suite can be summarized
@@ -300,6 +319,23 @@ namespace
         {
             auto solution = std::static_pointer_cast<og::PathGeometric>(pdef->getSolutionPath());
             result.waypoints = solution->getStateCount();
+
+            // Stock RRT-Rope. This row's edges *are* straight lines, so OMPL's own
+            // implementation is exactly right for it and the CBF row's variant would be
+            // wrong -- but both rows are shortcut at the same `delta`, which is what makes
+            // the length columns comparable. Timed apart from the solve.
+            result.lengthBefore = solution->length();
+            if (shortcutDelta > 0.0)
+            {
+                const ompl::time::point shortcutBegin = ompl::time::now();
+                og::PathSimplifier simplifier(si);
+                // The return is only "did anything change", which the length columns say
+                // better; rope's own accept count is not exposed.
+                simplifier.ropeShortcutPath(*solution, shortcutDelta);
+                result.shortcutSeconds = ompl::time::seconds(ompl::time::now() - shortcutBegin);
+            }
+            result.lengthAfter = solution->length();
+
             // Straight-line edges densify to the motion that would actually be executed,
             // so this row -- unlike the CBF row, which can only be audited at the
             // resolution its rollout emitted -- can be audited as finely as one likes.
@@ -410,6 +446,34 @@ namespace
             auto solution = std::static_pointer_cast<og::PathGeometric>(pdef->getSolutionPath());
             result.waypoints = solution->getStateCount();
 
+            // RRT-Rope with the CBF rollout as the edge test. It leaves every edge of the
+            // path in the ledger, so `misses` below is still the check that what gets
+            // audited and written out is a replay -- and it is now checking the
+            // shortcutter's sub-edge recording as well as the planner's.
+            if (shortcutDelta > 0.0)
+            {
+                const ompl::time::point shortcutBegin = ompl::time::now();
+                ompl::cbf::ShortcutReport shortcut;
+                ompl::cbf::ropeShortcut(*solution, shortcutDelta, 0.1, &shortcut);
+                result.shortcutSeconds = ompl::time::seconds(ompl::time::now() - shortcutBegin);
+                result.lengthBefore = shortcut.lengthBefore;
+                result.shortcutsAccepted = shortcut.accepted;
+                result.shortcutRollouts = shortcut.rollouts;
+                result.shortcutScreened = shortcut.screened;
+                // The sweep rolls, so it is charged for what it rolled. Leaving it out
+                // would make rad/call read as if the shortcut were free.
+                const ompl::cbf::FilteredStateSpace::Statistics after = space->statistics();
+                result.steps = after.steps;
+                result.filtered = after.filtered;
+                result.blocked = after.blocked;
+                result.coarse = after.coarse;
+                result.travel = after.travel;
+            }
+            // Densification writes a ledger edge per anchor, so the shortcut is the first
+            // thing here able to push the ledger to its capacity. If it does, some edge
+            // was dropped and `misses` below is about to find it.
+            result.evicted = space->statistics().evicted;
+
             // Every edge replaced by the rollout the planner recorded for it, so this is
             // the motion that would actually be executed -- the only honest thing to
             // audit, and the only honest thing to write to the .path file below. The
@@ -418,6 +482,13 @@ namespace
             const og::PathGeometric executed = ompl::cbf::executedPath(
                 *solution, UR5::velocityLimits().maxCoeff() * stepSize, &result.misses);
             result.auditedStates = executed.getStateCount();
+            // Measured on the executed motion rather than on the planner's polyline, which
+            // is the only length this row can honestly quote: the straight line between
+            // two of its nodes is not a motion the arm makes. Reported whether or not
+            // shortcutting ran, so the two settings are comparable.
+            result.lengthAfter = executed.length();
+            if (shortcutDelta <= 0.0)
+                result.lengthBefore = result.lengthAfter;
             for (std::size_t i = 0; i < executed.getStateCount(); ++i)
             {
                 const UR5::Configuration q =
@@ -447,7 +518,7 @@ int main(int argc, char **argv)
     if (argc < 2)
     {
         std::printf("usage: %s <scene.problem> [seconds] [out.path] [trials] [maxStepScale]"
-                    " [baselineCheckRadians] [baselineAuditRadians]\n",
+                    " [baselineCheckRadians] [baselineAuditRadians] [shortcutRadians]\n",
                     argv[0]);
         std::printf("       %s <scene.problem> --probe   < points.txt\n", argv[0]);
         return 1;
@@ -471,6 +542,11 @@ int main(int argc, char **argv)
     // matches the CBF row's rollout step, which is the comparable setting; anything
     // finer asks whether the baseline's unsampled edge interiors were safe as well.
     const double baselineAudit = (argc > 7 && !probeMode) ? std::atof(argv[7]) : -1.0;
+    // Rope anchor spacing, in radians. Non-positive leaves both rows unsimplified, which
+    // is what they were before this existed. The default is off so every command line
+    // already in the README keeps reporting the numbers it used to.
+    if (argc > 8 && !probeMode)
+        shortcutDelta = std::atof(argv[8]);
 
     const Scene scene = readScene(problemPath);
     const sdf::GridSDF field = sdf::GridSDF::load(scene.gridPath);
@@ -707,6 +783,14 @@ int main(int argc, char **argv)
     std::size_t cbfEdgesTotal = 0;
     std::size_t cbfAuditedTotal = 0;
     double cbfTravelTotal = 0.0;
+    std::size_t cbfEvictedTotal = 0;
+    std::size_t cbfShortcutsTotal = 0;
+    std::size_t cbfShortcutRolloutsTotal = 0;
+    // Summed over every test, so the ratio below compares the two rows on the same
+    // problems rather than on whichever each happened to manage.
+    double baselineLengthBefore = 0.0, baselineLengthAfter = 0.0;
+    double cbfLengthBefore = 0.0, cbfLengthAfter = 0.0;
+    double baselineShortcutSeconds = 0.0, cbfShortcutSeconds = 0.0;
 
     for (const TestRecord &record : testRecords)
     {
@@ -729,11 +813,21 @@ int main(int argc, char **argv)
         cbfEdgesTotal += record.cbf.edges;
         cbfAuditedTotal += record.cbf.auditedStates;
         cbfTravelTotal += record.cbf.travel;
+        cbfEvictedTotal += record.cbf.evicted;
+        cbfShortcutsTotal += record.cbf.shortcutsAccepted;
+        cbfShortcutRolloutsTotal += record.cbf.shortcutRollouts;
+        baselineLengthBefore += record.baseline.lengthBefore;
+        baselineLengthAfter += record.baseline.lengthAfter;
+        cbfLengthBefore += record.cbf.lengthBefore;
+        cbfLengthAfter += record.cbf.lengthAfter;
+        baselineShortcutSeconds += record.baseline.shortcutSeconds;
+        cbfShortcutSeconds += record.cbf.shortcutSeconds;
     }
 
     const bool baselineAllSolved = forwardBaselineSolved == scene.goals.size() &&
                                    reverseBaselineSolved == scene.goals.size();
-    const bool cbfSafetyPassed = cbfUnsafeTotal == 0 && cbfSelfTotal == 0 && cbfMissesTotal == 0;
+    const bool cbfSafetyPassed =
+        cbfUnsafeTotal == 0 && cbfSelfTotal == 0 && cbfMissesTotal == 0 && cbfEvictedTotal == 0;
     const bool suitePassed = allSolved && baselineAllSolved && cbfSafetyPassed && pathWriteOk;
 
     std::printf("\n");
@@ -764,6 +858,10 @@ int main(int argc, char **argv)
     std::printf("guarded CBF margin:        %.6f m\n", scene.margin + buffer);
     std::printf("start barrier h:           %+.6f m\n", startBarrier);
     std::printf("CBF audit spacing:         %.6f rad\n", auditSpacing);
+    if (shortcutDelta > 0.0)
+        std::printf("rope shortcut delta:       %.6f rad (both rows)\n", shortcutDelta);
+    else
+        std::printf("rope shortcut:             disabled\n");
     std::printf("baseline check spacing:    %.6f rad\n", baselineCheckResolution);
     std::printf("baseline audit spacing:    %.6f rad\n", baselineAuditSpacing);
     if (outPath.empty())
@@ -804,6 +902,12 @@ int main(int argc, char **argv)
                     cbf.steps, cbf.filtered, cbf.blocked, cbf.coarse,
                     cbf.steps > 0 ? 1e2 * cbf.coarse / cbf.steps : 0.0, cbf.travel,
                     cbf.steps > 0 ? cbf.travel / cbf.steps : 0.0, cbf.misses, record.targetBarrier);
+        if (shortcutDelta > 0.0)
+            std::printf("      shortcut:  rrtc %.4f -> %.4f rad in %.1f ms   cbf %.4f -> %.4f rad "
+                        "in %.1f ms (%zu accepted, %zu rollouts, %zu screened)\n",
+                        base.lengthBefore, base.lengthAfter, 1e3 * base.shortcutSeconds,
+                        cbf.lengthBefore, cbf.lengthAfter, 1e3 * cbf.shortcutSeconds,
+                        cbf.shortcutsAccepted, cbf.shortcutRollouts, cbf.shortcutScreened);
         std::printf("      RRTC stats: validity_checks=%zu rejected_checks=%zu rejection_rate=%.1f%% "
                      "vertices=%zu edges=%zu\n",
                      base.steps, base.rejected,
@@ -849,6 +953,25 @@ int main(int argc, char **argv)
     std::printf("CBF unsafe states:         %zu\n", cbfUnsafeTotal);
     std::printf("CBF self-collisions:       %zu\n", cbfSelfTotal);
     std::printf("CBF replay misses:         %zu\n", cbfMissesTotal);
+    std::printf("CBF ledger evictions:      %zu\n", cbfEvictedTotal);
+    // The length comparison. Before shortcutting existed this could only be quoted
+    // against an unsimplified baseline, which flattered the filtered row: RRTConnect's
+    // raw output zigzags and rope takes most of that out. The `after` ratio is the one
+    // that survives.
+    std::printf("path length RRTC:          %.4f -> %.4f rad (%.1f%% off, %.1f ms)\n",
+                baselineLengthBefore, baselineLengthAfter,
+                baselineLengthBefore > 0.0
+                    ? 1e2 * (1.0 - baselineLengthAfter / baselineLengthBefore)
+                    : 0.0,
+                1e3 * baselineShortcutSeconds);
+    std::printf("path length CBF:           %.4f -> %.4f rad (%.1f%% off, %.1f ms, %zu shortcuts "
+                "from %zu rollouts)\n",
+                cbfLengthBefore, cbfLengthAfter,
+                cbfLengthBefore > 0.0 ? 1e2 * (1.0 - cbfLengthAfter / cbfLengthBefore) : 0.0,
+                1e3 * cbfShortcutSeconds, cbfShortcutsTotal, cbfShortcutRolloutsTotal);
+    std::printf("CBF/RRTC length ratio:     %.2fx before shortcut, %.2fx after\n",
+                baselineLengthBefore > 0.0 ? cbfLengthBefore / baselineLengthBefore : 0.0,
+                baselineLengthAfter > 0.0 ? cbfLengthAfter / baselineLengthAfter : 0.0);
 
     std::printf("\nCHECKS\n");
     std::printf("all RRTC solves completed: %s\n", baselineAllSolved ? "PASS" : "FAIL");
@@ -859,6 +982,11 @@ int main(int argc, char **argv)
                 cbfSelfTotal == 0 ? "PASS" : "FAIL", cbfSelfTotal);
     std::printf("CBF executed-path replay:  %s (%zu misses)\n",
                 cbfMissesTotal == 0 ? "PASS" : "FAIL", cbfMissesTotal);
+    // Densification writes a ledger edge per anchor, so the shortcut is the first thing
+    // able to push the ledger to capacity -- and an eviction is what turns a replay back
+    // into a re-derivation.
+    std::printf("CBF ledger retention:      %s (%zu evictions)\n",
+                cbfEvictedTotal == 0 ? "PASS" : "FAIL", cbfEvictedTotal);
     if (outPath.empty())
         std::printf("path file write:           SKIP (disabled)\n");
     else
