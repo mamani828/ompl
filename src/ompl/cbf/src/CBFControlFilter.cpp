@@ -5,6 +5,8 @@
 
 #include <qpmad/solver.h>
 
+#include <ompl/cbf/Profiler.h>
+
 namespace
 {
     constexpr int nJoints = ompl::cbf::ClearanceBarrier::nJoints;
@@ -107,6 +109,7 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     if (duration <= 0.0)
     {
         filtered.setZero();
+        FilterStats::instance().record(FilterOutcome::Blocked, 0, 0, 0.0);
         return Status::Blocked;
     }
 
@@ -118,10 +121,12 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
         // clear by more than that cannot bind and needs no row -- and so no gradient and
         // no Jacobian either, which is where the cost is.
         solver.threshold = solver.decreaseRates * duration;
+        ScopedTimer timer("evaluate_screened");
         barrier_.evaluateScreened(q, solver.threshold, evaluation);
     }
     else
     {
+        ScopedTimer timer("evaluate_full");
         barrier_.evaluate(q, evaluation);
     }
 
@@ -142,6 +147,7 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     if (!evaluation.inBounds)
     {
         filtered.setZero();
+        FilterStats::instance().record(FilterOutcome::Blocked, diagnostics.activeRows, 0, 0.0);
         return Status::Blocked;
     }
 
@@ -166,6 +172,7 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
         // Fixed capacity, variable occupancy: qpmad's template arguments are maxima and
         // it reads the constraint count off the matrix it is handed, so passing fewer
         // rows costs less without allocating anything.
+        ScopedTimer qpTimer("qp_solve");
         const auto status = solver.backend.solve(filtered, solver.hessian, solver.objective, lower, upper,
                                                  evaluation.rows.topRows(active),
                                                  solver.rowLower.head(active),
@@ -174,6 +181,8 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
         if (status != Solver::Backend::OK)
         {
             filtered.setZero();
+            FilterStats::instance().record(FilterOutcome::Blocked, diagnostics.activeRows,
+                                           diagnostics.solverIterations, 0.0);
             return Status::Blocked;
         }
     }
@@ -182,6 +191,8 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
         // qpmad signals infeasibility by throwing: the robot is cornered, and no
         // control satisfies every clearance row.
         filtered.setZero();
+        FilterStats::instance().record(FilterOutcome::Blocked, diagnostics.activeRows,
+                                       diagnostics.solverIterations, 0.0);
         return Status::Blocked;
     }
 
@@ -192,7 +203,10 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     // The joint limits need re-checking against it. The QP's control box keeps
     // q + u*duration inside them, which says nothing about a longer span, and running
     // out of joint travel is not something the barrier can see coming.
-    diagnostics.certifiedDuration = barrier_.certifiedDuration(evaluation, filtered, parameters_.gamma);
+    {
+        ScopedTimer certTimer("certified_duration");
+        diagnostics.certifiedDuration = barrier_.certifiedDuration(evaluation, filtered, parameters_.gamma);
+    }
     if (parameters_.respectJointLimits)
     {
         const Configuration jointLower = robots::UR5::lowerBounds();
@@ -207,5 +221,11 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
         }
     }
 
-    return (filtered - nominal).norm() <= unchangedTolerance ? Status::Unchanged : Status::Filtered;
+    const Status status = (filtered - nominal).norm() <= unchangedTolerance ? Status::Unchanged
+                                                                             : Status::Filtered;
+    FilterStats::instance().record(status == Status::Unchanged ? FilterOutcome::Unchanged
+                                                                : FilterOutcome::Filtered,
+                                   diagnostics.activeRows, diagnostics.solverIterations,
+                                   diagnostics.certifiedDuration);
+    return status;
 }

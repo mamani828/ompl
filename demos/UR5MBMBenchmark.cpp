@@ -69,6 +69,7 @@
 #include <ompl/cbf/ExecutedPath.h>
 #include <ompl/cbf/FilteredMotionValidator.h>
 #include <ompl/cbf/FilteredStateSpace.h>
+#include <ompl/cbf/Profiler.h>
 #include <ompl/geometric/PathGeometric.h>
 #include <ompl/geometric/planners/rrt/RRTConnect.h>
 #include <ompl/util/RandomNumbers.h>
@@ -468,6 +469,24 @@ namespace
         return values[values.size() / 2];
     }
 
+    /// min/median/max in one sort, for reporting a timing *distribution* rather
+    /// than a single point estimate -- issue 9 asks for the spread, not just the
+    /// middle.
+    struct Distribution
+    {
+        double min{0.0};
+        double median{0.0};
+        double max{0.0};
+    };
+
+    Distribution distribution(std::vector<double> values)
+    {
+        if (values.empty())
+            return {};
+        std::sort(values.begin(), values.end());
+        return {values.front(), values[values.size() / 2], values.back()};
+    }
+
     /// Append one problem's audited motion, preceded by the marker the Python auditor
     /// splits on. The marker matters: the file holds many unrelated motions, and
     /// interpolating across the seam between two of them invents states that belong to no
@@ -490,9 +509,10 @@ namespace
     void reportRow(const char *label, const Tally &tally, int row)
     {
         const int scored = tally.attempted - tally.skipped;
-        std::printf("  %-11s %3d/%-4d %9.2f %10.0f %8.0f", label, tally.solved[row], scored,
-                    1e3 * median(tally.seconds[row]), median(tally.evaluations[row]),
-                    median(tally.vertices[row]));
+        const Distribution ms = distribution(tally.seconds[row]);
+        std::printf("  %-11s %3d/%-4d %7.2f/%.2f/%-7.2f %10.0f %8.0f", label, tally.solved[row],
+                    scored, 1e3 * ms.min, 1e3 * ms.median, 1e3 * ms.max,
+                    median(tally.evaluations[row]), median(tally.vertices[row]));
         if (median(tally.radPerCall[row]) > 0.0)
             std::printf(" %8.4f %5.0f%%", median(tally.radPerCall[row]),
                         1e2 * median(tally.coarse[row]));
@@ -594,9 +614,9 @@ int main(int argc, char **argv)
     std::printf("baseline segment: %.6f of extent = %.4f rad, rollout step %.4f rad (%s)\n\n",
                 segmentFraction, segmentFraction * extent, rolloutStep,
                 segmentFractionArg > 0.0 ? "overridden" : "matched to the rollout");
-    std::printf("  %-11s %8s %9s %10s %8s %8s %6s %10s %14s %6s %10s %7s\n", "planner", "solved",
-                "ms", "evals", "vertices", "rad/call", "coarse", "worst clr", "unsafe/audited",
-                "missed", "worst self", "collide");
+    std::printf("  %-11s %8s %-19s %10s %8s %8s %6s %10s %14s %6s %10s %7s\n", "planner", "solved",
+                "ms(min/med/max)", "evals", "vertices", "rad/call", "coarse", "worst clr",
+                "unsafe/audited", "missed", "worst self", "collide");
 
     std::map<std::string, Tally> tallies;
     std::map<std::string, int> seen;
@@ -721,5 +741,8 @@ int main(int argc, char **argv)
                 "\"missed\" counts solution edges that were not on file and had to be\n"
                 "re-derived; it must be zero, or the audited motion is a different trajectory\n"
                 "from the one the planner found.\n");
+    std::printf("\n");
+    ompl::cbf::Profiler::instance().report(stdout);
+    ompl::cbf::FilterStats::instance().report(stdout);
     return 0;
 }

@@ -45,6 +45,7 @@
 #include <ompl/cbf/CBFControlFilter.h>
 #include <ompl/cbf/ClearanceBarrier.h>
 #include <ompl/cbf/ExecutedPath.h>
+#include <ompl/cbf/Profiler.h>
 #include <ompl/cbf/FilteredMotionValidator.h>
 #include <ompl/cbf/FilteredStateSpace.h>
 #include <ompl/cbf/RopeShortcut.h>
@@ -75,6 +76,23 @@ namespace
             return 0.0;
         std::sort(values.begin(), values.end());
         return values[values.size() / 2];
+    }
+
+    /// min/median/max in one sort -- a distribution rather than a single point
+    /// estimate; see issue 9.
+    struct Distribution
+    {
+        double min{0.0};
+        double median{0.0};
+        double max{0.0};
+    };
+
+    Distribution distribution(std::vector<double> values)
+    {
+        if (values.empty())
+            return {};
+        std::sort(values.begin(), values.end());
+        return {values.front(), values[values.size() / 2], values.back()};
     }
 
     struct Goal
@@ -702,20 +720,27 @@ int main(int argc, char **argv)
                      reverseBaselineTimes, reverseCbfTimes);
     }
 
-    std::printf("\nsolved forward: rrtc %zu/%zu, cbf %zu/%zu   median ms over %d trials: rrtc %.3f, "
-                "cbf %.3f (%.2fx)\n",
+    // Each entry here is already a per-goal median over `trials` repeats; taking
+    // min/median/max across goals gives the spread across the scene rather than a
+    // single point estimate -- see issue 9.
+    const Distribution forwardBaselineDist = distribution(forwardBaselineTimes);
+    const Distribution forwardCbfDist = distribution(forwardCbfTimes);
+    const Distribution reverseBaselineDist = distribution(reverseBaselineTimes);
+    const Distribution reverseCbfDist = distribution(reverseCbfTimes);
+    std::printf("\nsolved forward: rrtc %zu/%zu, cbf %zu/%zu   ms over %d trials, min/med/max across "
+                "goals: rrtc %.3f/%.3f/%.3f, cbf %.3f/%.3f/%.3f (%.2fx on medians)\n",
                 forwardBaselineSolved, scene.goals.size(), forwardSolvedCount, scene.goals.size(),
-                trials, 1e3 * median(forwardBaselineTimes), 1e3 * median(forwardCbfTimes),
-                median(forwardCbfTimes) > 0.0
-                    ? median(forwardBaselineTimes) / median(forwardCbfTimes)
-                    : 0.0);
-    std::printf("solved reverse: rrtc %zu/%zu, cbf %zu/%zu   median ms over %d trials: rrtc %.3f, "
-                "cbf %.3f (%.2fx)\n",
+                trials, 1e3 * forwardBaselineDist.min, 1e3 * forwardBaselineDist.median,
+                1e3 * forwardBaselineDist.max, 1e3 * forwardCbfDist.min, 1e3 * forwardCbfDist.median,
+                1e3 * forwardCbfDist.max,
+                forwardCbfDist.median > 0.0 ? forwardBaselineDist.median / forwardCbfDist.median : 0.0);
+    std::printf("solved reverse: rrtc %zu/%zu, cbf %zu/%zu   ms over %d trials, min/med/max across "
+                "goals: rrtc %.3f/%.3f/%.3f, cbf %.3f/%.3f/%.3f (%.2fx on medians)\n",
                 reverseBaselineSolved, scene.goals.size(), reverseSolvedCount, scene.goals.size(),
-                trials, 1e3 * median(reverseBaselineTimes), 1e3 * median(reverseCbfTimes),
-                median(reverseCbfTimes) > 0.0
-                    ? median(reverseBaselineTimes) / median(reverseCbfTimes)
-                    : 0.0);
+                trials, 1e3 * reverseBaselineDist.min, 1e3 * reverseBaselineDist.median,
+                1e3 * reverseBaselineDist.max, 1e3 * reverseCbfDist.min, 1e3 * reverseCbfDist.median,
+                1e3 * reverseCbfDist.max,
+                reverseCbfDist.median > 0.0 ? reverseBaselineDist.median / reverseCbfDist.median : 0.0);
     std::printf("%zu audited states below the audited margin (cbf forward row)\n",
                 forwardUnsafeTotal);
     std::printf("%zu audited states below the audited margin (cbf reverse row)\n",
@@ -920,16 +945,18 @@ int main(int argc, char **argv)
                 forwardBaselineSolved, scene.goals.size(), forwardSolvedCount, scene.goals.size());
     std::printf("reverse solved:            RRTC %zu/%zu   CBF %zu/%zu\n",
                 reverseBaselineSolved, scene.goals.size(), reverseSolvedCount, scene.goals.size());
-    std::printf("forward median timing:     RRTC %.3f ms   CBF %.3f ms   ratio %.2fx\n",
-                1e3 * median(forwardBaselineTimes), 1e3 * median(forwardCbfTimes),
-                median(forwardCbfTimes) > 0.0
-                    ? median(forwardBaselineTimes) / median(forwardCbfTimes)
-                    : 0.0);
-    std::printf("reverse median timing:     RRTC %.3f ms   CBF %.3f ms   ratio %.2fx\n",
-                1e3 * median(reverseBaselineTimes), 1e3 * median(reverseCbfTimes),
-                median(reverseCbfTimes) > 0.0
-                    ? median(reverseBaselineTimes) / median(reverseCbfTimes)
-                    : 0.0);
+    std::printf("forward timing (min/med/max ms): RRTC %.3f/%.3f/%.3f   CBF %.3f/%.3f/%.3f   "
+                "ratio %.2fx on medians\n",
+                forwardBaselineDist.min * 1e3, forwardBaselineDist.median * 1e3,
+                forwardBaselineDist.max * 1e3, forwardCbfDist.min * 1e3, forwardCbfDist.median * 1e3,
+                forwardCbfDist.max * 1e3,
+                forwardCbfDist.median > 0.0 ? forwardBaselineDist.median / forwardCbfDist.median : 0.0);
+    std::printf("reverse timing (min/med/max ms): RRTC %.3f/%.3f/%.3f   CBF %.3f/%.3f/%.3f   "
+                "ratio %.2fx on medians\n",
+                reverseBaselineDist.min * 1e3, reverseBaselineDist.median * 1e3,
+                reverseBaselineDist.max * 1e3, reverseCbfDist.min * 1e3, reverseCbfDist.median * 1e3,
+                reverseCbfDist.max * 1e3,
+                reverseCbfDist.median > 0.0 ? reverseBaselineDist.median / reverseCbfDist.median : 0.0);
     std::printf("baseline audited states:   %zu\n", baselineAuditedTotal);
     std::printf("baseline validity checks:  %zu\n", baselineChecksTotal);
     std::printf("baseline rejected checks:  %zu (%.1f%% of validity checks)\n",
@@ -994,6 +1021,9 @@ int main(int argc, char **argv)
     std::printf("-------------------------------------------------------------------------------\n");
     std::printf("OVERALL:                   %s\n", suitePassed ? "PASS" : "FAIL");
     std::printf("===============================================================================\n");
+    std::printf("\n");
+    ompl::cbf::Profiler::instance().report(stdout);
+    ompl::cbf::FilterStats::instance().report(stdout);
 
     if (!pathWriteOk)
         return 1;
