@@ -109,6 +109,7 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     if (duration <= 0.0)
     {
         filtered.setZero();
+        FilterStats::instance().record(FilterOutcome::Blocked, 0, 0, 0.0);
         return Status::Blocked;
     }
 
@@ -146,6 +147,7 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     if (!evaluation.inBounds)
     {
         filtered.setZero();
+        FilterStats::instance().record(FilterOutcome::Blocked, diagnostics.activeRows, 0, 0.0);
         return Status::Blocked;
     }
 
@@ -179,6 +181,8 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
         if (status != Solver::Backend::OK)
         {
             filtered.setZero();
+            FilterStats::instance().record(FilterOutcome::Blocked, diagnostics.activeRows,
+                                           diagnostics.solverIterations, 0.0);
             return Status::Blocked;
         }
     }
@@ -187,6 +191,8 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
         // qpmad signals infeasibility by throwing: the robot is cornered, and no
         // control satisfies every clearance row.
         filtered.setZero();
+        FilterStats::instance().record(FilterOutcome::Blocked, diagnostics.activeRows,
+                                       diagnostics.solverIterations, 0.0);
         return Status::Blocked;
     }
 
@@ -215,5 +221,11 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
         }
     }
 
-    return (filtered - nominal).norm() <= unchangedTolerance ? Status::Unchanged : Status::Filtered;
+    const Status status = (filtered - nominal).norm() <= unchangedTolerance ? Status::Unchanged
+                                                                             : Status::Filtered;
+    FilterStats::instance().record(status == Status::Unchanged ? FilterOutcome::Unchanged
+                                                                : FilterOutcome::Filtered,
+                                   diagnostics.activeRows, diagnostics.solverIterations,
+                                   diagnostics.certifiedDuration);
+    return status;
 }
