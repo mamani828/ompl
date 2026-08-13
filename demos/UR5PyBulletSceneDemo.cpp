@@ -9,6 +9,7 @@
 //
 //     ./build/demos/demo_UR5PyBulletScene <scene.problem> [seconds] [out.path]
 //         [trials] [maxStepScale] [checkResolution] [baselineAudit] [selfMargin]
+//         [shortcutDelta]
 //     ./build/demos/demo_UR5PyBulletScene <scene.problem> --probe   < points.txt
 //
 // `--probe` reads "x y z" triples on stdin and prints the field value and
@@ -47,7 +48,9 @@
 #include <ompl/cbf/ExecutedPath.h>
 #include <ompl/cbf/FilteredMotionValidator.h>
 #include <ompl/cbf/FilteredStateSpace.h>
+#include <ompl/cbf/RopeShortcut.h>
 #include <ompl/geometric/PathGeometric.h>
+#include <ompl/geometric/PathSimplifier.h>
 #include <ompl/geometric/planners/rrt/RRTConnect.h>
 #include <ompl/robots/UR5.h>
 
@@ -191,6 +194,12 @@ namespace
     /// makes it possible to ask what the rows are worth.
     double selfMargin = Barrier::defaultSelfMargin;
 
+    /// Anchor spacing for the rope shortcut, in radians, applied to both rows after they
+    /// solve. Non-positive disables it, which is the A/B: until this existed neither row
+    /// was shortcut at all, so the length comparison between them was between two
+    /// unsimplified paths and said as much about RRTConnect's zigzag as about the filter.
+    double shortcutDelta = -1.0;
+
     struct Result
     {
         bool solved{false};
@@ -209,7 +218,19 @@ namespace
         std::size_t coarse{0};  ///< steps the filter certified past `stepSize`
         double travel{0.0};     ///< joint-space radians rolled, so `travel / steps` is the
                                 ///< distance one filter call bought
-        std::size_t misses{0};  ///< solution edges re-derived rather than replayed
+        std::size_t misses{0};   ///< solution edges re-derived rather than replayed
+        std::size_t evicted{0};  ///< ledger edges dropped for capacity; must stay zero
+
+        // Shortcutting, reported apart from the columns above. In particular
+        // `shortcutSeconds` is *not* folded into `seconds`: it is post-processing, and a
+        // sweep that costs more than the solve it shortens is a thing worth seeing.
+        double lengthBefore{0.0};       ///< executed arc length before shortcutting, radians
+        double lengthAfter{0.0};        ///< and after
+        double shortcutSeconds{0.0};
+        std::size_t shortcutsAccepted{0};
+        std::size_t shortcutRollouts{0};  ///< candidate pairs that cost a rollout (cbf row only)
+        std::size_t shortcutScreened{0};  ///< candidate pairs refused on geometry, at no QP cost
+        double maxArrivalGap{0.0};        ///< longest uncertified snap a shortcut introduced
     };
 
     /// The bar: ordinary `geometric::RRTConnect` with straight-line edges and the same
@@ -286,6 +307,23 @@ namespace
         {
             auto solution = std::static_pointer_cast<og::PathGeometric>(pdef->getSolutionPath());
             result.waypoints = solution->getStateCount();
+
+            // Stock RRT-Rope. This row's edges *are* straight lines, so OMPL's own
+            // implementation is exactly right for it and the CBF row's variant would be
+            // wrong -- but both rows are shortcut at the same `delta`, which is what makes
+            // the length columns comparable. Timed apart from the solve.
+            result.lengthBefore = solution->length();
+            if (shortcutDelta > 0.0)
+            {
+                const ompl::time::point shortcutBegin = ompl::time::now();
+                og::PathSimplifier simplifier(si);
+                // The return is only "did anything change", which the length columns say
+                // better; rope's own accept count is not exposed.
+                simplifier.ropeShortcutPath(*solution, shortcutDelta);
+                result.shortcutSeconds = ompl::time::seconds(ompl::time::now() - shortcutBegin);
+            }
+            result.lengthAfter = solution->length();
+
             // Straight-line edges densify to the motion that would actually be executed,
             // so this row -- unlike the CBF row, which can only be audited at the
             // resolution its rollout emitted -- can be audited as finely as one likes.
@@ -397,6 +435,36 @@ namespace
             auto solution = std::static_pointer_cast<og::PathGeometric>(pdef->getSolutionPath());
             result.waypoints = solution->getStateCount();
 
+            // RRT-Rope with the CBF rollout as the edge test. It leaves every edge of the
+            // path in the ledger, so `misses` below is still the check that what gets
+            // audited and written out is a replay -- and it is now checking the
+            // shortcutter's sub-edge recording as well as the planner's.
+            if (shortcutDelta > 0.0)
+            {
+                const ompl::time::point shortcutBegin = ompl::time::now();
+                ompl::cbf::ShortcutReport shortcut;
+                ompl::cbf::ropeShortcut(*solution, shortcutDelta, 0.1, &shortcut);
+                result.shortcutSeconds = ompl::time::seconds(ompl::time::now() - shortcutBegin);
+                result.lengthBefore = shortcut.lengthBefore;
+                result.lengthAfter = shortcut.lengthAfter;
+                result.shortcutsAccepted = shortcut.accepted;
+                result.shortcutRollouts = shortcut.rollouts;
+                result.shortcutScreened = shortcut.screened;
+                result.maxArrivalGap = shortcut.maxArrivalGap;
+                // The sweep rolls, so it is charged for what it rolled. Leaving it out
+                // would make rad/call read as if the shortcut were free.
+                const ompl::cbf::FilteredStateSpace::Statistics after = space->statistics();
+                result.steps = after.steps;
+                result.filtered = after.filtered;
+                result.blocked = after.blocked;
+                result.coarse = after.coarse;
+                result.travel = after.travel;
+            }
+            // Densification writes a ledger edge per anchor, so the shortcut is the first
+            // thing here able to push the ledger to its capacity. If it does, some edge
+            // was dropped and `misses` below is about to find it.
+            result.evicted = space->statistics().evicted;
+
             // Every edge replaced by the rollout the planner recorded for it, so this is
             // the motion that would actually be executed -- the only honest thing to
             // audit, and the only honest thing to write to the .path file below. The
@@ -405,6 +473,13 @@ namespace
             const og::PathGeometric executed = ompl::cbf::executedPath(
                 *solution, UR5::velocityLimits().maxCoeff() * stepSize, &result.misses);
             result.auditedStates = executed.getStateCount();
+            // Measured on the executed motion rather than on the planner's polyline, which
+            // is the only length this row can honestly quote: the straight line between
+            // two of its nodes is not a motion the arm makes. Reported whether or not
+            // shortcutting ran, so the two settings are comparable.
+            result.lengthAfter = executed.length();
+            if (shortcutDelta <= 0.0)
+                result.lengthBefore = result.lengthAfter;
             for (std::size_t i = 0; i < executed.getStateCount(); ++i)
             {
                 const UR5::Configuration q =
@@ -434,7 +509,8 @@ int main(int argc, char **argv)
     if (argc < 2)
     {
         std::printf("usage: %s <scene.problem> [seconds] [out.path] [trials] [maxStepScale]"
-                    " [baselineCheckRadians] [baselineAuditRadians]\n",
+                    " [baselineCheckRadians] [baselineAuditRadians] [selfMargin]"
+                    " [shortcutRadians]\n",
                     argv[0]);
         std::printf("       %s <scene.problem> --probe   < points.txt\n", argv[0]);
         return 1;
@@ -465,6 +541,11 @@ int main(int argc, char **argv)
     const double baselineAudit = (argc > 7 && !probeMode) ? std::atof(argv[7]) : -1.0;
     if (argc > 8 && !probeMode)
         selfMargin = std::atof(argv[8]);
+    // Rope anchor spacing, in radians. Non-positive leaves both rows unsimplified, which
+    // is what they were before this existed. The default is off so every command line
+    // already in the README keeps reporting the numbers it used to.
+    if (argc > 9 && !probeMode)
+        shortcutDelta = std::atof(argv[9]);
 
     const Scene scene = readScene(problemPath);
     const sdf::GridSDF field = sdf::GridSDF::load(scene.gridPath);
@@ -501,9 +582,12 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    std::printf("\n%-28s %-6s %7s %8s %6s %8s %8s %9s %7s %8s %6s %8s %9s\n", "goal", "row",
-                "solved", "seconds", "wpts", "audited", "unsafe", "min h", "evals", "rad/call",
-                "coarse", "selfcoll", "min self");
+    if (shortcutDelta > 0.0)
+        std::printf("rope shortcut on, delta %.4f rad, both rows\n", shortcutDelta);
+
+    std::printf("\n%-28s %-6s %7s %8s %6s %8s %8s %9s %7s %8s %6s %8s %9s %8s %8s %7s %6s\n",
+                "goal", "row", "solved", "seconds", "wpts", "audited", "unsafe", "min h", "evals",
+                "rad/call", "coarse", "selfcoll", "min self", "len0", "len1", "cut%", "cutms");
 
     std::vector<UR5::Configuration> combined;
     // The baseline's motion, written alongside so an external mesh checker can be run on
@@ -520,6 +604,11 @@ int main(int argc, char **argv)
     // faster. Only the timing is repeated -- the reported path is the last one.
     std::size_t baselineSolved = 0;
     std::vector<double> cbfTimes, baselineTimes;
+    // Summed over the goals both rows solved, so the ratio at the end compares the two
+    // rows on the same problems rather than on whichever each happened to manage.
+    double cbfLength = 0.0, baselineLength = 0.0;
+    double cbfLengthBefore = 0.0, baselineLengthBefore = 0.0;
+    std::size_t bothSolved = 0;
     for (const Goal &goal : scene.goals)
     {
         const double exported = barrier.worstValue(goal.configuration);
@@ -548,24 +637,51 @@ int main(int argc, char **argv)
         baselineSolved += base.solved ? 1 : 0;
         unsafeTotal += r.unsafeStates;
         selfTotal += r.selfColliding;
+        if (r.solved && base.solved)
+        {
+            ++bothSolved;
+            cbfLength += r.lengthAfter;
+            baselineLength += base.lengthAfter;
+            cbfLengthBefore += r.lengthBefore;
+            baselineLengthBefore += base.lengthBefore;
+        }
 
-        std::printf("%-28s %-6s %7s %8.3f %6zu %8zu %8zu %+9.4f %7zu %8s %6s %8zu %+9.4f\n",
+        // How much of the path the shortcut took off, as a percentage of what it started
+        // from. This is the number the whole post-process exists to produce, and it is
+        // computed the same way for both rows.
+        const auto cutPercent = [](const Result &res)
+        { return res.lengthBefore > 0.0 ? 1e2 * (1.0 - res.lengthAfter / res.lengthBefore) : 0.0; };
+
+        std::printf("%-28s %-6s %7s %8.3f %6zu %8zu %8zu %+9.4f %7zu %8s %6s %8zu %+9.4f %8.3f "
+                    "%8.3f %6.1f%% %6.1f\n",
                     goal.label.c_str(), "rrtc", base.solved ? "yes" : "no", baseMedian,
                     base.waypoints, base.auditedStates, base.unsafeStates,
                     base.solved ? base.minBarrier : 0.0, base.steps, "-", "-",
-                    base.selfColliding, base.solved ? base.minSelfOverlap : 0.0);
-        std::printf("%-28s %-6s %7s %8.3f %6zu %8zu %8zu %+9.4f %7zu %8.4f %5.0f%% %8zu %+9.4f\n",
+                    base.selfColliding, base.solved ? base.minSelfOverlap : 0.0, base.lengthBefore,
+                    base.lengthAfter, cutPercent(base), 1e3 * base.shortcutSeconds);
+        std::printf("%-28s %-6s %7s %8.3f %6zu %8zu %8zu %+9.4f %7zu %8.4f %5.0f%% %8zu %+9.4f "
+                    "%8.3f %8.3f %6.1f%% %6.1f\n",
                     "", "cbf", r.solved ? "yes" : "no", cbfMedian, r.waypoints, r.auditedStates,
                     r.unsafeStates, r.solved ? r.minBarrier : 0.0, r.steps,
                     r.steps > 0 ? r.travel / r.steps : 0.0,
                     r.steps > 0 ? 1e2 * r.coarse / r.steps : 0.0, r.selfColliding,
-                    r.solved ? r.minSelfOverlap : 0.0);
+                    r.solved ? r.minSelfOverlap : 0.0, r.lengthBefore, r.lengthAfter, cutPercent(r),
+                    1e3 * r.shortcutSeconds);
+        if (shortcutDelta > 0.0 && r.solved)
+            std::printf("    cbf shortcut: %zu accepted from %zu rollouts, %zu pairs screened out, "
+                        "max arrival gap %.4f rad\n",
+                        r.shortcutsAccepted, r.shortcutRollouts, r.shortcutScreened,
+                        r.maxArrivalGap);
 
         // Every solution edge should have been replayed from the rollout that made it.
         // If not, what was just audited -- and what is about to be written out -- is a
         // re-derived trajectory rather than the one the planner found.
         if (r.misses > 0)
             std::printf("    ! %zu solution edge(s) re-derived rather than replayed\n", r.misses);
+        if (r.evicted > 0)
+            std::printf("    ! %zu ledger edge(s) evicted for capacity; raise setLedgerCapacity "
+                        "or coarsen the shortcut delta\n",
+                        r.evicted);
 
         // The exporter measured h with its own copy of the sphere model; if that
         // disagrees with this one the two pipelines have drifted apart.
@@ -592,6 +708,16 @@ int main(int argc, char **argv)
                 baselineSolved, scene.goals.size(), solvedCount, scene.goals.size(), trials,
                 1e3 * median(baselineTimes), 1e3 * median(cbfTimes),
                 median(cbfTimes) > 0.0 ? median(baselineTimes) / median(cbfTimes) : 0.0);
+    // The length comparison, over the goals both rows solved. Before shortcutting existed
+    // this could only be quoted against an unsimplified baseline, which flattered the
+    // filtered row: RRTConnect's raw output zigzags and rope takes most of that out. The
+    // `after` ratio is the one that survives.
+    if (bothSolved > 0)
+        std::printf("path length over %zu goals both solved, radians: rrtc %.3f -> %.3f, "
+                    "cbf %.3f -> %.3f   cbf/rrtc before %.2fx, after %.2fx\n",
+                    bothSolved, baselineLengthBefore, baselineLength, cbfLengthBefore, cbfLength,
+                    baselineLengthBefore > 0.0 ? cbfLengthBefore / baselineLengthBefore : 0.0,
+                    baselineLength > 0.0 ? cbfLength / baselineLength : 0.0);
     std::printf("%zu audited states below the audited margin (cbf row)\n", unsafeTotal);
     if (selfTotal > 0)
         std::printf("%zu audited states self-collide. The barrier does model the arm against "

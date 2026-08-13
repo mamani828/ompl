@@ -568,6 +568,90 @@ these tables are **path length** (arc length ÷ 0.02 rad), not planner effort: o
 rollout's path is 34% shorter than RRTConnect's unsimplified zigzag, while on the small
 scenes, where a straight edge is already near-optimal, deflecting costs length.
 
+That comparison is against an **unsimplified** baseline, and most of it does not survive
+shortcutting both rows. Passing `shortcutRadians` to `demo_UR5PyBulletScene` (ninth
+argument) or `demo_UR5CBFPlanning` (eighth) runs RRT-Rope on each: stock
+`geometric::PathSimplifier::ropeShortcutPath()` on the straight-line row, and
+`ompl::cbf::ropeShortcut()` -- the same sweep with the CBF rollout as its edge test -- on
+the filtered one. At `delta = 0.15` rad both rows lose 30-45% of their length, and the
+length ratio between them collapses to roughly parity:
+
+| scene | rrtc before → after | cbf before → after | cbf/rrtc before | after |
+|---|---|---|---|---|
+| empty | 15.32 → 8.56 | 14.28 → 8.56 | 0.93× | 1.00× |
+| pillars | 20.42 → 14.74 | 17.71 → 14.74 | 0.87× | 1.00× |
+| corridor | 28.94 → 17.21 | 26.26 → 15.83 | 0.91× | 0.92× |
+| clutter | 11.48 → 8.74 | 12.50 → 9.00 | 1.09× | 1.03× |
+| shelf | 41.45 → 22.97 | 30.45 → 21.14 | 0.73× | 0.92× |
+
+So the honest claim is not that the rollout produces shorter paths -- once both are
+shortcut it produces *comparable* ones -- but that it gets there without collision
+checking. The `before` column is also far noisier than the `after` column across seeds,
+which is itself the finding: shortcutting removes most of the variance the length
+comparison used to be measuring.
+
+### What it costs, and picking `delta`
+
+The sweep is quadratic in the anchor count (`length / delta`) and every surviving
+candidate costs a real rollout, so this is expensive: at `delta = 0.15` it runs 0.5-11 s
+against solves of 1-100 ms. It is reported in its own column and never folded into
+`seconds`. The Euclidean pre-screen that was meant to hold the cost down barely fires
+(2-5% of candidates) -- on a densified path the arc length between two anchors almost
+always exceeds the straight line between them, so the bound is hardly ever tight enough to
+refuse a pair. The counters say the rest: on `shelf`, ~2000 rollouts to accept 7
+shortcuts, and because rope tries the farthest `j` first the wasted ones are the longest.
+
+`delta` is therefore the knob that matters, and 0.15 is the wrong end of it. On `shelf`,
+CBF row, executed arc length over **14 seeds** (± is the standard error of the mean):
+
+| delta | length | shortcut time |
+|---|---|---|
+| 0.15 | ~20.5 rad | 2603 ms |
+| 0.50 | 21.78 ± 0.43 | 180 ms |
+| **0.65** | 22.17 ± 0.40 | **93 ms** |
+| 0.80 | 22.30 ± 0.40 | 81 ms |
+
+**0.65 is the setting worth using.** Across 0.5-0.8 the length is flat -- the differences
+are under 2.5% and smaller than one standard error, so they are not resolvable -- while
+the time halves from 0.5 to 0.65 and then stops improving, because once anchors are that
+sparse the per-rollout cost dominates the pair count. The real cliff is *below* 0.5: 0.15
+is 20x slower for a gain of about a radian.
+
+Sample size matters when reading this. A three-seed comparison showed coarse `delta`
+costing 10-16% of length and even reversed the ordering between scenes; at fourteen seeds
+that disappears. Run-to-run spread on these scenes is 5-12% CV, so anything measured on a
+handful of seeds is noise.
+
+Coarse anchors lose so little because the rollout is already curving around obstacles --
+fine anchors mostly buy quadratic cost.
+
+### Shortcutting is where the rollout's time advantage goes
+
+The solve is untouched by any of this -- the rollout still wins the scenes it won. But
+end-to-end, with rope on both rows at `delta = 0.65`, the ranking flips on the cluttered
+scenes. Mean of three seeds, summed over the goals each row solved:
+
+| scene | CBF solve + rope | RRTC solve + rope | winner |
+|---|---|---|---|
+| empty | 1.3 + 0.7 = 2.0 ms | 3.0 + 2.5 = 5.5 ms | CBF 2.8x |
+| pillars | 4.7 + 1.7 = 6.4 ms | 4.0 + 4.3 = 8.3 ms | CBF 1.3x |
+| clutter | 9.7 + 56.1 = 65.7 ms | 4.7 + 7.2 = 11.9 ms | RRTC 5.5x |
+| corridor | 17.7 + 92.2 = 109.9 ms | 77.0 + 25.0 = 102.0 ms | RRTC 1.1x |
+| shelf | 29.7 + 71.9 = 101.5 ms | 27.3 + 25.7 = 53.1 ms | RRTC 1.9x |
+
+`corridor` shows the mechanism cleanly: the rollout's solve saves 59 ms over the baseline,
+and then its sweep hands 67 ms back. The CBF rope costs 3-4x the straight-line rope
+because every candidate is a rollout of QP solves where the baseline collision-checks a
+segment.
+
+So the highest-value optimisation is no longer in the planner, it is in the sweep. The
+obvious lever is a cap on how far apart a candidate pair may be: a long-range shortcut in
+clutter almost never succeeds, and it is the most expensive rollout on offer. Using the
+certificate to skip rollouts outright is the other. Neither is implemented.
+
+Rope is off by default, so none of this costs anything unless asked for: for raw planning
+speed the rollout still wins, and short paths are what you currently pay for.
+
 ### The margin does not fit this benchmark
 
 MotionBenchMaker endpoints are grasp poses. Measured over the set, `min(start, goal)`
