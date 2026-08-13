@@ -6,6 +6,7 @@
 
 #include <Eigen/Core>
 
+#include <ompl/cbf/Profiler.h>
 #include <ompl/robots/UR5.h>
 #include <ompl/sdf/GridSDF.h>
 
@@ -236,13 +237,17 @@ namespace ompl::cbf
                 out.boundary[index] = boundaryClearance(center);
             }
 
-            field_.distanceBatch(centers, distances);
+            {
+                ScopedTimer timer("sdf_query");
+                field_.distanceBatch(centers, distances);
+            }
 
             double smallest = std::numeric_limits<double>::infinity();
+            const auto &allSpheres = Robot::spheres();
             for (std::size_t i = 0; i < Robot::nSpheres; ++i)
             {
                 const Eigen::Index index = static_cast<Eigen::Index>(i);
-                const double h = distances[index] - Robot::spheres()[i].radius - margin_;
+                const double h = distances[index] - allSpheres[i].radius - margin_;
                 out.values[index] = h;
                 if (h < smallest)
                 {
@@ -254,17 +259,27 @@ namespace ompl::cbf
             // The values-only pass is even cheaper here than for the world: a subtraction
             // and a norm off centres already in hand, with no field query at all.
             double smallestPair = std::numeric_limits<double>::infinity();
-            for (std::size_t p = 0; p < Robot::nSelfPairs; ++p)
             {
-                const Eigen::Index index = nSpheres + static_cast<Eigen::Index>(p);
-                const double h = Robot::selfPairClearance(centers, p) -
-                                 Robot::selfPairMargins()[static_cast<Eigen::Index>(p)] -
-                                 selfMargin_;
-                out.values[index] = h;
-                if (h < smallestPair)
+                ScopedTimer selfTimer("self_collision");
+                // Hoisted out of the loop: each of these is a function call returning a
+                // static table, and there are 303 pairs, every filter call.
+                const auto &pairs = Robot::selfPairs();
+                const auto &radii = Robot::selfPairRadii();
+                const auto &margins = Robot::selfPairMargins();
+                for (std::size_t p = 0; p < Robot::nSelfPairs; ++p)
                 {
-                    smallestPair = h;
-                    out.worstPair = p;
+                    const Eigen::Index pairIndex = static_cast<Eigen::Index>(p);
+                    const Eigen::Index index = nSpheres + pairIndex;
+                    const double h = (centers.col(static_cast<Eigen::Index>(pairs[p].a)) -
+                                      centers.col(static_cast<Eigen::Index>(pairs[p].b)))
+                                         .norm() -
+                                     radii[pairIndex] - margins[pairIndex] - selfMargin_;
+                    out.values[index] = h;
+                    if (h < smallestPair)
+                    {
+                        smallestPair = h;
+                        out.worstPair = p;
+                    }
                 }
             }
 
@@ -295,13 +310,24 @@ namespace ompl::cbf
 
             if (activeWorldCount > 0)
             {
-                Eigen::Matrix3Xd activeCenters(3, activeWorldCount);
+                // Fixed capacity (nSpheres is the worst case, every sphere active), so
+                // this is stack space, not a heap allocation -- unlike Matrix3Xd/VectorXd,
+                // which are Dynamic-sized and would malloc here on every filter call.
+                Eigen::Matrix<double, 3, nSpheres> activeCentersBuf;
+                Eigen::Matrix<double, nSpheres, 1> activeDistancesBuf;
+                Eigen::Matrix<double, 3, nSpheres> activeGradientsBuf;
+
+                auto activeCenters = activeCentersBuf.leftCols(activeWorldCount);
+                auto activeDistances = activeDistancesBuf.head(activeWorldCount);
+                auto activeGradients = activeGradientsBuf.leftCols(activeWorldCount);
+
                 for (Eigen::Index k = 0; k < activeWorldCount; ++k)
                     activeCenters.col(k) = centers.col(activeWorld[k]);
 
-                Eigen::VectorXd activeDistances(activeWorldCount);
-                Eigen::Matrix3Xd activeGradients(3, activeWorldCount);
-                field_.valueGradientBatch(activeCenters, activeDistances, activeGradients);
+                {
+                    ScopedTimer timer("sdf_query");
+                    field_.valueGradientBatch(activeCenters, activeDistances, activeGradients);
+                }
                 (void)activeDistances;
 
                 for (Eigen::Index k = 0; k < activeWorldCount; ++k)
@@ -482,13 +508,17 @@ namespace ompl::cbf
                 out.boundary[row] = boundaryClearance(center);
             }
 
-            field_.valueGradientBatch(centers, distances, gradients);
+            {
+                ScopedTimer timer("sdf_query");
+                field_.valueGradientBatch(centers, distances, gradients);
+            }
 
             double smallest = std::numeric_limits<double>::infinity();
+            const auto &allSpheres = Robot::spheres();
             for (std::size_t i = 0; i < Robot::nSpheres; ++i)
             {
                 const Eigen::Index row = static_cast<Eigen::Index>(i);
-                const double h = distances[row] - Robot::spheres()[i].radius - margin_;
+                const double h = distances[row] - allSpheres[i].radius - margin_;
 
                 out.values[row] = h;
                 out.rows.row(row) = Robot::barrierGradient(kin, i, gradients.col(row)).transpose();
@@ -501,21 +531,24 @@ namespace ompl::cbf
             }
 
             double smallestPair = std::numeric_limits<double>::infinity();
-            for (std::size_t p = 0; p < Robot::nSelfPairs; ++p)
             {
-                const Eigen::Index row = nSpheres + static_cast<Eigen::Index>(p);
-                const double h = Robot::selfPairClearance(centers, p) -
-                                 Robot::selfPairMargins()[static_cast<Eigen::Index>(p)] -
-                                 selfMargin_;
-
-                out.constraint[row] = static_cast<int>(row);
-                out.values[row] = h;
-                out.rows.row(row) = Robot::selfPairGradient(kin, centers, p).transpose();
-
-                if (h < smallestPair)
+                ScopedTimer selfTimer("self_collision");
+                for (std::size_t p = 0; p < Robot::nSelfPairs; ++p)
                 {
-                    smallestPair = h;
-                    out.worstPair = p;
+                    const Eigen::Index row = nSpheres + static_cast<Eigen::Index>(p);
+                    const double h = Robot::selfPairClearance(centers, p) -
+                                     Robot::selfPairMargins()[static_cast<Eigen::Index>(p)] -
+                                     selfMargin_;
+
+                    out.constraint[row] = static_cast<int>(row);
+                    out.values[row] = h;
+                    out.rows.row(row) = Robot::selfPairGradient(kin, centers, p).transpose();
+
+                    if (h < smallestPair)
+                    {
+                        smallestPair = h;
+                        out.worstPair = p;
+                    }
                 }
             }
         }
@@ -547,9 +580,10 @@ namespace ompl::cbf
 
             field_.distanceBatch(centers, distances);
 
+            const auto &allSpheres = Robot::spheres();
             for (std::size_t i = 0; i < Robot::nSpheres; ++i)
                 out[static_cast<Eigen::Index>(i)] =
-                    distances[static_cast<Eigen::Index>(i)] - Robot::spheres()[i].radius - margin_;
+                    distances[static_cast<Eigen::Index>(i)] - allSpheres[i].radius - margin_;
 
             for (std::size_t p = 0; p < Robot::nSelfPairs; ++p)
                 out[nSpheres + static_cast<Eigen::Index>(p)] =

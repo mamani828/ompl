@@ -45,6 +45,7 @@
 #include <ompl/cbf/CBFControlFilter.h>
 #include <ompl/cbf/ClearanceBarrier.h>
 #include <ompl/cbf/ExecutedPath.h>
+#include <ompl/cbf/Profiler.h>
 #include <ompl/cbf/FilteredMotionValidator.h>
 #include <ompl/cbf/FilteredStateSpace.h>
 #include <ompl/cbf/RopeShortcut.h>
@@ -994,6 +995,8 @@ int main(int argc, char **argv)
     std::printf("-------------------------------------------------------------------------------\n");
     std::printf("OVERALL:                   %s\n", suitePassed ? "PASS" : "FAIL");
     std::printf("===============================================================================\n");
+    std::printf("\n");
+    ompl::cbf::Profiler::instance().report(stdout);
 
     if (!pathWriteOk)
         return 1;

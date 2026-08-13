@@ -69,6 +69,7 @@
 #include <ompl/cbf/ExecutedPath.h>
 #include <ompl/cbf/FilteredMotionValidator.h>
 #include <ompl/cbf/FilteredStateSpace.h>
+#include <ompl/cbf/Profiler.h>
 #include <ompl/geometric/PathGeometric.h>
 #include <ompl/geometric/planners/rrt/RRTConnect.h>
 #include <ompl/util/RandomNumbers.h>
@@ -721,5 +722,7 @@ int main(int argc, char **argv)
                 "\"missed\" counts solution edges that were not on file and had to be\n"
                 "re-derived; it must be zero, or the audited motion is a different trajectory\n"
                 "from the one the planner found.\n");
+    std::printf("\n");
+    ompl::cbf::Profiler::instance().report(stdout);
     return 0;
 }
