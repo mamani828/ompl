@@ -443,7 +443,11 @@ where `L` is `UR5::leverArmBounds()` and `maxGrad` is `GridSDF::maxGradientNorm(
 configuration-independent — so a sphere clear by more than `rate_i * dt` cannot bind
 within the step and needs no gradient, no Jacobian and no row. Measured over random
 configurations, that leaves **0.8 rows of 40** and an identical control every time, taking
-`filter()` from 3.69 to **2.44 µs**. It is on by default (`Parameters::screening`).
+`filter()` from 3.69 to **2.44 µs**. It is on by default (`Parameters::screening`). When
+no rows survive, the remaining diagonal box QP is solved exactly by clamping the nominal
+control, without entering qpmad; the profiler reports how often this zero-row fast path fires.
+Profiling is opt-in because its per-sample mutex distorts such short operations; run a demo
+with `OMPL_CBF_PROFILE=1` when collecting the stage and filter statistics below.
 
 The bound is a Lipschitz argument, not a linearisation: `L[i][k]` bounds sphere i's
 distance to joint k's axis at *every* configuration, so integrating it bounds the true
@@ -806,6 +810,10 @@ The A/B knobs are the same commands with one argument changed:
 # self rows off (MBM argument 12, scene demo argument 8)
 ./build/demos/demo_UR5MBMBenchmark $WORK/scenes.txt 15 2.0 0.02 0.05 2.0 0.002 0.006 -1 0.4 -1 -100 $WORK/off
 ./build/demos/demo_UR5PyBulletScene ur5_experiments/out/shelf.problem 10 $WORK/off.path 5 -1 -1 -1 -100
+
+# zero world guard buffer (scene demo argument 10): experimental and expected to leak
+./build/demos/demo_UR5PyBulletScene ur5_experiments/out/clutter.problem \
+  10 $WORK/no-buffer.path 30 -1 -1 -1 0 0 0
 
 # baseline back at OMPL's coarse default instead of matched (MBM argument 9)
 ./build/demos/demo_UR5MBMBenchmark $WORK/scenes.txt 15 2.0 0.02 0.05 2.0 0.002 0.006 0.01 0.4 -1 0 $WORK/coarse

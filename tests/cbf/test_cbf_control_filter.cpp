@@ -214,6 +214,40 @@ BOOST_AUTO_TEST_CASE(SpeedBoxIsRespected)
         BOOST_CHECK_LE(std::abs(filtered[j]), p.maxSpeed[j] + 1e-12);
 }
 
+// With screening and no surviving barrier rows, the QP reduces exactly to a
+// component-wise clamp. Exercise both the untouched and clamped cases so the
+// solver-free fast path remains equivalent to the diagonal box QP.
+BOOST_AUTO_TEST_CASE(ZeroActiveRowsUseTheExactBoxProjection)
+{
+    const UR5 robot;
+    // Move self-collision rows far outside the screening band as well as the world
+    // obstacle, making zero active rows deterministic rather than scene-dependent.
+    const Barrier barrier(robot, farField(), /*margin=*/0.0, /*selfMargin=*/-100.0);
+    Filter::Parameters p = parameters();
+    p.maxSpeed = UR5::velocityLimits();
+    p.respectJointLimits = false;
+    p.screening = true;
+    const Filter filter(barrier, p);
+
+    const UR5::Configuration q = UR5::Configuration::Zero();
+    Filter::Diagnostics diagnostics;
+    UR5::Configuration filtered;
+
+    const UR5::Configuration inside = UR5::Configuration::Constant(0.25);
+    BOOST_CHECK(filter.filter(q, inside, duration, filtered, diagnostics) ==
+                ControlFilter::Status::Unchanged);
+    BOOST_CHECK_EQUAL(diagnostics.activeRows, 0);
+    BOOST_CHECK_EQUAL((filtered - inside).norm(), 0.0);
+
+    UR5::Configuration outside;
+    outside << -2.0, -0.25, 0.75, 0.0, 3.0, -3.0;
+    const UR5::Configuration expected = outside.cwiseMax(-p.maxSpeed).cwiseMin(p.maxSpeed);
+    BOOST_CHECK(filter.filter(q, outside, duration, filtered, diagnostics) ==
+                ControlFilter::Status::Filtered);
+    BOOST_CHECK_EQUAL(diagnostics.activeRows, 0);
+    BOOST_CHECK_EQUAL((filtered - expected).norm(), 0.0);
+}
+
 BOOST_AUTO_TEST_CASE(JointLimitsAreRespected)
 {
     const UR5 robot;
