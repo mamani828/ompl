@@ -31,12 +31,14 @@ namespace ompl::cbf
     ///
     /// Working in plain Eigen vectors rather than `base::State` / `Control` keeps
     /// filters testable on their own; the propagator does the conversion.
-    class ControlFilter
+    template <typename Robot>
+    class RobotControlFilter
     {
     public:
-        using Configuration = robots::UR5::Configuration;
+        using RobotType = Robot;
+        using Configuration = typename Robot::Configuration;
         /// Joint velocities. Same shape as a configuration, different meaning.
-        using Control = robots::UR5::Configuration;
+        using Control = typename Robot::Configuration;
 
         enum class Status
         {
@@ -63,11 +65,11 @@ namespace ompl::cbf
             return "unknown";
         }
 
-        ControlFilter() = default;
-        virtual ~ControlFilter() = default;
+        RobotControlFilter() = default;
+        virtual ~RobotControlFilter() = default;
 
-        ControlFilter(const ControlFilter &) = delete;
-        ControlFilter &operator=(const ControlFilter &) = delete;
+        RobotControlFilter(const RobotControlFilter &) = delete;
+        RobotControlFilter &operator=(const RobotControlFilter &) = delete;
 
         /// Map a nominal control to a safe one at configuration \p q, for a step of
         /// length \p duration.
@@ -109,9 +111,15 @@ namespace ompl::cbf
     /// A filter that does nothing. This is the A/B baseline: dropped into the same
     /// propagator as a real filter, it recovers ordinary unfiltered propagation, so
     /// "with CBF" and "without CBF" runs differ in exactly one object.
-    class PassthroughFilter : public ControlFilter
+    template <typename Robot>
+    class RobotPassthroughFilter : public RobotControlFilter<Robot>
     {
     public:
+        using Base = RobotControlFilter<Robot>;
+        using typename Base::Configuration;
+        using typename Base::Control;
+        using Status = typename Base::Status;
+
         Status filter(const Configuration & /*q*/, const Control &nominal, double /*duration*/,
                       Control &filtered) const override
         {
@@ -135,4 +143,9 @@ namespace ompl::cbf
             return "passthrough";
         }
     };
+
+    /// Backwards-compatible names for the original UR5 CBF stack. New robot models
+    /// should use `RobotControlFilter<Robot>` and `RobotPassthroughFilter<Robot>`.
+    using ControlFilter = RobotControlFilter<robots::UR5>;
+    using PassthroughFilter = RobotPassthroughFilter<robots::UR5>;
 }  // namespace ompl::cbf

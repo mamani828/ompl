@@ -16,6 +16,7 @@
 #include <ompl/cbf/ExecutedPath.h>
 #include <ompl/cbf/FilteredMotionValidator.h>
 #include <ompl/cbf/FilteredStateSpace.h>
+#include <ompl/cbf/RopeShortcut.h>
 #include <ompl/geometric/PathGeometric.h>
 #include <ompl/geometric/planners/rrt/RRTConnect.h>
 
@@ -26,6 +27,33 @@ using Filter = ompl::cbf::CBFControlFilter;
 using Space = ompl::cbf::FilteredStateSpace;
 using UR5 = ompl::robots::UR5;
 namespace sdf = ompl::sdf;
+
+namespace
+{
+    struct ThreeJointRobot
+    {
+        static constexpr std::size_t nJoints = 3;
+        using Configuration = Eigen::Matrix<double, nJoints, 1>;
+
+        static Configuration lowerBounds()
+        {
+            return (Configuration() << -1.0, -2.0, -3.0).finished();
+        }
+
+        static Configuration upperBounds()
+        {
+            return (Configuration() << 1.0, 2.0, 3.0).finished();
+        }
+
+        static Configuration velocityLimits()
+        {
+            return (Configuration() << 0.5, 1.0, 1.5).finished();
+        }
+    };
+
+    using ThreeJointFilter = ompl::cbf::RobotPassthroughFilter<ThreeJointRobot>;
+    using ThreeJointSpace = ompl::cbf::RobotFilteredStateSpace<ThreeJointRobot>;
+}  // namespace
 
 namespace
 {
@@ -192,6 +220,67 @@ BOOST_AUTO_TEST_CASE(FreeSpaceRolloutIsExactlyLinearInterpolation)
         const UR5::Configuration rolled = space->roll(a, b, t).end;
         BOOST_CHECK_LE((rolled - (a + t * (b - a))).norm(), stepTravel);
     }
+}
+
+BOOST_AUTO_TEST_CASE(StateSpaceIsGeneratedFromRobotModel)
+{
+    ThreeJointFilter filter;
+    auto space = ompl::cbf::makeRobotFilteredStateSpace(filter, 0.1);
+
+    BOOST_CHECK_EQUAL(space->getDimension(), ThreeJointRobot::nJoints);
+    const ob::RealVectorBounds &bounds = space->getBounds();
+    const ThreeJointRobot::Configuration lower = ThreeJointRobot::lowerBounds();
+    const ThreeJointRobot::Configuration upper = ThreeJointRobot::upperBounds();
+    for (std::size_t j = 0; j < ThreeJointRobot::nJoints; ++j)
+    {
+        BOOST_CHECK_EQUAL(bounds.low[j], lower[static_cast<Eigen::Index>(j)]);
+        BOOST_CHECK_EQUAL(bounds.high[j], upper[static_cast<Eigen::Index>(j)]);
+    }
+    BOOST_CHECK_EQUAL((space->maxSpeed() - ThreeJointRobot::velocityLimits()).norm(), 0.0);
+
+    const ThreeJointRobot::Configuration from = ThreeJointRobot::Configuration::Zero();
+    const ThreeJointRobot::Configuration to =
+        (ThreeJointRobot::Configuration() << 0.25, -0.5, 0.75).finished();
+    const ThreeJointSpace::Rollout rollout = space->roll(from, to, 1.0);
+    BOOST_CHECK(rollout.reachedTarget);
+    BOOST_CHECK_EQUAL((rollout.end - to).norm(), 0.0);
+
+    auto si = std::make_shared<ob::SpaceInformation>(space);
+    si->setStateValidityChecker(std::make_shared<ob::AllValidStateValidityChecker>(si));
+    si->setMotionValidator(
+        std::make_shared<ompl::cbf::RobotFilteredMotionValidator<ThreeJointRobot>>(si));
+    si->setup();
+
+    ob::ScopedState<> start(space), target(space), reached(space);
+    ThreeJointSpace::setState(start.get(), from);
+    ThreeJointSpace::setState(target.get(), to);
+    space->interpolate(start.get(), target.get(), 1.0, reached.get());
+    BOOST_CHECK(si->checkMotion(start.get(), reached.get()));
+    BOOST_CHECK_EQUAL((ThreeJointSpace::configurationOf(reached.get()) - to).norm(), 0.0);
+}
+
+BOOST_AUTO_TEST_CASE(VectorRopeShortcutSupportsNonUr5Dimensions)
+{
+    using Q = ThreeJointRobot::Configuration;
+    const std::vector<Q> input{
+        (Q() << 0.0, 0.0, 0.0).finished(),
+        (Q() << 0.0, 1.0, 0.0).finished(),
+        (Q() << 1.0, 1.0, 0.0).finished(),
+    };
+    const auto straightRollout = [](const Q &from, const Q &to)
+    {
+        return std::vector<Q>{from, to};
+    };
+
+    ompl::cbf::ShortcutReport report;
+    const std::vector<Q> output =
+        ompl::cbf::ropeShortcut(input, 0.25, 1e-6, straightRollout, &report);
+
+    BOOST_REQUIRE_GE(output.size(), 2u);
+    BOOST_CHECK_EQUAL((output.front() - input.front()).norm(), 0.0);
+    BOOST_CHECK_EQUAL((output.back() - input.back()).norm(), 0.0);
+    BOOST_CHECK_GE(report.accepted, 1u);
+    BOOST_CHECK_LT(report.lengthAfter, report.lengthBefore);
 }
 
 // The horizon is the time the straight-line motion needs at the per-joint speed

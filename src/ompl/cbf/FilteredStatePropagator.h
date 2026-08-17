@@ -37,8 +37,7 @@ namespace ompl::cbf
     /// ### Assumptions
     ///
     /// The state space must be a `base::RealVectorStateSpace` and the control space
-    /// a `control::RealVectorControlSpace`, both of dimension
-    /// `ControlFilter::Configuration::RowsAtCompileTime` (6, for the UR5). This is
+    /// a `control::RealVectorControlSpace`, both of dimension `Robot::nJoints`. This is
     /// checked at construction.
     ///
     /// ### The state validity checker becomes redundant
@@ -77,13 +76,19 @@ namespace ompl::cbf
     /// step count having gone nowhere. That is safe but wasteful, and it is the
     /// caller's job to notice; `statistics().blocked` counts it, and
     /// `propagateReporting()` returns the status directly.
-    class FilteredStatePropagator : public control::StatePropagator
+    template <typename Robot>
+    class RobotFilteredStatePropagator : public control::StatePropagator
     {
     public:
-        using Configuration = ControlFilter::Configuration;
-        using Control = ControlFilter::Control;
+        using Filter = RobotControlFilter<Robot>;
+        using Configuration = typename Robot::Configuration;
+        using Control = typename Robot::Configuration;
 
-        static constexpr int dimension = Configuration::RowsAtCompileTime;
+        static constexpr int dimension = static_cast<int>(Robot::nJoints);
+        static_assert(Configuration::RowsAtCompileTime == dimension,
+                      "Robot::Configuration must have Robot::nJoints rows");
+        static_assert(Configuration::ColsAtCompileTime == 1,
+                      "Robot::Configuration must be a column vector");
 
         /// How often the filter engaged. Useful for benchmarking: a run where
         /// `filtered` is near zero did not exercise the CBF at all.
@@ -96,13 +101,13 @@ namespace ompl::cbf
         };
 
         /// \p filter is not copied and must outlive this propagator.
-        FilteredStatePropagator(control::SpaceInformation *si, const ControlFilter &filter)
+        RobotFilteredStatePropagator(control::SpaceInformation *si, const Filter &filter)
           : control::StatePropagator(si), filter_(filter)
         {
             checkSpaces(si);
         }
 
-        FilteredStatePropagator(const control::SpaceInformationPtr &si, const ControlFilter &filter)
+        RobotFilteredStatePropagator(const control::SpaceInformationPtr &si, const Filter &filter)
           : control::StatePropagator(si), filter_(filter)
         {
             checkSpaces(si.get());
@@ -116,8 +121,9 @@ namespace ompl::cbf
 
         /// Propagation that also says what the filter did. Same semantics as
         /// `propagate()` otherwise.
-        ControlFilter::Status propagateReporting(const base::State *state, const control::Control *control,
-                                                 double duration, base::State *result) const
+        typename Filter::Status propagateReporting(const base::State *state,
+                                                   const control::Control *control, double duration,
+                                                   base::State *result) const
         {
             // The caller is allowed to pass result == state, so read everything out
             // before writing anything back.
@@ -135,16 +141,16 @@ namespace ompl::cbf
             ++statistics_.propagations;
 
             Control applied;
-            const ControlFilter::Status status = filter_.filter(q, nominal, duration, applied);
+            const typename Filter::Status status = filter_.filter(q, nominal, duration, applied);
             switch (status)
             {
-                case ControlFilter::Status::Unchanged:
+                case Filter::Status::Unchanged:
                     ++statistics_.unchanged;
                     break;
-                case ControlFilter::Status::Filtered:
+                case Filter::Status::Filtered:
                     ++statistics_.filtered;
                     break;
-                case ControlFilter::Status::Blocked:
+                case Filter::Status::Blocked:
                     ++statistics_.blocked;
                     // No safe control: stay put rather than invent motion.
                     applied.setZero();
@@ -167,7 +173,7 @@ namespace ompl::cbf
             return false;
         }
 
-        const ControlFilter &filter() const
+        const Filter &filter() const
         {
             return filter_;
         }
@@ -187,13 +193,16 @@ namespace ompl::cbf
         {
             if (si->getStateSpace()->as<base::RealVectorStateSpace>()->getDimension() !=
                 static_cast<unsigned int>(dimension))
-                throw Exception("FilteredStatePropagator: state space dimension must be 6");
+                throw Exception("RobotFilteredStatePropagator: state space dimension does not match robot");
             if (si->getControlSpace()->as<control::RealVectorControlSpace>()->getDimension() !=
                 static_cast<unsigned int>(dimension))
-                throw Exception("FilteredStatePropagator: control space dimension must be 6");
+                throw Exception("RobotFilteredStatePropagator: control space dimension does not match robot");
         }
 
-        const ControlFilter &filter_;
+        const Filter &filter_;
         mutable Statistics statistics_;
     };
+
+    /// Compatibility alias for the original UR5 API.
+    using FilteredStatePropagator = RobotFilteredStatePropagator<robots::UR5>;
 }  // namespace ompl::cbf

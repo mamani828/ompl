@@ -677,7 +677,7 @@ geometry.
 
 - Forward kinematics cross-checked three ways: vs `vamp.ur5.fk` **2.67e-06 m**, vs
   PyBullet **2.62e-07 m**, analytic Jacobian vs central differences **2.51e-10**.
-- 52 test cases across 6 binaries (`test_ur5`, `test_clearance_barrier`,
+- 54 test cases across 6 binaries (`test_ur5`, `test_clearance_barrier`,
   `test_qpmad_vendored`, `test_cbf_control_filter`, `test_filtered_propagator`,
   `test_filtered_state_space`).
 - Filtered clearance saturates at 0.04369 against a promised floor of 0.04399 —
@@ -694,19 +694,21 @@ all-or-nothing (no incremental update, so a *changing* environment means rebakin
 and `GridSDF` clamps out-of-bounds queries **optimistically**, which is why
 `inBounds` is a first-class output that the filter treats as "no usable barrier".
 
-**The robot is not.** `ControlFilter::Configuration` is typedef'd directly to
-`robots::UR5::Configuration`, `ClearanceBarrier::Robot` is `robots::UR5`, and 6 joints
-/ 40 spheres are **compile-time template parameters of the solver**
-(`qpmad::SolverTemplate<double, nJoints, 1, nSpheres>`). Changing robots means editing
-four files. `ClearanceBarrier`'s header names the seam — sphere centres, sphere
-Jacobians, radii — but it is not built. In cost order: move joint limits into
-`Parameters` (`CBFControlFilter.cpp:50` reaches past the barrier straight to
-`robots::UR5::lowerBounds()`, which is a wart regardless); parameterise
-`Configuration` by dimension; template `ClearanceBarrier` on the robot; make
-`nSpheres` dynamic in qpmad.
+**The planner-facing layer is robot-generic.** A robot model supplies `nJoints`, a
+fixed-size Eigen `Configuration`, `lowerBounds()`, `upperBounds()`, and
+`velocityLimits()`. A filter derives from `RobotControlFilter<Robot>`, after which
+`makeRobotFilteredStateSpace(filter, stepSize)` creates the correctly dimensioned
+space and installs the robot's joint bounds and default speeds. The matching types are
+`RobotFilteredMotionValidator<Robot>` and `RobotFilteredStatePropagator<Robot>`.
+`ControlFilter`, `FilteredStateSpace`, `FilteredMotionValidator`, and
+`FilteredStatePropagator` remain UR5 aliases for source compatibility.
 
-The planner-facing layer *is* modular: `FilteredStatePropagator` and
-`FilteredStateSpace` take a `const ControlFilter &` and never look inside.
+**The supplied barrier and QP are still UR5-specific.** `ClearanceBarrier::Robot` is
+`robots::UR5`, and 6 joints / 40 spheres are compile-time template parameters of the
+solver (`qpmad::SolverTemplate<double, nJoints, 1, nSpheres>`). A new robot can now
+plug its own `RobotControlFilter<Robot>` into the planner without changing planner
+code, but reusing this particular `ClearanceBarrier`/`CBFControlFilter` implementation
+still requires templating the barrier and solver over the robot geometry.
 
 ## Open items
 
