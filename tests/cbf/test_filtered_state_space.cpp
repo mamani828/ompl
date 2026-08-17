@@ -257,6 +257,19 @@ BOOST_AUTO_TEST_CASE(StateSpaceIsGeneratedFromRobotModel)
     space->interpolate(start.get(), target.get(), 1.0, reached.get());
     BOOST_CHECK(si->checkMotion(start.get(), reached.get()));
     BOOST_CHECK_EQUAL((ThreeJointSpace::configurationOf(reached.get()) - to).norm(), 0.0);
+
+    og::PathGeometric sparse(si);
+    sparse.append(start.get());
+    sparse.append(reached.get());
+    std::size_t misses = 1;
+    const og::PathGeometric executed =
+        ompl::cbf::robotExecutedPath<ThreeJointRobot>(sparse, 0.05, &misses);
+    BOOST_CHECK_EQUAL(misses, 0u);
+    BOOST_CHECK_GT(executed.getStateCount(), 2u);
+    BOOST_CHECK_EQUAL(
+        (ThreeJointSpace::configurationOf(executed.getState(executed.getStateCount() - 1)) - to)
+            .norm(),
+        0.0);
 }
 
 BOOST_AUTO_TEST_CASE(VectorRopeShortcutSupportsNonUr5Dimensions)
