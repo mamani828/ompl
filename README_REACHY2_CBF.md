@@ -1,5 +1,37 @@
 # Reachy2 bimanual OMPL + CBF interface
 
+## Mobile-manipulation demo
+
+`demo_Reachy2MobileCBFPlanning` keeps the fixed-base benchmark below unchanged and
+plans the coupled state `[base_x, base_y, base_yaw, 14 arm joints]`. Both rows use
+geometric RRTConnect, the same deterministic 60/20/20 transit/goal/uniform sampler,
+and the same precomputed pool of collision-free bimanual mobile IK states. The hand
+goals are Cartesian, so the terminal base pose is free.
+
+```bash
+cmake --build . --target demo_Reachy2MobileCBFPlanning -j
+./demos/demo_Reachy2MobileCBFPlanning \
+  --seconds 10 --trials 3 --shortcut 0.1 \
+  --output reachy2_mobile_cbf.path
+
+# Workspace, start, and Cartesian goals are named options.
+./demos/demo_Reachy2MobileCBFPlanning \
+  --start-x -0.70 --start-y 0 --start-yaw 0 \
+  --xmin -1.0 --xmax 0.35 --ymin -0.65 --ymax 0.65 \
+  --left-goal 0.62 0.20 1.1344 \
+  --right-goal 0.62 -0.20 1.1344
+```
+
+The output is rate-timed and synchronized: each segment lasts the maximum travel
+time of any base or arm coordinate at 0.35 m/s translation, 0.6 rad/s yaw, and
+1.2 rad/s arm speed. The viewer autodetects both this format and the legacy
+fixed-base format:
+
+```bash
+python3 scripts/visualize_reachy2_cbf.py reachy2_mobile_cbf.path --gui --hold
+python3 scripts/visualize_reachy2_cbf.py reachy2_mobile_cbf.path --png mobile.png
+```
+
 `demo_Reachy2CBFPlanning` plans the two Reachy2 arms together in a 14-dimensional
 joint space. The left and right goals are Cartesian arm-tip positions. A
 damped-least-squares IK stage converts them into a coupled joint-space goal,

@@ -15,6 +15,7 @@
 #include <Eigen/Core>
 
 #include <ompl/base/spaces/RealVectorStateSpace.h>
+#include <ompl/cbf/ConfigurationOperations.h>
 #include <ompl/cbf/ControlFilter.h>
 #include <ompl/util/Exception.h>
 
@@ -107,6 +108,7 @@ namespace ompl::cbf
         using Filter = RobotControlFilter<Robot>;
         using Configuration = typename Robot::Configuration;
         using Control = typename Robot::Configuration;
+        using Operations = RobotConfigurationOperations<Robot>;
 
         static constexpr int dimension = static_cast<int>(Robot::nJoints);
         static_assert(Configuration::RowsAtCompileTime == dimension,
@@ -155,15 +157,22 @@ namespace ompl::cbf
         /// As above, with custom per-joint speed limits. State bounds still come from
         /// `Robot::lowerBounds()` and `Robot::upperBounds()`.
         RobotFilteredStateSpace(const Filter &filter, double stepSize, const Control &maxSpeed)
-          : base::RealVectorStateSpace(dimension), filter_(filter), stepSize_(stepSize), maxSpeed_(maxSpeed)
+          : RobotFilteredStateSpace(filter, stepSize, maxSpeed, Robot::lowerBounds(),
+                                    Robot::upperBounds())
+        {
+        }
+
+        /// As above, with explicit runtime bounds (notably a mobile base workspace).
+        RobotFilteredStateSpace(const Filter &filter, double stepSize, const Control &maxSpeed,
+                                const Configuration &lower, const Configuration &upper)
+          : base::RealVectorStateSpace(dimension), filter_(filter), stepSize_(stepSize),
+            maxSpeed_(maxSpeed)
         {
             if (stepSize <= 0.0)
                 throw Exception("FilteredStateSpace: stepSize must be positive");
             if ((maxSpeed.array() <= 0.0).any())
                 throw Exception("FilteredStateSpace: every maxSpeed entry must be positive");
             base::RealVectorBounds bounds(static_cast<unsigned int>(dimension));
-            const Configuration lower = Robot::lowerBounds();
-            const Configuration upper = Robot::upperBounds();
             for (int j = 0; j < dimension; ++j)
             {
                 bounds.setLow(static_cast<unsigned int>(j), lower[j]);
@@ -182,7 +191,8 @@ namespace ompl::cbf
         /// slightly differently. Defaults to one full-speed step.
         double reachTolerance() const
         {
-            return reachTolerance_ > 0.0 ? reachTolerance_ : maxSpeed_.norm() * stepSize_;
+            return reachTolerance_ > 0.0 ? reachTolerance_
+                                         : Operations::defaultReachTolerance(maxSpeed_, stepSize_);
         }
 
         void setReachTolerance(double tolerance)
@@ -195,7 +205,7 @@ namespace ompl::cbf
         /// divided by the step size. At least one whenever the states differ.
         unsigned int horizonSteps(const Configuration &from, const Configuration &to) const
         {
-            const double horizon = ((to - from).cwiseAbs().cwiseQuotient(maxSpeed_)).maxCoeff();
+            const double horizon = Operations::duration(from, to, maxSpeed_);
             return static_cast<unsigned int>(std::ceil(horizon / stepSize_ - 1e-12));
         }
 
@@ -239,8 +249,9 @@ namespace ompl::cbf
                 // Time left in the *full* horizon, so a truncated rollout follows the
                 // same trajectory as the prefix of a complete one.
                 const double remaining = horizon - elapsed;
+                nominal = Operations::difference(out.end, to) / remaining;
                 for (int j = 0; j < dimension; ++j)
-                    nominal[j] = std::clamp((to[j] - out.end[j]) / remaining, -maxSpeed_[j], maxSpeed_[j]);
+                    nominal[j] = std::clamp(nominal[j], -maxSpeed_[j], maxSpeed_[j]);
 
                 double certified = 0.0;
                 const typename Filter::Status status =
@@ -264,13 +275,13 @@ namespace ompl::cbf
                     std::min(std::max(stepSize_, std::min(certified, maxStepScale_ * stepSize_)),
                              budget - elapsed);
 
-                Configuration landing = out.end + applied * span;
+                Configuration landing = Operations::integrate(out.end, applied, span);
                 // A hop that runs the horizon out was aimed to finish on `to`, and with
                 // nothing in the way it does -- to the last bit. Recognising that lets an
                 // unobstructed edge end on the state that was asked for rather than one
                 // rounding away from it, which is what the ledger keys on.
-                if ((landing - to).cwiseAbs().maxCoeff() <= negligibleAngle)
-                    landing = to;
+                if (Operations::difference(landing, to).cwiseAbs().maxCoeff() <= negligibleAngle)
+                    landing = Operations::normalize(to);
 
                 elapsed += span;
                 ++out.steps;
@@ -281,7 +292,7 @@ namespace ompl::cbf
                 if (bitwiseEqual(landing, out.end))
                     continue;
 
-                out.travel += (landing - out.end).norm();
+                out.travel += Operations::distance(out.end, landing, maxSpeed_);
                 out.end = landing;
                 out.waypoints.push_back(out.end);
                 if (span > stepSize_)
@@ -292,7 +303,8 @@ namespace ompl::cbf
                 out.blocked = 1;
             out.fraction = horizon > 0.0 ? elapsed / horizon : 0.0;
             out.reachedTarget =
-                budget - elapsed <= negligibleTime && (out.end - to).norm() <= reachTolerance();
+                budget - elapsed <= negligibleTime &&
+                Operations::distance(out.end, to, maxSpeed_) <= reachTolerance();
 
             statistics_.rollouts += 1;
             statistics_.filtered += out.filtered;
@@ -363,7 +375,7 @@ namespace ompl::cbf
                 if (index + 1 >= count)
                     return (*this)[count - 1];
                 const double fraction = u - static_cast<double>(index);
-                return (*this)[index] + fraction * ((*this)[index + 1] - (*this)[index]);
+                return Operations::interpolate((*this)[index], (*this)[index + 1], fraction);
             }
 
         private:
@@ -551,9 +563,9 @@ namespace ompl::cbf
             //
             // Note the threshold is relative to the progress a *free-space* rollout
             // would have made for this `t`, not absolute.
-            const double span = (b - a).norm();
+            const double span = Operations::distance(a, b, maxSpeed_);
             const double target = span * std::clamp(t, 0.0, 1.0);
-            const double achieved = span - (b - rollout.end).norm();
+            const double achieved = span - Operations::distance(rollout.end, b, maxSpeed_);
             if (achieved < minProgressFraction_ * target)
             {
                 ++statistics_.abandoned;
@@ -579,6 +591,17 @@ namespace ompl::cbf
                 staged_.waypoints = std::move(rollout.waypoints);
                 staged_.valid = true;
             }
+        }
+
+        double distance(const base::State *state1, const base::State *state2) const override
+        {
+            return Operations::distance(configurationOf(state1), configurationOf(state2), maxSpeed_);
+        }
+
+        void enforceBounds(base::State *state) const override
+        {
+            setState(state, Operations::normalize(configurationOf(state)));
+            base::RealVectorStateSpace::enforceBounds(state);
         }
 
         static Configuration configurationOf(const base::State *state)

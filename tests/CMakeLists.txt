@@ -73,6 +73,7 @@ if (OMPL_BUILD_TESTS)
 
     # Test the UR5 kinematics / collision-sphere model
     add_ompl_test(test_ur5 robots/test_ur5.cpp)
+    add_ompl_test(test_reachy2_mobile robots/test_reachy2_mobile.cpp)
 
     # Test the CBF barrier assembly (spherized robot + workspace SDF)
     add_ompl_test(test_clearance_barrier cbf/test_clearance_barrier.cpp)

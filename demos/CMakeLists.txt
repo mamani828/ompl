@@ -44,6 +44,15 @@ if (OMPL_BUILD_DEMOS)
         add_ompl_demo(demo_Reachy2CBFPlanning Reachy2CBFPlanningDemo.cpp)
         target_include_directories(demo_Reachy2CBFPlanning PRIVATE
             ${CMAKE_SOURCE_DIR}/external/qpmad/include)
+        add_ompl_demo(demo_Reachy2MobileCBFPlanning Reachy2MobileCBFPlanningDemo.cpp)
+        target_include_directories(demo_Reachy2MobileCBFPlanning PRIVATE
+            ${CMAKE_SOURCE_DIR}/external/qpmad/include)
+        if(OMPL_BUILD_TESTS)
+            add_test(NAME test_reachy2_mobile_smoke
+                COMMAND demo_Reachy2MobileCBFPlanning --smoke --seconds 3 --trials 3
+                    --shortcut 0.1 --output ${CMAKE_CURRENT_BINARY_DIR}/reachy2_mobile_smoke_cbf.path)
+            set_tests_properties(test_reachy2_mobile_smoke PROPERTIES TIMEOUT 30)
+        endif()
     endif()
 
     add_ompl_demo(demo_OptimalPlanning OptimalPlanning.cpp)

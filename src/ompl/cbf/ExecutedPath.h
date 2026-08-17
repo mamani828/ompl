@@ -44,6 +44,7 @@ namespace ompl::cbf
     {
         using Space = RobotFilteredStateSpace<Robot>;
         using Configuration = typename Space::Configuration;
+        using Operations = typename Space::Operations;
 
         const base::SpaceInformationPtr &si = path.getSpaceInformation();
         const auto *space = dynamic_cast<const Space *>(si->getStateSpace().get());
@@ -99,7 +100,7 @@ namespace ompl::cbf
             {
                 const Configuration &a = edge[k];
                 const Configuration &b = edge[k + 1];
-                const double span = (b - a).norm();
+                const double span = Operations::distance(a, b, space->maxSpeed());
                 const auto parts =
                     resolution > 0.0 && span > resolution
                         ? static_cast<std::size_t>(std::ceil(span / resolution))
@@ -108,7 +109,7 @@ namespace ompl::cbf
                 for (std::size_t part = 1; part < parts; ++part)
                 {
                     const double t = static_cast<double>(part) / static_cast<double>(parts);
-                    Space::setState(scratch, a + t * (b - a));
+                    Space::setState(scratch, Operations::interpolate(a, b, t));
                     out.append(scratch);
                 }
                 Space::setState(scratch, b);
