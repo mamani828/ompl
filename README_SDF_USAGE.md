@@ -151,10 +151,9 @@ const Eigen::Vector3d&      grid.spacing();        // realized voxel size per ax
 
 - **Interior distances** are whatever your `DistanceFn` returns. A real SDF gives
   true negative depth inside obstacles; the cache preserves it.
-- **Gradient** is stored per node (central differences over the baked values) and
-  interpolated, so the field is C⁰ continuous — good for a CBF-QP. It is *not*
-  the exact analytic derivative of the interpolated value (value and gradient are
-  interpolated independently); in practice both track the true field.
+- **Gradient** is the exact analytic derivative of the trilinearly interpolated scalar
+  values. Value and gradient therefore describe the same field. The value is C⁰
+  continuous; its gradient is piecewise continuous and can jump at voxel boundaries.
 - **Out of bounds:** queries outside `bounds` clamp to the nearest boundary node
   (so clearance is *over*-reported outside). Size the box to enclose the whole
   reachable workspace, or guard with `inBounds()`.

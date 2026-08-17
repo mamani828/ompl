@@ -200,6 +200,11 @@ namespace
     /// unsimplified paths and said as much about RRTConnect's zigzag as about the filter.
     double shortcutDelta = -1.0;
 
+    /// World-clearance buffer enforced by the filter above the audited margin.
+    /// Negative selects ClearanceBarrier::interpolationBuffer(field); zero is an
+    /// intentionally unsafe experimental A/B that exposes interpolation violations.
+    double guardBuffer = -1.0;
+
     struct Result
     {
         bool solved{false};
@@ -367,8 +372,7 @@ namespace
         // The filter guards a *larger* margin than the one audited: enforcing
         // h >= 0 on the interpolated field only delivers h >= -O(voxel), so the
         // buffer is what turns "the QP was satisfied" into "the audit passes".
-        const Barrier guard = Barrier::guarding(robot, field, scene.margin,
-                                                Barrier::interpolationBuffer(field), selfMargin);
+        const Barrier guard = Barrier::guarding(robot, field, scene.margin, guardBuffer, selfMargin);
 
         Filter::Parameters parameters;
         const Filter filter(guard, parameters);
@@ -510,7 +514,7 @@ int main(int argc, char **argv)
     {
         std::printf("usage: %s <scene.problem> [seconds] [out.path] [trials] [maxStepScale]"
                     " [baselineCheckRadians] [baselineAuditRadians] [selfMargin]"
-                    " [shortcutRadians]\n",
+                    " [shortcutRadians] [guardBufferMeters]\n",
                     argv[0]);
         std::printf("       %s <scene.problem> --probe   < points.txt\n", argv[0]);
         return 1;
@@ -546,6 +550,8 @@ int main(int argc, char **argv)
     // already in the README keeps reporting the numbers it used to.
     if (argc > 9 && !probeMode)
         shortcutDelta = std::atof(argv[9]);
+    if (argc > 10 && !probeMode)
+        guardBuffer = std::atof(argv[10]);
 
     const Scene scene = readScene(problemPath);
     const sdf::GridSDF field = sdf::GridSDF::load(scene.gridPath);
@@ -555,7 +561,8 @@ int main(int argc, char **argv)
 
     const UR5 robot;
     const Barrier barrier(robot, field, scene.margin, selfMargin);
-    const double buffer = Barrier::interpolationBuffer(field);
+    if (guardBuffer < 0.0)
+        guardBuffer = Barrier::interpolationBuffer(field);
     const double stepSize = 0.05;
     const double range = 1.5;
     // What the CBF row's rollout emits, and so the finest spacing at which its executed
@@ -569,7 +576,7 @@ int main(int argc, char **argv)
     std::printf("field %dx%dx%d nodes, voxel %.4f m, maxGradientNorm %.4f\n", dims[0], dims[1],
                 dims[2], scene.voxel, field.maxGradientNorm());
     std::printf("margin %.4f, interpolation buffer %.4f, guarded margin %.4f\n", scene.margin,
-                buffer, scene.margin + buffer);
+                guardBuffer, scene.margin + guardBuffer);
 
     // Confirm the two sides agree about the start before planning: a mismatch here
     // means the grid and the sphere model disagree about where the world is, and

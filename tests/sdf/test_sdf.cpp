@@ -56,6 +56,26 @@ BOOST_AUTO_TEST_CASE(GradientPointsAwayFromObstacle)
     BOOST_CHECK_GT(g.normalized().dot(Eigen::Vector3d::UnitX()), 0.9);
 }
 
+BOOST_AUTO_TEST_CASE(GradientIsDerivativeOfInterpolatedValue)
+{
+    const auto grid = makeGrid();
+    // Deliberately away from a voxel boundary, where the trilinear field is smooth.
+    const Eigen::Vector3d p(0.837, 0.113, 0.071);
+    const Eigen::Vector3d analytic = grid.gradient(p);
+    Eigen::Vector3d finiteDifference;
+    constexpr double epsilon = 1e-6;
+    for (int d = 0; d < 3; ++d)
+    {
+        Eigen::Vector3d plus = p;
+        Eigen::Vector3d minus = p;
+        plus[d] += epsilon;
+        minus[d] -= epsilon;
+        finiteDifference[d] = (grid.distance(plus) - grid.distance(minus)) / (2.0 * epsilon);
+    }
+
+    BOOST_CHECK_LE((analytic - finiteDifference).norm(), 1e-9);
+}
+
 BOOST_AUTO_TEST_CASE(BoundsAndDimensions)
 {
     const auto grid = makeGrid();

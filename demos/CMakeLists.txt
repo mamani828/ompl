@@ -40,6 +40,11 @@ if (OMPL_BUILD_DEMOS)
     add_ompl_demo(demo_UR5CBFPlanning UR5CBFPlanningDemo.cpp)
     add_ompl_demo(demo_UR5MBMBenchmark UR5MBMBenchmark.cpp)
     add_ompl_demo(demo_UR5PyBulletScene UR5PyBulletSceneDemo.cpp)
+    if(OMPL_HAVE_QPMAD)
+        add_ompl_demo(demo_Reachy2CBFPlanning Reachy2CBFPlanningDemo.cpp)
+        target_include_directories(demo_Reachy2CBFPlanning PRIVATE
+            ${CMAKE_SOURCE_DIR}/external/qpmad/include)
+    endif()
 
     add_ompl_demo(demo_OptimalPlanning OptimalPlanning.cpp)
     add_ompl_demo(demo_PlannerProgressProperties PlannerProgressProperties.cpp)

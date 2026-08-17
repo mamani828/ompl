@@ -7,6 +7,7 @@
 #include <cstring>
 #include <deque>
 #include <limits>
+#include <memory>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -99,13 +100,19 @@ namespace ompl::cbf
     /// Not thread safe: the ledger and the statistics are mutable, and `ControlFilter`
     /// already cost thread safety anyway since `CBFControlFilter` solves into shared
     /// scratch.
-    class FilteredStateSpace : public base::RealVectorStateSpace
+    template <typename Robot>
+    class RobotFilteredStateSpace : public base::RealVectorStateSpace
     {
     public:
-        using Configuration = ControlFilter::Configuration;
-        using Control = ControlFilter::Control;
+        using Filter = RobotControlFilter<Robot>;
+        using Configuration = typename Robot::Configuration;
+        using Control = typename Robot::Configuration;
 
-        static constexpr int dimension = Configuration::RowsAtCompileTime;
+        static constexpr int dimension = static_cast<int>(Robot::nJoints);
+        static_assert(Configuration::RowsAtCompileTime == dimension,
+                      "Robot::Configuration must have Robot::nJoints rows");
+        static_assert(Configuration::ColsAtCompileTime == 1,
+                      "Robot::Configuration must be a column vector");
 
         struct Rollout
         {
@@ -140,13 +147,29 @@ namespace ompl::cbf
         /// \p filter is not copied and must outlive this space. \p stepSize is the
         /// rollout integration step -- the CBF's linearisation is only valid over a
         /// small step, so this is a correctness parameter, not a performance knob.
-        FilteredStateSpace(const ControlFilter &filter, double stepSize, const Control &maxSpeed)
+        RobotFilteredStateSpace(const Filter &filter, double stepSize)
+          : RobotFilteredStateSpace(filter, stepSize, Robot::velocityLimits())
+        {
+        }
+
+        /// As above, with custom per-joint speed limits. State bounds still come from
+        /// `Robot::lowerBounds()` and `Robot::upperBounds()`.
+        RobotFilteredStateSpace(const Filter &filter, double stepSize, const Control &maxSpeed)
           : base::RealVectorStateSpace(dimension), filter_(filter), stepSize_(stepSize), maxSpeed_(maxSpeed)
         {
             if (stepSize <= 0.0)
                 throw Exception("FilteredStateSpace: stepSize must be positive");
             if ((maxSpeed.array() <= 0.0).any())
                 throw Exception("FilteredStateSpace: every maxSpeed entry must be positive");
+            base::RealVectorBounds bounds(static_cast<unsigned int>(dimension));
+            const Configuration lower = Robot::lowerBounds();
+            const Configuration upper = Robot::upperBounds();
+            for (int j = 0; j < dimension; ++j)
+            {
+                bounds.setLow(static_cast<unsigned int>(j), lower[j]);
+                bounds.setHigh(static_cast<unsigned int>(j), upper[j]);
+            }
+            setBounds(bounds);
             setName("Filtered" + getName());
         }
 
@@ -220,17 +243,17 @@ namespace ompl::cbf
                     nominal[j] = std::clamp((to[j] - out.end[j]) / remaining, -maxSpeed_[j], maxSpeed_[j]);
 
                 double certified = 0.0;
-                const ControlFilter::Status status =
+                const typename Filter::Status status =
                     filter_.filter(out.end, nominal, stepSize_, applied, certified);
                 ++statistics_.steps;
-                if (status == ControlFilter::Status::Blocked)
+                if (status == Filter::Status::Blocked)
                 {
                     // Nothing safe to do. Stop rather than sit still burning steps --
                     // the caller gets a short rollout and can decide.
                     terminal = true;
                     break;
                 }
-                if (status == ControlFilter::Status::Filtered)
+                if (status == Filter::Status::Filtered)
                     ++out.filtered;
 
                 // How far to run what the filter just handed back. The floor is the step
@@ -583,7 +606,7 @@ namespace ompl::cbf
             return std::memcmp(a.data(), b.data(), sizeof(double) * dimension) == 0;
         }
 
-        const ControlFilter &filter() const
+        const Filter &filter() const
         {
             return filter_;
         }
@@ -669,7 +692,7 @@ namespace ompl::cbf
             }
         }
 
-        const ControlFilter &filter_;
+        const Filter &filter_;
         double stepSize_;
         Control maxSpeed_;
         double reachTolerance_{-1.0};
@@ -682,4 +705,18 @@ namespace ompl::cbf
         mutable std::deque<Edge> order_;  ///< insertion order, for eviction
         mutable std::size_t ledgerWaypoints_{0};
     };
+
+    /// Construct a filtered state space directly from a robot model. The robot supplies
+    /// its joint count, configuration type, limits, and default velocity limits; callers
+    /// only supply the matching filter and integration step.
+    template <typename Robot>
+    std::shared_ptr<RobotFilteredStateSpace<Robot>> makeRobotFilteredStateSpace(
+        const RobotControlFilter<Robot> &filter, double stepSize,
+        const typename Robot::Configuration &maxSpeed = Robot::velocityLimits())
+    {
+        return std::make_shared<RobotFilteredStateSpace<Robot>>(filter, stepSize, maxSpeed);
+    }
+
+    /// Compatibility alias for the original UR5 API.
+    using FilteredStateSpace = RobotFilteredStateSpace<robots::UR5>;
 }  // namespace ompl::cbf

@@ -155,10 +155,6 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     Control upper;
     controlBounds(q, duration, lower, upper);
 
-    // minimize 0.5 u^T W u - (W uNom)^T u, i.e. H = W and objective = -W uNom.
-    solver.hessian.diagonal() = parameters_.weights;
-    solver.objective = -parameters_.weights.cwiseProduct(nominal);
-
     // Discrete-time CBF: (dh_i/dq) u >= -gamma h_i / dt. Row r constrains barrier
     // evaluation.constraint[r], which is r itself unless screening reordered things --
     // and which may be a world sphere or a self-collision pair, indifferently.
@@ -167,33 +163,47 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
         solver.rowLower[r] =
             evaluation.values[evaluation.constraint[r]] * (-parameters_.gamma / duration);
 
-    try
+    if (active == 0)
     {
-        // Fixed capacity, variable occupancy: qpmad's template arguments are maxima and
-        // it reads the constraint count off the matrix it is handed, so passing fewer
-        // rows costs less without allocating anything.
-        ScopedTimer qpTimer("qp_solve");
-        const auto status = solver.backend.solve(filtered, solver.hessian, solver.objective, lower, upper,
-                                                 evaluation.rows.topRows(active),
-                                                 solver.rowLower.head(active),
-                                                 solver.rowUpper.head(active));
-        diagnostics.solverIterations = solver.backend.getNumberOfInequalityIterations();
-        if (status != Solver::Backend::OK)
+        // Screening has proved that no barrier can bind during this step. What remains
+        // is a diagonal box QP, whose exact solution is the component-wise clamp of the
+        // nominal control. Avoid entering qpmad for this common open-space case.
+        filtered = nominal.cwiseMax(lower).cwiseMin(upper);
+    }
+    else
+    {
+        // minimize 0.5 u^T W u - (W uNom)^T u, i.e. H = W and objective = -W uNom.
+        solver.hessian.diagonal() = parameters_.weights;
+        solver.objective = -parameters_.weights.cwiseProduct(nominal);
+
+        try
         {
+            // Fixed capacity, variable occupancy: qpmad's template arguments are maxima and
+            // it reads the constraint count off the matrix it is handed, so passing fewer
+            // rows costs less without allocating anything.
+            ScopedTimer qpTimer("qp_solve");
+            const auto status = solver.backend.solve(filtered, solver.hessian, solver.objective, lower, upper,
+                                                     evaluation.rows.topRows(active),
+                                                     solver.rowLower.head(active),
+                                                     solver.rowUpper.head(active));
+            diagnostics.solverIterations = solver.backend.getNumberOfInequalityIterations();
+            if (status != Solver::Backend::OK)
+            {
+                filtered.setZero();
+                FilterStats::instance().record(FilterOutcome::Blocked, diagnostics.activeRows,
+                                               diagnostics.solverIterations, 0.0);
+                return Status::Blocked;
+            }
+        }
+        catch (const std::exception &)
+        {
+            // qpmad signals infeasibility by throwing: the robot is cornered, and no
+            // control satisfies every clearance row.
             filtered.setZero();
             FilterStats::instance().record(FilterOutcome::Blocked, diagnostics.activeRows,
                                            diagnostics.solverIterations, 0.0);
             return Status::Blocked;
         }
-    }
-    catch (const std::exception &)
-    {
-        // qpmad signals infeasibility by throwing: the robot is cornered, and no
-        // control satisfies every clearance row.
-        filtered.setZero();
-        FilterStats::instance().record(FilterOutcome::Blocked, diagnostics.activeRows,
-                                       diagnostics.solverIterations, 0.0);
-        return Status::Blocked;
     }
 
     // How long the control just chosen could be run for. The clearances are already in

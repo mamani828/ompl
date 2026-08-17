@@ -420,14 +420,12 @@ namespace ompl::cbf
         /// still holds when checked afterwards.
         ///
         /// A discrete CBF step certifies h(q + u dt) >= (1-gamma) h(q) using a
-        /// linear model built from `rows`. Against an interpolated field that
-        /// prediction has a floor on its accuracy: `GridSDF` interpolates values and
-        /// node gradients *independently*, so the gradient a row was built from and
-        /// the value queried one step later need not agree to better than a fraction
-        /// of a voxel. A filter riding the h = 0 boundary therefore dips slightly
-        /// below it, by an amount that scales with the grid rather than with the step
-        /// — measured at up to 11 mm on a 30 mm grid, i.e. sub-voxel, and *not*
-        /// reduced by shrinking gamma or the step size.
+        /// linear model built from `rows`. `GridSDF` now differentiates the same
+        /// trilinear scalar field it evaluates, so value/gradient inconsistency is not
+        /// the cause of the remaining error. The finite joint-space step still crosses
+        /// a nonlinear robot kinematic map and may cross voxel boundaries where the
+        /// trilinear field's gradient jumps. A filter riding h = 0 can therefore land
+        /// slightly below it unless the enforced barrier reserves some room.
         ///
         /// So one voxel. This matters specifically when a CBF filter replaces the
         /// collision checker: with a checker in the loop those steps were quietly
@@ -439,12 +437,10 @@ namespace ompl::cbf
 
         /// The same over-reservation for the self-collision rows, and far smaller.
         ///
-        /// The world buffer is a statement about the *field*: a value and a gradient
-        /// interpolated independently need not agree, and the disagreement scales with
-        /// the grid however small the step. A sphere pair queries no field. Its value and
-        /// its row come from the same two centres, so the only way a step can land below
-        /// what the row predicted is the linearization itself — the centres travel on
-        /// arcs, and the row is a chord.
+        /// A sphere pair queries no field and therefore cannot cross a voxel boundary.
+        /// Its value and row come from the same two centres, so the only way a step can
+        /// land below what the row predicted is the linearization itself — the centres
+        /// travel on arcs, and the row is a chord.
         ///
         /// That error is small and, unlike the field's, does shrink with the step.
         /// Measured over 10k rollout waypoints at gamma up to 1.0 and steps up to

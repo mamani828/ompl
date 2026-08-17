@@ -18,13 +18,15 @@ namespace ompl::cbf
     /// Whether ScopedTimer and FilterStats::record actually do anything. Checked
     /// once (the environment does not change mid-run) rather than on every call,
     /// so "optional" costs one cached bool read, not a getenv() per filter call.
-    /// Set OMPL_CBF_PROFILE=0 to turn instrumentation off.
+    /// Set OMPL_CBF_PROFILE=1 to turn instrumentation on. It is opt-in because each
+    /// sample takes a process-wide mutex and materially distorts this microsecond-scale
+    /// hot path.
     inline bool profilingEnabled()
     {
         static const bool enabled = []
         {
             const char *v = std::getenv("OMPL_CBF_PROFILE");
-            return v == nullptr || std::strcmp(v, "0") != 0;
+            return v != nullptr && std::strcmp(v, "0") != 0;
         }();
         return enabled;
     }
@@ -127,6 +129,7 @@ namespace ompl::cbf
             std::size_t filtered{0};
             std::size_t blocked{0};
             std::size_t activeRowsSum{0};
+            std::size_t zeroActiveRows{0};
             int activeRowsMax{0};
             std::ptrdiff_t solverIterationsSum{0};
             std::ptrdiff_t solverIterationsMax{0};
@@ -165,6 +168,8 @@ namespace ompl::cbf
                     break;
             }
             s.activeRowsSum += static_cast<std::size_t>(activeRows);
+            if (activeRows == 0)
+                ++s.zeroActiveRows;
             s.activeRowsMax = std::max(s.activeRowsMax, activeRows);
             s.solverIterationsSum += solverIterations;
             s.solverIterationsMax = std::max(s.solverIterationsMax, solverIterations);
@@ -190,6 +195,8 @@ namespace ompl::cbf
             std::fprintf(out, "  active rows:       avg=%.2f  max=%d\n",
                         s.calls ? static_cast<double>(s.activeRowsSum) / static_cast<double>(s.calls) : 0.0,
                         s.activeRowsMax);
+            std::fprintf(out, "  zero-row fast path: %zu (%.1f%%)\n", s.zeroActiveRows,
+                        pct(s.zeroActiveRows));
             std::fprintf(out, "  qp iterations:     avg=%.2f  max=%td\n",
                         s.calls ? static_cast<double>(s.solverIterationsSum) / static_cast<double>(s.calls) : 0.0,
                         s.solverIterationsMax);

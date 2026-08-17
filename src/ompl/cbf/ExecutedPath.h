@@ -37,16 +37,18 @@ namespace ompl::cbf
     /// is a re-derivation rather than a replay -- a different trajectory that happens to
     /// be safe -- and the usual cause is ledger eviction. Callers that report on the
     /// path should report this too.
-    inline geometric::PathGeometric executedPath(const geometric::PathGeometric &path,
-                                                 double resolution = 0.0,
-                                                 std::size_t *misses = nullptr)
+    template <typename Robot>
+    geometric::PathGeometric robotExecutedPath(const geometric::PathGeometric &path,
+                                                double resolution = 0.0,
+                                                std::size_t *misses = nullptr)
     {
-        using Configuration = FilteredStateSpace::Configuration;
+        using Space = RobotFilteredStateSpace<Robot>;
+        using Configuration = typename Space::Configuration;
 
         const base::SpaceInformationPtr &si = path.getSpaceInformation();
-        const auto *space = dynamic_cast<const FilteredStateSpace *>(si->getStateSpace().get());
+        const auto *space = dynamic_cast<const Space *>(si->getStateSpace().get());
         if (space == nullptr)
-            throw Exception("executedPath requires a FilteredStateSpace");
+            throw Exception("robotExecutedPath requires a matching RobotFilteredStateSpace");
 
         if (misses != nullptr)
             *misses = 0;
@@ -63,11 +65,11 @@ namespace ompl::cbf
 
         for (std::size_t i = 0; i + 1 < path.getStateCount(); ++i)
         {
-            const Configuration from = FilteredStateSpace::configurationOf(path.getState(i));
-            const Configuration to = FilteredStateSpace::configurationOf(path.getState(i + 1));
+            const Configuration from = Space::configurationOf(path.getState(i));
+            const Configuration to = Space::configurationOf(path.getState(i + 1));
 
             edge.clear();
-            if (const FilteredStateSpace::EdgeRecord record = space->recordedEdge(from, to))
+            if (const typename Space::EdgeRecord record = space->recordedEdge(from, to))
             {
                 edge.reserve(record.size());
                 for (std::size_t k = 0; k < record.size(); ++k)
@@ -80,7 +82,7 @@ namespace ompl::cbf
                 // different trajectory from the one the planner validated -- so say so.
                 if (misses != nullptr)
                     ++*misses;
-                FilteredStateSpace::Rollout rollout = space->roll(from, to, 1.0);
+                typename Space::Rollout rollout = space->roll(from, to, 1.0);
                 edge = std::move(rollout.waypoints);
                 if (edge.empty())
                     edge.push_back(from);
@@ -89,7 +91,7 @@ namespace ompl::cbf
 
             if (i == 0)
             {
-                FilteredStateSpace::setState(scratch, edge.front());
+                Space::setState(scratch, edge.front());
                 out.append(scratch);
             }
 
@@ -106,15 +108,23 @@ namespace ompl::cbf
                 for (std::size_t part = 1; part < parts; ++part)
                 {
                     const double t = static_cast<double>(part) / static_cast<double>(parts);
-                    FilteredStateSpace::setState(scratch, a + t * (b - a));
+                    Space::setState(scratch, a + t * (b - a));
                     out.append(scratch);
                 }
-                FilteredStateSpace::setState(scratch, b);
+                Space::setState(scratch, b);
                 out.append(scratch);
             }
         }
 
         si->freeState(scratch);
         return out;
+    }
+
+    /// Compatibility entry point for the original UR5 API.
+    inline geometric::PathGeometric executedPath(const geometric::PathGeometric &path,
+                                                 double resolution = 0.0,
+                                                 std::size_t *misses = nullptr)
+    {
+        return robotExecutedPath<robots::UR5>(path, resolution, misses);
     }
 }  // namespace ompl::cbf

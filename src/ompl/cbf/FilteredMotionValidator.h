@@ -44,15 +44,18 @@ namespace ompl::cbf
     ///   is clear, so arrive-or-reject is the correct answer; without it the planner
     ///   would add nodes it cannot drive to. `reachTolerance` is what "arrived" means,
     ///   and this fallback is now the only place it is used.
-    class FilteredMotionValidator : public base::MotionValidator
+    template <typename Robot>
+    class RobotFilteredMotionValidator : public base::MotionValidator
     {
     public:
-        explicit FilteredMotionValidator(base::SpaceInformation *si)
+        using Space = RobotFilteredStateSpace<Robot>;
+
+        explicit RobotFilteredMotionValidator(base::SpaceInformation *si)
           : base::MotionValidator(si), space_(spaceOf(si))
         {
         }
 
-        explicit FilteredMotionValidator(const base::SpaceInformationPtr &si)
+        explicit RobotFilteredMotionValidator(const base::SpaceInformationPtr &si)
           : base::MotionValidator(si), space_(spaceOf(si.get()))
         {
         }
@@ -70,7 +73,7 @@ namespace ompl::cbf
                 return true;
             }
 
-            FilteredStateSpace::Rollout rollout = space_->roll(s1, s2, 1.0);
+            typename Space::Rollout rollout = space_->roll(s1, s2, 1.0);
             if (!rollout.reachedTarget)
             {
                 ++invalid_;
@@ -100,7 +103,7 @@ namespace ompl::cbf
                 return true;
             }
 
-            FilteredStateSpace::Rollout rollout = space_->roll(s1, s2, 1.0);
+            typename Space::Rollout rollout = space_->roll(s1, s2, 1.0);
             if (rollout.reachedTarget)
             {
                 recordArrival(s1, s2, std::move(rollout));
@@ -112,7 +115,7 @@ namespace ompl::cbf
             // Where the rollout got to *is* reachable and safe, so it is a strictly
             // better "last valid state" than a point on the straight line would be.
             if (lastValid.first != nullptr)
-                FilteredStateSpace::setState(lastValid.first, rollout.end);
+                Space::setState(lastValid.first, rollout.end);
             // How far through the motion it got, which the rollout reports directly: with
             // a certified step the count of filter calls no longer measures progress.
             lastValid.second = rollout.fraction;
@@ -127,8 +130,7 @@ namespace ompl::cbf
         /// zero-length edge. Refuse it here instead.
         static bool zeroLength(const base::State *s1, const base::State *s2)
         {
-            return FilteredStateSpace::bitwiseEqual(FilteredStateSpace::configurationOf(s1),
-                                                    FilteredStateSpace::configurationOf(s2));
+            return Space::bitwiseEqual(Space::configurationOf(s1), Space::configurationOf(s2));
         }
 
         /// Valid by construction: either the pending rollout produced this edge, or the
@@ -153,24 +155,27 @@ namespace ompl::cbf
         /// exactly the gap `reachedTarget` has always accepted. Recording it makes the
         /// gap explicit and bounded instead of implicit.
         void recordArrival(const base::State *s1, const base::State *s2,
-                           FilteredStateSpace::Rollout rollout) const
+                           typename Space::Rollout rollout) const
         {
-            const FilteredStateSpace::Configuration from = FilteredStateSpace::configurationOf(s1);
-            const FilteredStateSpace::Configuration to = FilteredStateSpace::configurationOf(s2);
+            const typename Space::Configuration from = Space::configurationOf(s1);
+            const typename Space::Configuration to = Space::configurationOf(s2);
             if (rollout.waypoints.size() < 2)
                 return;
             rollout.waypoints.back() = to;
             space_->record(from, to, std::move(rollout.waypoints));
         }
 
-        static const FilteredStateSpace *spaceOf(const base::SpaceInformation *si)
+        static const Space *spaceOf(const base::SpaceInformation *si)
         {
-            const auto *space = dynamic_cast<const FilteredStateSpace *>(si->getStateSpace().get());
+            const auto *space = dynamic_cast<const Space *>(si->getStateSpace().get());
             if (space == nullptr)
-                throw Exception("FilteredMotionValidator requires a FilteredStateSpace");
+                throw Exception("RobotFilteredMotionValidator requires a matching RobotFilteredStateSpace");
             return space;
         }
 
-        const FilteredStateSpace *space_;
+        const Space *space_;
     };
+
+    /// Compatibility alias for the original UR5 API.
+    using FilteredMotionValidator = RobotFilteredMotionValidator<robots::UR5>;
 }  // namespace ompl::cbf

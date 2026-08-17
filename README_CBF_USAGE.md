@@ -443,7 +443,11 @@ where `L` is `UR5::leverArmBounds()` and `maxGrad` is `GridSDF::maxGradientNorm(
 configuration-independent — so a sphere clear by more than `rate_i * dt` cannot bind
 within the step and needs no gradient, no Jacobian and no row. Measured over random
 configurations, that leaves **0.8 rows of 40** and an identical control every time, taking
-`filter()` from 3.69 to **2.44 µs**. It is on by default (`Parameters::screening`).
+`filter()` from 3.69 to **2.44 µs**. It is on by default (`Parameters::screening`). When
+no rows survive, the remaining diagonal box QP is solved exactly by clamping the nominal
+control, without entering qpmad; the profiler reports how often this zero-row fast path fires.
+Profiling is opt-in because its per-sample mutex distorts such short operations; run a demo
+with `OMPL_CBF_PROFILE=1` when collecting the stage and filter statistics below.
 
 The bound is a Lipschitz argument, not a linearisation: `L[i][k]` bounds sphere i's
 distance to joint k's axis at *every* configuration, so integrating it bounds the true
@@ -673,7 +677,7 @@ geometry.
 
 - Forward kinematics cross-checked three ways: vs `vamp.ur5.fk` **2.67e-06 m**, vs
   PyBullet **2.62e-07 m**, analytic Jacobian vs central differences **2.51e-10**.
-- 52 test cases across 6 binaries (`test_ur5`, `test_clearance_barrier`,
+- 54 test cases across 6 binaries (`test_ur5`, `test_clearance_barrier`,
   `test_qpmad_vendored`, `test_cbf_control_filter`, `test_filtered_propagator`,
   `test_filtered_state_space`).
 - Filtered clearance saturates at 0.04369 against a promised floor of 0.04399 —
@@ -690,19 +694,21 @@ all-or-nothing (no incremental update, so a *changing* environment means rebakin
 and `GridSDF` clamps out-of-bounds queries **optimistically**, which is why
 `inBounds` is a first-class output that the filter treats as "no usable barrier".
 
-**The robot is not.** `ControlFilter::Configuration` is typedef'd directly to
-`robots::UR5::Configuration`, `ClearanceBarrier::Robot` is `robots::UR5`, and 6 joints
-/ 40 spheres are **compile-time template parameters of the solver**
-(`qpmad::SolverTemplate<double, nJoints, 1, nSpheres>`). Changing robots means editing
-four files. `ClearanceBarrier`'s header names the seam — sphere centres, sphere
-Jacobians, radii — but it is not built. In cost order: move joint limits into
-`Parameters` (`CBFControlFilter.cpp:50` reaches past the barrier straight to
-`robots::UR5::lowerBounds()`, which is a wart regardless); parameterise
-`Configuration` by dimension; template `ClearanceBarrier` on the robot; make
-`nSpheres` dynamic in qpmad.
+**The planner-facing layer is robot-generic.** A robot model supplies `nJoints`, a
+fixed-size Eigen `Configuration`, `lowerBounds()`, `upperBounds()`, and
+`velocityLimits()`. A filter derives from `RobotControlFilter<Robot>`, after which
+`makeRobotFilteredStateSpace(filter, stepSize)` creates the correctly dimensioned
+space and installs the robot's joint bounds and default speeds. The matching types are
+`RobotFilteredMotionValidator<Robot>` and `RobotFilteredStatePropagator<Robot>`.
+`ControlFilter`, `FilteredStateSpace`, `FilteredMotionValidator`, and
+`FilteredStatePropagator` remain UR5 aliases for source compatibility.
 
-The planner-facing layer *is* modular: `FilteredStatePropagator` and
-`FilteredStateSpace` take a `const ControlFilter &` and never look inside.
+**The supplied barrier and QP are still UR5-specific.** `ClearanceBarrier::Robot` is
+`robots::UR5`, and 6 joints / 40 spheres are compile-time template parameters of the
+solver (`qpmad::SolverTemplate<double, nJoints, 1, nSpheres>`). A new robot can now
+plug its own `RobotControlFilter<Robot>` into the planner without changing planner
+code, but reusing this particular `ClearanceBarrier`/`CBFControlFilter` implementation
+still requires templating the barrier and solver over the robot geometry.
 
 ## Open items
 
@@ -806,6 +812,10 @@ The A/B knobs are the same commands with one argument changed:
 # self rows off (MBM argument 12, scene demo argument 8)
 ./build/demos/demo_UR5MBMBenchmark $WORK/scenes.txt 15 2.0 0.02 0.05 2.0 0.002 0.006 -1 0.4 -1 -100 $WORK/off
 ./build/demos/demo_UR5PyBulletScene ur5_experiments/out/shelf.problem 10 $WORK/off.path 5 -1 -1 -1 -100
+
+# zero world guard buffer (scene demo argument 10): experimental and expected to leak
+./build/demos/demo_UR5PyBulletScene ur5_experiments/out/clutter.problem \
+  10 $WORK/no-buffer.path 30 -1 -1 -1 0 0 0
 
 # baseline back at OMPL's coarse default instead of matched (MBM argument 9)
 ./build/demos/demo_UR5MBMBenchmark $WORK/scenes.txt 15 2.0 0.02 0.05 2.0 0.002 0.006 0.01 0.4 -1 0 $WORK/coarse
