@@ -55,23 +55,25 @@ namespace ompl::sdf
                 spacing_[d] = (extent[d] > 0.0) ? extent[d] / (dims_[d] - 1) : 0.0;
             }
 
-        const std::size_t total =
-            static_cast<std::size_t>(dims_[0]) * dims_[1] * dims_[2];
+            initializeLookupConstants();
 
-        values_.resize(total);
+            const std::size_t total =
+                static_cast<std::size_t>(dims_[0]) * dims_[1] * dims_[2];
 
-        for (int k = 0; k < dims_[2]; ++k)
-            for (int j = 0; j < dims_[1]; ++j)
-                for (int i = 0; i < dims_[0]; ++i)
-                    values_[index(i, j, k)] =
-                        distanceFn(nodePoint(i, j, k));
+            values_.resize(total);
 
-        computeLipschitzBound();
+            for (int k = 0; k < dims_[2]; ++k)
+                for (int j = 0; j < dims_[1]; ++j)
+                    for (int i = 0; i < dims_[0]; ++i)
+                        values_[index(i, j, k)] =
+                            distanceFn(nodePoint(i, j, k));
+
+            computeLipschitzBound();
         }
 
         auto distance(const Eigen::Vector3d &p) const -> double
         {
-            return interpolate(p).value;
+            return interpolateValue(p);
         }
 
         auto gradient(const Eigen::Vector3d &p) const -> Eigen::Vector3d
@@ -93,7 +95,7 @@ namespace ompl::sdf
                 throw std::invalid_argument("ompl::sdf::GridSDF::distanceBatch: distances size mismatch");
 
             for (Eigen::Index i = 0; i < count; ++i)
-                distances[i] = interpolate(points.col(i)).value;
+                distances[i] = interpolateValue(points.col(i));
         }
 
         /// Batched value and gradient query for column-wise points (3 x N).
@@ -192,6 +194,7 @@ namespace ompl::sdf
             for (int d = 0; d < 3; ++d)
                 spacing_[d] = (extent[d] > 0.0) ? extent[d] / (dims_[d] - 1) : 0.0;
 
+            initializeLookupConstants();
             computeLipschitzBound();
         }
 
@@ -294,10 +297,93 @@ namespace ompl::sdf
         }
 
     private:
+        struct Cell
+        {
+            std::size_t base;
+            double fraction[3];
+            bool derivativeActive[3];
+        };
+
+        struct Corners
+        {
+            double v000;
+            double v100;
+            double v010;
+            double v110;
+            double v001;
+            double v101;
+            double v011;
+            double v111;
+        };
+
+        void initializeLookupConstants()
+        {
+            for (int d = 0; d < 3; ++d)
+                inverseSpacing_[d] = spacing_[d] > 0.0 ? 1.0 / spacing_[d] : 0.0;
+            strideY_ = static_cast<std::size_t>(dims_[0]);
+            strideZ_ = strideY_ * static_cast<std::size_t>(dims_[1]);
+        }
+
         auto index(int i, int j, int k) const -> std::size_t
         {
             return static_cast<std::size_t>(i) +
                    static_cast<std::size_t>(dims_[0]) * (j + static_cast<std::size_t>(dims_[1]) * k);
+        }
+
+        template <bool NeedGradient>
+        auto locate(const Eigen::Vector3d &p) const -> Cell
+        {
+            Cell cell{};
+            int coordinate[3];
+
+            for (int d = 0; d < 3; ++d)
+            {
+                const double raw = (p[d] - origin_[d]) * inverseSpacing_[d];
+                const double last = static_cast<double>(dims_[d] - 1);
+
+                if constexpr (NeedGradient)
+                    cell.derivativeActive[d] = raw >= 0.0 && raw <= last && spacing_[d] > 0.0;
+
+                const double clamped = std::clamp(raw, 0.0, last);
+                coordinate[d] = std::min(static_cast<int>(clamped), dims_[d] - 2);
+                cell.fraction[d] = clamped - static_cast<double>(coordinate[d]);
+            }
+
+            cell.base = static_cast<std::size_t>(coordinate[0]) +
+                        strideY_ * static_cast<std::size_t>(coordinate[1]) +
+                        strideZ_ * static_cast<std::size_t>(coordinate[2]);
+            return cell;
+        }
+
+        auto corners(std::size_t base) const -> Corners
+        {
+            const double *v = values_.data() + base;
+            return {v[0],
+                    v[1],
+                    v[strideY_],
+                    v[strideY_ + 1],
+                    v[strideZ_],
+                    v[strideZ_ + 1],
+                    v[strideZ_ + strideY_],
+                    v[strideZ_ + strideY_ + 1]};
+        }
+
+        static auto lerp(double a, double b, double fraction) -> double
+        {
+            return a + fraction * (b - a);
+        }
+
+        auto interpolateValue(const Eigen::Vector3d &p) const -> double
+        {
+            const Cell cell = locate<false>(p);
+            const Corners v = corners(cell.base);
+            const double x00 = lerp(v.v000, v.v100, cell.fraction[0]);
+            const double x10 = lerp(v.v010, v.v110, cell.fraction[0]);
+            const double x01 = lerp(v.v001, v.v101, cell.fraction[0]);
+            const double x11 = lerp(v.v011, v.v111, cell.fraction[0]);
+            const double y0 = lerp(x00, x10, cell.fraction[1]);
+            const double y1 = lerp(x01, x11, cell.fraction[1]);
+            return lerp(y0, y1, cell.fraction[2]);
         }
 
         auto nodePoint(int i, int j, int k) const -> Eigen::Vector3d
@@ -311,7 +397,7 @@ namespace ompl::sdf
         /// `wy * wz`) of the slopes along the cell's four x-edges, so the largest of those
         /// four slopes bounds it; likewise for y and z. Combining the three per-axis bounds
         /// bounds the gradient norm on that cell, and the max over cells bounds the field.
-     void computeLipschitzBound()
+        void computeLipschitzBound()
         {
             maxGradientNorm_ = 0.0;
 
@@ -391,144 +477,44 @@ namespace ompl::sdf
 
         /// Trilinear interpolation of value and gradient. Points outside the grid
         /// are clamped to the boundary (nearest-node extrapolation).
-    auto interpolate(const Eigen::Vector3d &p) const -> ValueGradient
-    {
-        int i0[3];
-        double f[3];
-        bool derivativeActive[3];
-
-        for (int d = 0; d < 3; ++d)
+        auto interpolate(const Eigen::Vector3d &p) const -> ValueGradient
         {
-            const double raw =
-                spacing_[d] > 0.0 ?
-                    (p[d] - origin_[d]) / spacing_[d] :
-                    0.0;
+            const Cell cell = locate<true>(p);
+            const Corners v = corners(cell.base);
+            const double x = cell.fraction[0];
+            const double y = cell.fraction[1];
+            const double z = cell.fraction[2];
 
-            derivativeActive[d] =
-                raw >= 0.0 &&
-                raw <= static_cast<double>(dims_[d] - 1);
+            const double x00 = lerp(v.v000, v.v100, x);
+            const double x10 = lerp(v.v010, v.v110, x);
+            const double x01 = lerp(v.v001, v.v101, x);
+            const double x11 = lerp(v.v011, v.v111, x);
+            const double y0 = lerp(x00, x10, y);
+            const double y1 = lerp(x01, x11, y);
 
-            const double c = std::clamp(
-                raw,
-                0.0,
-                static_cast<double>(dims_[d] - 1));
+            ValueGradient out;
+            out.value = lerp(y0, y1, z);
 
-            i0[d] = std::clamp(
-                static_cast<int>(std::floor(c)),
-                0,
-                dims_[d] - 2);
-
-            f[d] = c - static_cast<double>(i0[d]);
-        }
-
-        const double wx[2] = {1.0 - f[0], f[0]};
-        const double wy[2] = {1.0 - f[1], f[1]};
-        const double wz[2] = {1.0 - f[2], f[2]};
-
-        ValueGradient out;
-
-        // Trilinear scalar value.
-        for (int dk = 0; dk < 2; ++dk)
-        {
-            for (int dj = 0; dj < 2; ++dj)
+            if (cell.derivativeActive[0])
             {
-                for (int di = 0; di < 2; ++di)
-                {
-                    const double weight =
-                        wx[di] * wy[dj] * wz[dk];
-
-                    out.value +=
-                        weight *
-                        values_[index(
-                            i0[0] + di,
-                            i0[1] + dj,
-                            i0[2] + dk)];
-                }
+                const double dx0 = lerp(v.v100 - v.v000, v.v110 - v.v010, y);
+                const double dx1 = lerp(v.v101 - v.v001, v.v111 - v.v011, y);
+                out.gradient[0] = lerp(dx0, dx1, z) * inverseSpacing_[0];
             }
+            if (cell.derivativeActive[1])
+                out.gradient[1] = lerp(x10 - x00, x11 - x01, z) * inverseSpacing_[1];
+            if (cell.derivativeActive[2])
+                out.gradient[2] = (y1 - y0) * inverseSpacing_[2];
+
+            return out;
         }
-
-        // Exact derivative of the same trilinear scalar field.
-        if (spacing_[0] > 0.0 && derivativeActive[0])
-        {
-            for (int dk = 0; dk < 2; ++dk)
-            {
-                for (int dj = 0; dj < 2; ++dj)
-                {
-                    const double v0 =
-                        values_[index(
-                            i0[0],
-                            i0[1] + dj,
-                            i0[2] + dk)];
-
-                    const double v1 =
-                        values_[index(
-                            i0[0] + 1,
-                            i0[1] + dj,
-                            i0[2] + dk)];
-
-                    out.gradient[0] +=
-                        wy[dj] * wz[dk] *
-                        (v1 - v0) / spacing_[0];
-                }
-            }
-        }
-
-        if (spacing_[1] > 0.0 && derivativeActive[1])
-        {
-            for (int dk = 0; dk < 2; ++dk)
-            {
-                for (int di = 0; di < 2; ++di)
-                {
-                    const double v0 =
-                        values_[index(
-                            i0[0] + di,
-                            i0[1],
-                            i0[2] + dk)];
-
-                    const double v1 =
-                        values_[index(
-                            i0[0] + di,
-                            i0[1] + 1,
-                            i0[2] + dk)];
-
-                    out.gradient[1] +=
-                        wx[di] * wz[dk] *
-                        (v1 - v0) / spacing_[1];
-                }
-            }
-        }
-
-        if (spacing_[2] > 0.0 && derivativeActive[2])
-        {
-            for (int dj = 0; dj < 2; ++dj)
-            {
-                for (int di = 0; di < 2; ++di)
-                {
-                    const double v0 =
-                        values_[index(
-                            i0[0] + di,
-                            i0[1] + dj,
-                            i0[2])];
-
-                    const double v1 =
-                        values_[index(
-                            i0[0] + di,
-                            i0[1] + dj,
-                            i0[2] + 1)];
-
-                    out.gradient[2] +=
-                        wx[di] * wy[dj] *
-                        (v1 - v0) / spacing_[2];
-                }
-            }
-        }
-
-        return out;
-    }
         Eigen::AlignedBox3d bounds_;
         Eigen::Vector3d origin_;
         Eigen::Vector3i dims_{2, 2, 2};
         Eigen::Vector3d spacing_{0.0, 0.0, 0.0};
+        Eigen::Vector3d inverseSpacing_{0.0, 0.0, 0.0};
+        std::size_t strideY_{2};
+        std::size_t strideZ_{4};
         double maxGradientNorm_{0.0};
         std::vector<double> values_;
     };

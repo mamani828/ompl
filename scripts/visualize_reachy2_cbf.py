@@ -29,18 +29,34 @@ WOOD = (0.62, 0.44, 0.26, 1.0)
 # base_link at that height so the physical base, rather than its frame origin,
 # rests on z=0.  This must match Reachy2::groundedBasePose().
 GROUNDED_BASE_Z = 0.1075
+# PyBullet applies base_link's +pi/2 inertial-frame rotation to the root link
+# pose. Cancel it so replay uses the same URDF link frame as the generated C++ FK.
+PYBULLET_ROOT_CORRECTION = (np.pi/2, 0.0, 0.0)
 
 
 def read_path(path: Path):
     with path.open() as stream:
         header = stream.readline().strip().split()
-    if header[:2] != ["#", "joints"]:
-        raise ValueError(f"{path}: expected '# joints ...' header")
-    names = header[2:]
+    mobile = header[:3] == ["#", "trajectory", "time_s"]
+    fixed = header[:2] == ["#", "joints"]
+    if not mobile and not fixed:
+        raise ValueError(f"{path}: expected '# joints ...' or '# trajectory time_s base_x ...' header")
+    if mobile:
+        if header[3:6] != ["base_x", "base_y", "base_yaw"]:
+            raise ValueError(f"{path}: malformed mobile trajectory header")
+        names = header[6:]
+    else:
+        names = header[2:]
     values = np.loadtxt(path, comments="#", ndmin=2)
-    if values.shape[1] != len(names):
-        raise ValueError(f"{path}: header has {len(names)} joints, rows have {values.shape[1]}")
-    return names, values
+    expected = len(names) + (4 if mobile else 0)
+    if values.shape[1] != expected:
+        raise ValueError(f"{path}: header implies {expected} columns, rows have {values.shape[1]}")
+    if mobile:
+        return names, values[:, 4:], values[:, 1:4], values[:, 0]
+    # Legacy paths are untimed and retain frames-per-segment playback.
+    times = np.zeros(values.shape[0], dtype=float)
+    bases = np.zeros((values.shape[0], 3), dtype=float)
+    return names, values, bases, times
 
 
 def sphere_visual_urdf(source: Path, destination: Path):
@@ -107,7 +123,7 @@ def main():
     ap.add_argument("--gui", action="store_true", help="open the interactive PyBullet GUI")
     ap.add_argument("--hold", action="store_true", help="keep the GUI open after playback")
     ap.add_argument("--png", type=Path, help="save the final frame as a PNG")
-    ap.add_argument("--speed", type=float, default=1.0)
+    ap.add_argument("--speed", type=float, default=10.0)
     ap.add_argument("--fps", type=float, default=60.0)
     ap.add_argument("--frames-per-segment", type=int, default=4)
     ap.add_argument("--left-goal", default="0.62,0.20,1.1344")
@@ -116,7 +132,7 @@ def main():
     if args.speed <= 0 or args.fps <= 0 or args.frames_per_segment < 1:
         ap.error("speed/fps must be positive and frames-per-segment must be >= 1")
 
-    joint_names, path = read_path(args.path)
+    joint_names, path, bases, times = read_path(args.path)
     left_goal = np.fromstring(args.left_goal, sep=",")
     right_goal = np.fromstring(args.right_goal, sep=",")
     if left_goal.size != 3 or right_goal.size != 3:
@@ -140,7 +156,9 @@ def main():
         temporary = tempfile.TemporaryDirectory(prefix="reachy2_cbf_viz_")
         robot_urdf = Path(temporary.name) / "reachy2_spheres.urdf"
         sphere_visual_urdf(args.urdf, robot_urdf)
-    robot = p.loadURDF(str(robot_urdf), basePosition=(0, 0, GROUNDED_BASE_Z), useFixedBase=True,
+    root_correction = p.getQuaternionFromEuler(PYBULLET_ROOT_CORRECTION)
+    robot = p.loadURDF(str(robot_urdf), basePosition=(0, 0, GROUNDED_BASE_Z),
+                       baseOrientation=root_correction, useFixedBase=True,
                        flags=p.URDF_USE_INERTIA_FROM_FILE)
 
     joints = {}
@@ -158,7 +176,11 @@ def main():
 
     traces = [[], []]
 
-    def show(q):
+    def show(q, base):
+        yaw = p.getQuaternionFromEuler((0.0, 0.0, float(base[2])))
+        orientation = p.multiplyTransforms((0, 0, 0), yaw, (0, 0, 0), root_correction)[1]
+        p.resetBasePositionAndOrientation(
+            robot, (float(base[0]), float(base[1]), GROUNDED_BASE_Z), orientation)
         for joint, value in zip(indices, q):
             p.resetJointState(robot, joint, float(value))
         p.performCollisionDetection()
@@ -173,16 +195,22 @@ def main():
             traces[k].append(xyz)
         return tips
 
-    show(path[0])
+    show(path[0], bases[0])
     delay = 1.0 / (args.fps * args.speed)
-    for qa, qb in zip(path[:-1], path[1:]):
-        for alpha in np.linspace(0, 1, args.frames_per_segment + 1)[1:]:
-            show((1-alpha)*qa + alpha*qb)
+    for i, (qa, qb) in enumerate(zip(path[:-1], path[1:])):
+        duration = max(float(times[i + 1] - times[i]), 0.0)
+        frames = max(args.frames_per_segment, int(np.ceil(duration * args.fps)))
+        yaw_delta = (bases[i + 1, 2] - bases[i, 2] + np.pi) % (2*np.pi) - np.pi
+        for alpha in np.linspace(0, 1, frames + 1)[1:]:
+            base = (1-alpha)*bases[i] + alpha*bases[i + 1]
+            base[2] = bases[i, 2] + alpha*yaw_delta
+            show((1-alpha)*qa + alpha*qb, base)
             if args.gui:
                 time.sleep(delay)
 
-    final_tips = show(path[-1])
-    print(f"replayed {len(path)} path states ({len(joint_names)} joints)")
+    final_tips = show(path[-1], bases[-1])
+    print(f"replayed {len(path)} path states ({len(joint_names)} joints), "
+          f"final base=({bases[-1,0]:.4f}, {bases[-1,1]:.4f}, {bases[-1,2]:.4f})")
     print("final left tip: ", *[f"{x:.4f}" for x in final_tips[0]],
           f" error={np.linalg.norm(final_tips[0]-left_goal):.4f} m")
     print("final right tip:", *[f"{x:.4f}" for x in final_tips[1]],

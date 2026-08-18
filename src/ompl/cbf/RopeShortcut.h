@@ -39,19 +39,21 @@ namespace ompl::cbf
             return total;
         }
 
-        template <typename Configuration>
-        inline double vectorArcLength(const std::vector<Configuration> &waypoints)
+        template <typename Configuration, typename Operations = EuclideanConfigurationOperations<Configuration>>
+        inline double vectorArcLength(const std::vector<Configuration> &waypoints,
+                                      const Operations & = Operations())
         {
             double total = 0.0;
             for (std::size_t k = 0; k + 1 < waypoints.size(); ++k)
-                total += (waypoints[k + 1] - waypoints[k]).norm();
+                total += Operations::distance(waypoints[k], waypoints[k + 1]);
             return total;
         }
 
-        template <typename Configuration>
-        inline void appendDistinct(std::vector<Configuration> &motion, const Configuration &q)
+        template <typename Configuration, typename Operations = EuclideanConfigurationOperations<Configuration>>
+        inline void appendDistinct(std::vector<Configuration> &motion, const Configuration &q,
+                                   const Operations & = Operations())
         {
-            if (motion.empty() || (motion.back() - q).norm() > 1e-12)
+            if (motion.empty() || Operations::difference(motion.back(), q).norm() > 1e-12)
                 motion.push_back(q);
         }
 
@@ -65,9 +67,11 @@ namespace ompl::cbf
             std::vector<std::vector<Configuration>> edges;
         };
 
-        template <typename Configuration>
+        template <typename Configuration,
+                  typename Operations = EuclideanConfigurationOperations<Configuration>>
         inline DenseMotion<Configuration> densifyMotion(const std::vector<Configuration> &motion,
-                                                         double delta)
+                                                         double delta,
+                                                         const Operations &operations = Operations())
         {
             DenseMotion<Configuration> out;
             if (motion.empty())
@@ -80,33 +84,34 @@ namespace ompl::cbf
             {
                 Configuration from = motion[k - 1];
                 const Configuration to = motion[k];
-                double remaining = (to - from).norm();
+                double remaining = Operations::distance(from, to);
                 while (remaining > 1e-12)
                 {
                     const double needed = delta - edgeLength;
                     if (remaining + 1e-12 >= needed)
                     {
-                        const Configuration cut = from + (needed / remaining) * (to - from);
-                        appendDistinct(edge, cut);
+                        const Configuration cut =
+                            Operations::interpolate(from, to, needed / remaining);
+                        appendDistinct(edge, cut, operations);
                         out.edges.push_back(edge);
                         out.anchors.push_back(cut);
                         edge.assign(1, cut);
                         from = cut;
-                        remaining = (to - from).norm();
+                        remaining = Operations::distance(from, to);
                         edgeLength = 0.0;
                     }
                     else
                     {
-                        appendDistinct(edge, to);
+                        appendDistinct(edge, to, operations);
                         edgeLength += remaining;
                         remaining = 0.0;
                     }
                 }
             }
 
-            if ((out.anchors.back() - motion.back()).norm() > 1e-12)
+            if (Operations::difference(out.anchors.back(), motion.back()).norm() > 1e-12)
             {
-                appendDistinct(edge, motion.back());
+                appendDistinct(edge, motion.back(), operations);
                 out.edges.push_back(edge);
                 out.anchors.push_back(motion.back());
             }
@@ -413,15 +418,17 @@ namespace ompl::cbf
     /// and robots whose configuration dimension is not `FilteredStateSpace`'s legacy
     /// UR5 dimension. `rollout(from, to)` must return every filtered integration
     /// waypoint, beginning at `from`; an empty vector rejects the candidate.
-    template <typename Configuration, typename RolloutFunction>
+    template <typename Configuration, typename RolloutFunction,
+              typename Operations = EuclideanConfigurationOperations<Configuration>>
     std::vector<Configuration> ropeShortcut(const std::vector<Configuration> &input, double delta,
                                             double arrivalTolerance, RolloutFunction &&rollout,
                                             ShortcutReport *report = nullptr,
-                                            double equivalenceTolerance = 0.1)
+                                            double equivalenceTolerance = 0.1,
+                                            const Operations &operations = Operations())
     {
         if (report != nullptr)
             *report = ShortcutReport();
-        const double lengthBefore = detail::vectorArcLength(input);
+        const double lengthBefore = detail::vectorArcLength(input, operations);
         if (input.size() < 3 || delta <= 0.0)
         {
             if (report != nullptr)
@@ -431,7 +438,7 @@ namespace ompl::cbf
         if (arrivalTolerance <= 0.0)
             throw Exception("ropeShortcut: arrival tolerance must be positive");
 
-        detail::DenseMotion<Configuration> path = detail::densifyMotion(input, delta);
+        detail::DenseMotion<Configuration> path = detail::densifyMotion(input, delta, operations);
         constexpr unsigned int arrivalAttempts = 4;
         std::size_t screened = 0;
         std::size_t rollouts = 0;
@@ -447,8 +454,8 @@ namespace ompl::cbf
             {
                 double along = 0.0;
                 for (std::size_t edge = i; edge < j; ++edge)
-                    along += detail::vectorArcLength(path.edges[edge]);
-                const double euclidean = (path.anchors[j] - path.anchors[i]).norm();
+                    along += detail::vectorArcLength(path.edges[edge], operations);
+                const double euclidean = Operations::distance(path.anchors[i], path.anchors[j]);
                 if (euclidean >= along)
                 {
                     ++screened;
@@ -467,7 +474,7 @@ namespace ompl::cbf
                 if (motion.size() < 2)
                     continue;
 
-                double gap = (motion.back() - path.anchors[j]).norm();
+                double gap = Operations::distance(motion.back(), path.anchors[j]);
                 for (unsigned int attempt = 0; attempt < arrivalAttempts && gap > arrivalTolerance;
                      ++attempt)
                 {
@@ -475,7 +482,7 @@ namespace ompl::cbf
                     ++rollouts;
                     if (closing.size() < 2)
                         break;
-                    const double closed = (closing.back() - path.anchors[j]).norm();
+                    const double closed = Operations::distance(closing.back(), path.anchors[j]);
                     if (closed >= gap)
                         break;
                     motion.insert(motion.end(), closing.begin() + 1, closing.end());
@@ -486,11 +493,13 @@ namespace ompl::cbf
 
                 maxGap = std::max(maxGap, gap);
                 motion.back() = path.anchors[j];
-                if (detail::vectorArcLength(motion) > along - equivalenceTolerance * delta)
+                if (detail::vectorArcLength(motion, operations) >
+                    along - equivalenceTolerance * delta)
                     continue;
 
                 const bool reachedEnd = (j + 1 == path.anchors.size());
-                detail::DenseMotion<Configuration> replacement = detail::densifyMotion(motion, delta);
+                detail::DenseMotion<Configuration> replacement =
+                    detail::densifyMotion(motion, delta, operations);
                 detail::DenseMotion<Configuration> spliced;
                 spliced.anchors.insert(spliced.anchors.end(), path.anchors.begin(),
                                        path.anchors.begin() + i + 1);
@@ -521,7 +530,7 @@ namespace ompl::cbf
             output.push_back(path.anchors.front());
         for (const auto &edge : path.edges)
             for (std::size_t k = 1; k < edge.size(); ++k)
-                detail::appendDistinct(output, edge[k]);
+                detail::appendDistinct(output, edge[k], operations);
 
         if (report != nullptr)
         {
@@ -530,7 +539,7 @@ namespace ompl::cbf
             report->rollouts = rollouts;
             report->accepted = accepted;
             report->lengthBefore = lengthBefore;
-            report->lengthAfter = detail::vectorArcLength(output);
+            report->lengthAfter = detail::vectorArcLength(output, operations);
             report->maxArrivalGap = maxGap;
         }
         return output;
