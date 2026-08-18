@@ -14,3 +14,41 @@ bin/
 build/
 lib/
 log/
+
+# In-source CMake build artifacts (recur at every CMakeLists.txt directory)
+CMakeFiles/
+CTestTestfile.cmake
+Makefile
+cmake_install.cmake
+
+# In-source CMake build artifacts (root only)
+/CMakeCache.txt
+/CPackConfig.cmake
+/CPackSourceConfig.cmake
+/CPM_modules/
+/Testing/
+/_deps/
+/cmake_uninstall.cmake
+/compile_commands.json
+/cpm-package-lock.cmake
+/ompl.pc
+/omplConfig.cmake
+/omplConfigVersion.cmake
+/omplExport.cmake
+/share/
+
+# Generated from src/ompl/config.h.in
+/src/ompl/config.h
+
+# Recorded planner output
+*.path
+
+# Built demo and test binaries
+/demos/demo_Reachy2CBFPlanning
+/demos/demo_Reachy2MobileCBFPlanning
+/tests/test_cbf_control_filter
+/tests/test_clearance_barrier
+/tests/test_filtered_propagator
+/tests/test_filtered_state_space
+/tests/test_reachy2_mobile
+/tests/test_ur5
