@@ -156,6 +156,11 @@ namespace ompl::robots
             return ArmRobot::selfPairs();
         }
 
+        static const auto &steps()
+        {
+            return ArmRobot::steps();
+        }
+
         static Configuration lowerBounds()
         {
             constexpr double pi = 3.14159265358979323846;

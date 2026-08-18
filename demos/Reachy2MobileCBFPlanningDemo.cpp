@@ -18,7 +18,6 @@
 #include <boost/program_options.hpp>
 #include <Eigen/Core>
 #include <Eigen/Geometry>
-#include <qpmad/solver.h>
 
 #include <ompl/base/PlannerData.h>
 #include <ompl/base/ScopedState.h>
@@ -28,6 +27,8 @@
 #include <ompl/cbf/ExecutedPath.h>
 #include <ompl/cbf/FilteredMotionValidator.h>
 #include <ompl/cbf/FilteredStateSpace.h>
+#include <ompl/cbf/RobotCBFControlFilter.h>
+#include <ompl/cbf/RobotClearanceBarrier.h>
 #include <ompl/cbf/RobotStateSpace.h>
 #include <ompl/cbf/RopeShortcut.h>
 #include <ompl/geometric/PathGeometric.h>
@@ -45,6 +46,8 @@ using Arm = ompl::robots::Reachy2;
 using Robot = ompl::robots::HolonomicMobileManipulator<Arm>;
 using Configuration = Robot::Configuration;
 using Operations = Robot::ConfigurationOperations;
+using Barrier = ompl::cbf::RobotClearanceBarrier<Robot>;
+using Filter = ompl::cbf::RobotCBFControlFilter<Robot>;
 constexpr int N = static_cast<int>(Robot::nJoints);
 
 namespace
@@ -74,354 +77,7 @@ namespace
         return boxes;
     }
 
-    class MobileBarrier
-    {
-    public:
-        static constexpr double worldMargin = 0.010;
-        static constexpr double selfMargin = 0.005;
-        static constexpr int maxConstraints = Robot::nSpheres + Robot::nSelfPairs;
-        using Values = Eigen::Matrix<double, maxConstraints, 1>;
-        using Rows = Eigen::Matrix<double, maxConstraints, N>;
-        using Centers = Robot::SphereCenters;
-
-        struct Evaluation
-        {
-            Values values;
-            Rows rows;
-            Eigen::Matrix<int, maxConstraints, 1> constraint;
-            Eigen::Matrix<double, Robot::nSpheres, 1> boundary;
-            int active{0};
-            bool inBounds{true};
-        };
-
-        MobileBarrier(const Robot &robot, const ompl::sdf::GridSDF &field,
-                      const Configuration &reference)
-          : robot_(robot), field_(field)
-        {
-            buildLeverBounds();
-            const auto kin = robot_.kinematics(reference);
-            for (std::size_t p = 0; p < Robot::nSelfPairs; ++p)
-            {
-                const auto pair = Robot::selfPairs()[p];
-                const auto &a = Robot::spheres()[pair.a];
-                const auto &b = Robot::spheres()[pair.b];
-                const double gap = (Robot::sphereCenter(kin, pair.a) -
-                                    Robot::sphereCenter(kin, pair.b)).norm() -
-                                   a.radius - b.radius;
-                // Invariant pairs need no derivative row; unsafe invariant geometry is
-                // still rejected by safe().
-                if (a.influence != b.influence && gap > selfMargin + 0.02)
-                    selfPairs_.push_back(p);
-            }
-            buildPairLeverBounds();
-        }
-
-        std::size_t enabledSelfPairs() const
-        {
-            return selfPairs_.size();
-        }
-
-        void decreaseRates(const Configuration &speed, Values &rates) const
-        {
-            rates.setZero();
-            const Configuration absolute = speed.cwiseAbs();
-            rates.template head<Robot::nSpheres>() =
-                field_.maxGradientNorm() * (leverBounds_ * absolute);
-            for (std::size_t p = 0; p < selfPairs_.size(); ++p)
-                rates[Robot::nSpheres + p] = pairLeverBounds_.row(p).dot(absolute);
-        }
-
-        void evaluateScreened(const Configuration &q, const Values &threshold,
-                              Evaluation &out) const
-        {
-            const auto kin = robot_.kinematics(q);
-            Centers centers;
-            out.active = 0;
-            out.inBounds = true;
-            for (std::size_t i = 0; i < Robot::nSpheres; ++i)
-            {
-                centers.col(i) = Robot::sphereCenter(kin, i);
-                out.inBounds = out.inBounds && field_.inBounds(centers.col(i));
-                out.boundary[i] = boundaryClearance(centers.col(i));
-                out.values[i] = field_.distance(centers.col(i)) -
-                                Robot::spheres()[i].radius - worldMargin;
-            }
-            for (std::size_t p = 0; p < selfPairs_.size(); ++p)
-            {
-                const auto pair = Robot::selfPairs()[selfPairs_[p]];
-                out.values[Robot::nSpheres + p] =
-                    (centers.col(pair.a) - centers.col(pair.b)).norm() -
-                    Robot::spheres()[pair.a].radius - Robot::spheres()[pair.b].radius -
-                    selfMargin;
-            }
-            const std::size_t count = Robot::nSpheres + selfPairs_.size();
-            for (std::size_t flat = 0; flat < count; ++flat)
-            {
-                if (out.values[flat] > threshold[flat])
-                    continue;
-                const int row = out.active++;
-                out.constraint[row] = static_cast<int>(flat);
-                if (flat < Robot::nSpheres)
-                    out.rows.row(row) = field_.gradient(centers.col(flat)).transpose() *
-                                        Robot::sphereJacobian(kin, flat);
-                else
-                    out.rows.row(row) = pairGradient(
-                        kin, centers, flat - Robot::nSpheres).transpose();
-            }
-        }
-
-        double certifiedDuration(const Evaluation &evaluation, const Configuration &control,
-                                 double gamma, double buffer = 0.0) const
-        {
-            const Configuration speed = control.cwiseAbs();
-            const auto worldTravel = (leverBounds_ * speed).eval();
-            const double lipschitz = std::max(field_.maxGradientNorm(), 1.0);
-            double duration = std::numeric_limits<double>::infinity();
-            for (std::size_t i = 0; i < Robot::nSpheres; ++i)
-            {
-                if (worldTravel[i] <= 0.0)
-                    continue;
-                const double allowance = std::min(
-                    gamma * std::max(evaluation.values[i] - buffer, 0.0) / lipschitz,
-                    evaluation.boundary[i]);
-                duration = std::min(duration, allowance / worldTravel[i]);
-            }
-            for (std::size_t p = 0; p < selfPairs_.size(); ++p)
-            {
-                const double travel = pairLeverBounds_.row(p).dot(speed);
-                if (travel > 0.0)
-                    duration = std::min(duration,
-                        gamma * std::max(evaluation.values[Robot::nSpheres + p] - buffer, 0.0) /
-                            travel);
-            }
-            return std::max(duration, 0.0);
-        }
-
-        bool safe(const Configuration &q, double *world = nullptr, double *self = nullptr) const
-        {
-            const auto kin = robot_.kinematics(q);
-            Centers centers;
-            bool inBounds = true;
-            double worstWorld = std::numeric_limits<double>::infinity();
-            double worstSelf = std::numeric_limits<double>::infinity();
-            for (std::size_t i = 0; i < Robot::nSpheres; ++i)
-            {
-                centers.col(i) = Robot::sphereCenter(kin, i);
-                inBounds = inBounds && field_.inBounds(centers.col(i));
-                worstWorld = std::min(worstWorld, field_.distance(centers.col(i)) -
-                    Robot::spheres()[i].radius - worldMargin);
-            }
-            for (const std::size_t source : selfPairs_)
-            {
-                const auto pair = Robot::selfPairs()[source];
-                worstSelf = std::min(worstSelf,
-                    (centers.col(pair.a) - centers.col(pair.b)).norm() -
-                    Robot::spheres()[pair.a].radius - Robot::spheres()[pair.b].radius -
-                    selfMargin);
-            }
-            if (world)
-                *world = worstWorld;
-            if (self)
-                *self = worstSelf;
-            return inBounds && worstWorld >= 0.0 && worstSelf >= 0.0;
-        }
-
-    private:
-        double boundaryClearance(const Eigen::Vector3d &point) const
-        {
-            return std::min((point - field_.bounds().min()).minCoeff(),
-                            (field_.bounds().max() - point).minCoeff());
-        }
-
-        void buildLeverBounds()
-        {
-            leverBounds_.setZero();
-            const auto &steps = Arm::steps();
-            for (std::size_t i = 0; i < Robot::nSpheres; ++i)
-            {
-                leverBounds_(i, 0) = leverBounds_(i, 1) = 1.0;
-                int link = Robot::spheres()[i].link;
-                double reach = Eigen::Vector3d(Robot::spheres()[i].center.data()).norm();
-                while (link > 0)
-                {
-                    const auto &step = steps[link - 1];
-                    if (step.active >= 0)
-                        leverBounds_(i, 3 + step.active) = reach;
-                    reach += Eigen::Vector3d(step.xyz.data()).norm();
-                    link = step.parent;
-                }
-                // Rotation about the base z axis moves a point no faster than its
-                // full chain distance from base_link.
-                leverBounds_(i, 2) = reach;
-            }
-        }
-
-        void buildPairLeverBounds()
-        {
-            pairLeverBounds_.setZero();
-            for (std::size_t p = 0; p < selfPairs_.size(); ++p)
-            {
-                const auto pair = Robot::selfPairs()[selfPairs_[p]];
-                const auto a = Robot::spheres()[pair.a].influence;
-                const auto b = Robot::spheres()[pair.b].influence;
-                for (int j = 0; j < static_cast<int>(Arm::nJoints); ++j)
-                {
-                    const bool movesA = (a & (1u << j)) != 0;
-                    const bool movesB = (b & (1u << j)) != 0;
-                    if (movesA != movesB)
-                        pairLeverBounds_(p, 3 + j) =
-                            leverBounds_(movesA ? pair.a : pair.b, 3 + j);
-                }
-                // All planar-base contributions are rigid and cancel exactly.
-                pairLeverBounds_.template block<1, 3>(p, 0).setZero();
-            }
-        }
-
-        Configuration pairGradient(const Robot::Kinematics &kin, const Centers &centers,
-                                   std::size_t enabled) const
-        {
-            const auto pair = Robot::selfPairs()[selfPairs_[enabled]];
-            const Eigen::Vector3d delta = centers.col(pair.a) - centers.col(pair.b);
-            Configuration row = Configuration::Zero();
-            if (delta.norm() > 1e-12)
-                row = (Robot::sphereJacobian(kin, pair.a) -
-                       Robot::sphereJacobian(kin, pair.b)).transpose() * delta.normalized();
-            row.template head<3>().setZero();
-            return row;
-        }
-
-        const Robot &robot_;
-        const ompl::sdf::GridSDF &field_;
-        std::vector<std::size_t> selfPairs_;
-        Eigen::Matrix<double, Robot::nSpheres, N> leverBounds_;
-        Eigen::Matrix<double, Robot::nSelfPairs, N> pairLeverBounds_;
-    };
-
-    class MobileFilter : public ompl::cbf::RobotControlFilter<Robot>
-    {
-    public:
-        using Base = ompl::cbf::RobotControlFilter<Robot>;
-        using Status = Base::Status;
-        static constexpr double gamma = 0.6;
-        static constexpr double integrationBuffer = 0.001;
-
-        MobileFilter(const MobileBarrier &barrier, const Configuration &lower,
-                     const Configuration &upper)
-          : barrier_(barrier), lowerPosition_(lower), upperPosition_(upper)
-        {
-            rowUpper_.setConstant(std::numeric_limits<double>::infinity());
-            barrier_.decreaseRates(maxSpeed(), decreaseRates_);
-            const Configuration speed = maxSpeed();
-            inverseSquared_ = speed.cwiseInverse().cwiseProduct(speed.cwiseInverse());
-        }
-
-        static Configuration maxSpeed()
-        {
-            return Robot::velocityLimits();
-        }
-
-        Status filter(const Configuration &q, const Configuration &nominal, double dt,
-                      Configuration &filtered) const override
-        {
-            double certified = 0.0;
-            return filter(q, nominal, dt, filtered, certified);
-        }
-
-        Status filter(const Configuration &q, const Configuration &nominal, double dt,
-                      Configuration &filtered, double &certified) const override
-        {
-            ++calls_;
-            certified = 0.0;
-            if (dt <= 0.0)
-            {
-                filtered.setZero();
-                return Status::Blocked;
-            }
-            threshold_ = decreaseRates_ * dt;
-            threshold_.array() += integrationBuffer;
-            barrier_.evaluateScreened(q, threshold_, evaluation_);
-            activeRows_ += evaluation_.active;
-            if (!evaluation_.inBounds)
-            {
-                filtered.setZero();
-                return Status::Blocked;
-            }
-
-            Configuration lower = -maxSpeed(), upper = maxSpeed();
-            for (int j = 0; j < N; ++j)
-            {
-                if (j == 2)
-                    continue;
-                lower[j] = std::max(lower[j], (lowerPosition_[j] - q[j]) / dt);
-                upper[j] = std::min(upper[j], (upperPosition_[j] - q[j]) / dt);
-                if (lower[j] > upper[j])
-                    lower[j] = upper[j] = 0.0;
-            }
-
-            const Eigen::Index active = evaluation_.active;
-            if (active == 0)
-                filtered = nominal.cwiseMax(lower).cwiseMin(upper);
-            else
-            {
-                ++qpCalls_;
-                hessian_.setZero();
-                hessian_.diagonal() = inverseSquared_;
-                objective_ = -inverseSquared_.cwiseProduct(nominal);
-                for (Eigen::Index row = 0; row < active; ++row)
-                    rowLower_[row] = -gamma *
-                        (evaluation_.values[evaluation_.constraint[row]] - integrationBuffer) / dt;
-                try
-                {
-                    if (solver_.solve(filtered, hessian_, objective_, lower, upper,
-                                      evaluation_.rows.topRows(active), rowLower_.head(active),
-                                      rowUpper_.head(active)) != Solver::OK)
-                    {
-                        filtered.setZero();
-                        return Status::Blocked;
-                    }
-                }
-                catch (const std::exception &)
-                {
-                    filtered.setZero();
-                    return Status::Blocked;
-                }
-            }
-
-            certified = barrier_.certifiedDuration(
-                evaluation_, filtered, gamma, integrationBuffer);
-            for (int j = 0; j < N; ++j)
-            {
-                if (j == 2 || filtered[j] == 0.0)
-                    continue;
-                const double room = (filtered[j] > 0.0 ? upperPosition_[j] : lowerPosition_[j]) - q[j];
-                certified = std::min(certified, std::max(room / filtered[j], 0.0));
-            }
-            return (filtered - nominal).norm() <= 1e-12 ? Status::Unchanged : Status::Filtered;
-        }
-
-        const char *name() const override { return "reachy2-mobile-cbf-qp"; }
-        std::size_t calls() const { return calls_; }
-        std::size_t qpCalls() const { return qpCalls_; }
-        double meanActiveRows() const
-        {
-            return calls_ ? static_cast<double>(activeRows_) / calls_ : 0.0;
-        }
-
-    private:
-        using Solver = qpmad::SolverTemplate<double, N, 1, MobileBarrier::maxConstraints>;
-        const MobileBarrier &barrier_;
-        Configuration lowerPosition_, upperPosition_;
-        mutable Solver solver_;
-        mutable Eigen::Matrix<double, N, N> hessian_;
-        Configuration inverseSquared_;
-        mutable Configuration objective_;
-        mutable MobileBarrier::Values rowLower_, rowUpper_, threshold_;
-        MobileBarrier::Values decreaseRates_;
-        mutable MobileBarrier::Evaluation evaluation_;
-        mutable std::size_t calls_{0}, qpCalls_{0}, activeRows_{0};
-    };
-
-    bool solveArmIK(const Robot &robot, const MobileBarrier &barrier,
+    bool solveArmIK(const Robot &robot, const Barrier &barrier,
                     const Eigen::Vector3d &left, const Eigen::Vector3d &right,
                     Configuration &q, std::mt19937 &rng,
                     const Configuration *guess = nullptr)
@@ -570,7 +226,7 @@ namespace
         std::vector<Configuration> motion;
     };
 
-    void denseAudit(Result &result, const Robot &robot, const MobileBarrier &barrier,
+    void denseAudit(Result &result, const Robot &robot, const Barrier &barrier,
                     const Eigen::Vector3d &left, const Eigen::Vector3d &right,
                     double spacing)
     {
@@ -611,7 +267,7 @@ namespace
             state[j] = q[j];
     }
 
-    Result runBaseline(const Robot &robot, const MobileBarrier &barrier,
+    Result runBaseline(const Robot &robot, const Barrier &barrier,
                        const Configuration &start, const std::vector<Configuration> &goals,
                        const Configuration &transit, const Configuration &lower,
                        const Configuration &upper, const Eigen::Vector3d &left,
@@ -654,14 +310,14 @@ namespace
         return result;
     }
 
-    Result runCBF(const Robot &robot, const MobileBarrier &barrier,
+    Result runCBF(const Robot &robot, const Barrier &barrier,
                   const Configuration &start, const std::vector<Configuration> &goals,
                   const Configuration &transit, const Configuration &lower,
                   const Configuration &upper, const Eigen::Vector3d &left,
                   const Eigen::Vector3d &right, double limit, std::uint_fast32_t seed,
                   double auditSpacing, bool uniformSampler)
     {
-        MobileFilter filter(barrier, lower, upper);
+        Filter filter(barrier, lower, upper, 0.001);
         using Space = ompl::cbf::RobotFilteredStateSpace<Robot>;
         auto space = std::make_shared<Space>(filter, 0.01, Robot::velocityLimits(), lower, upper);
         space->setStateSamplerAllocator([seed, transit, &goals, uniformSampler](const ob::StateSpace *s)
@@ -825,7 +481,7 @@ int main(int argc, char **argv)
     lower[0] = xmin; upper[0] = xmax; lower[1] = ymin; upper[1] = ymax;
     Configuration reference = Configuration::Zero();
     reference.template tail<Arm::nJoints>() = 0.5 * (Arm::lowerBounds() + Arm::upperBounds());
-    const MobileBarrier barrier(robot, field, reference);
+    const Barrier barrier(robot, field, reference);
 
     std::mt19937 transitRng(7);
     Configuration transit = reference;
@@ -941,7 +597,7 @@ int main(int argc, char **argv)
         for (std::size_t i = 0; i < path.getStateCount(); ++i)
             omplRepresentative.motion.push_back(stateConfiguration(path.getState(i)));
 
-        MobileFilter shortcutFilter(barrier, lower, upper);
+        Filter shortcutFilter(barrier, lower, upper, 0.001);
         ompl::cbf::RobotFilteredStateSpace<Robot> shortcutSpace(
             shortcutFilter, 0.01, Robot::velocityLimits(), lower, upper);
         const auto rollout = [&shortcutSpace](const Configuration &from, const Configuration &to)
