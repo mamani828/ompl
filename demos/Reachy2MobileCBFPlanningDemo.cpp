@@ -476,8 +476,8 @@ namespace
     public:
         BiasedSampler(const ob::StateSpace *space, std::uint_fast32_t seed,
                       const Configuration &transit,
-                      const std::vector<Configuration> &goals)
-          : ob::StateSampler(space), transit_(transit), goals_(goals)
+                      const std::vector<Configuration> &goals, bool uniformOnly = false)
+          : ob::StateSampler(space), transit_(transit), goals_(goals), uniformOnly_(uniformOnly)
         {
             rng_.setLocalSeed(seed);
         }
@@ -486,7 +486,7 @@ namespace
         {
             Configuration q;
             const auto &bounds = space_->as<ob::RealVectorStateSpace>()->getBounds();
-            const double branch = rng_.uniform01();
+            const double branch = uniformOnly_ ? 1.0 : rng_.uniform01();
             if (branch < 0.60)
             {
                 q = transit_;
@@ -523,6 +523,7 @@ namespace
     private:
         Configuration transit_;
         const std::vector<Configuration> &goals_;
+        bool uniformOnly_;
     };
 
     class SeededRRTConnect : public og::RRTConnect
@@ -615,13 +616,13 @@ namespace
                        const Configuration &transit, const Configuration &lower,
                        const Configuration &upper, const Eigen::Vector3d &left,
                        const Eigen::Vector3d &right, double limit, std::uint_fast32_t seed,
-                       double auditSpacing)
+                       double auditSpacing, bool uniformSampler)
     {
         auto space = std::make_shared<ompl::cbf::RobotStateSpace<Robot>>(
             Robot::velocityLimits(), lower, upper);
         space->setLongestValidSegmentFraction(auditSpacing / space->getMaximumExtent());
-        space->setStateSamplerAllocator([seed, transit, &goals](const ob::StateSpace *s)
-        { return std::make_shared<BiasedSampler>(s, seed + 1, transit, goals); });
+        space->setStateSamplerAllocator([seed, transit, &goals, uniformSampler](const ob::StateSpace *s)
+        { return std::make_shared<BiasedSampler>(s, seed + 1, transit, goals, uniformSampler); });
         auto si = std::make_shared<ob::SpaceInformation>(space);
         std::size_t checks = 0;
         si->setStateValidityChecker([&](const ob::State *state)
@@ -658,13 +659,13 @@ namespace
                   const Configuration &transit, const Configuration &lower,
                   const Configuration &upper, const Eigen::Vector3d &left,
                   const Eigen::Vector3d &right, double limit, std::uint_fast32_t seed,
-                  double auditSpacing)
+                  double auditSpacing, bool uniformSampler)
     {
         MobileFilter filter(barrier, lower, upper);
         using Space = ompl::cbf::RobotFilteredStateSpace<Robot>;
         auto space = std::make_shared<Space>(filter, 0.01, Robot::velocityLimits(), lower, upper);
-        space->setStateSamplerAllocator([seed, transit, &goals](const ob::StateSpace *s)
-        { return std::make_shared<BiasedSampler>(s, seed + 1, transit, goals); });
+        space->setStateSamplerAllocator([seed, transit, &goals, uniformSampler](const ob::StateSpace *s)
+        { return std::make_shared<BiasedSampler>(s, seed + 1, transit, goals, uniformSampler); });
         auto si = std::make_shared<ob::SpaceInformation>(space);
         si->setStateValidityChecker(std::make_shared<ob::AllValidStateValidityChecker>(si));
         si->setMotionValidator(std::make_shared<ompl::cbf::RobotFilteredMotionValidator<Robot>>(si));
@@ -758,12 +759,15 @@ int main(int argc, char **argv)
     double seconds, shortcut, startX, startY, startYaw, xmin, xmax, ymin, ymax;
     int trials;
     bool smoke{false};
+    bool uniformSampler{false};
     std::string output;
     std::vector<double> leftValues, rightValues;
     po::options_description options("Reachy2 mobile RRT/CBF options");
     options.add_options()
         ("help,h", "show this help")
         ("smoke", po::bool_switch(&smoke), "enforce deterministic three-trial acceptance checks")
+        ("uniform-sampler", po::bool_switch(&uniformSampler),
+         "disable the transit/goal bias and sample fully uniformly")
         ("seconds", po::value<double>(&seconds)->default_value(10.0), "solve time per row and trial")
         ("trials", po::value<int>(&trials)->default_value(3), "paired trial count")
         ("shortcut", po::value<double>(&shortcut)->default_value(0.10), "rope anchor spacing in seconds (0 disables)")
@@ -875,16 +879,16 @@ int main(int argc, char **argv)
         if (trial % 2)
         {
             ompl = runBaseline(robot, barrier, start, goals, transit, lower, upper,
-                               left, right, seconds, seed, auditSpacing);
+                               left, right, seconds, seed, auditSpacing, uniformSampler);
             cbf = runCBF(robot, barrier, start, goals, transit, lower, upper,
-                         left, right, seconds, seed, auditSpacing);
+                         left, right, seconds, seed, auditSpacing, uniformSampler);
         }
         else
         {
             cbf = runCBF(robot, barrier, start, goals, transit, lower, upper,
-                         left, right, seconds, seed, auditSpacing);
+                         left, right, seconds, seed, auditSpacing, uniformSampler);
             ompl = runBaseline(robot, barrier, start, goals, transit, lower, upper,
-                               left, right, seconds, seed, auditSpacing);
+                               left, right, seconds, seed, auditSpacing, uniformSampler);
         }
         std::printf("trial %d: OMPL %.2f ms %zu eval %zu nodes %s | CBF %.2f ms %zu eval %zu nodes %s\n",
             trial + 1, 1e3 * ompl.seconds, ompl.evaluations, ompl.nodes, ompl.solved ? "ok" : "fail",

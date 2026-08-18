@@ -86,3 +86,38 @@ BOOST_AUTO_TEST_CASE(BoundsAndDimensions)
     // 2.0 extent / 0.05 voxel -> 41 nodes per axis.
     BOOST_CHECK_EQUAL(grid.dimensions().x(), 41);
 }
+
+BOOST_AUTO_TEST_CASE(BatchedQueriesMatchScalarQueries)
+{
+    const auto grid = makeGrid();
+    Eigen::Matrix<double, 3, 5> points;
+    points << 0.837, -0.42, 0.0, -1.2, 1.2,
+              0.113, 0.31, -0.7, 0.4, -1.1,
+              0.071, -0.08, 0.9, 1.3, -0.2;
+
+    Eigen::Matrix<double, 5, 1> distances;
+    Eigen::Matrix<double, 3, 5> gradients;
+    grid.valueGradientBatch(points, distances, gradients);
+
+    for (Eigen::Index i = 0; i < points.cols(); ++i)
+    {
+        const sdf::ValueGradient scalar = grid.valueAndGradient(points.col(i));
+        BOOST_CHECK_EQUAL(distances[i], scalar.value);
+        BOOST_CHECK_SMALL((gradients.col(i) - scalar.gradient).norm(), 1e-15);
+    }
+
+    Eigen::Matrix<double, 5, 1> distanceOnly;
+    grid.distanceBatch(points, distanceOnly);
+    BOOST_CHECK_SMALL((distanceOnly - distances).norm(), 1e-15);
+}
+
+BOOST_AUTO_TEST_CASE(OutsideQueriesClampAndHaveNoOutwardDerivative)
+{
+    const auto grid = makeGrid();
+    const Eigen::Vector3d outside(1.4, 0.113, 0.071);
+    const Eigen::Vector3d boundary(1.0, outside.y(), outside.z());
+    const sdf::ValueGradient clamped = grid.valueAndGradient(outside);
+
+    BOOST_CHECK_EQUAL(clamped.value, grid.distance(boundary));
+    BOOST_CHECK_EQUAL(clamped.gradient.x(), 0.0);
+}
