@@ -70,7 +70,9 @@
 #include <ompl/cbf/FilteredMotionValidator.h>
 #include <ompl/cbf/FilteredStateSpace.h>
 #include <ompl/cbf/Profiler.h>
+#include <ompl/cbf/RopeShortcut.h>
 #include <ompl/geometric/PathGeometric.h>
+#include <ompl/geometric/PathSimplifier.h>
 #include <ompl/geometric/planners/rrt/RRTConnect.h>
 #include <ompl/util/RandomNumbers.h>
 #include <ompl/util/Time.h>
@@ -288,7 +290,7 @@ namespace
 
     /// The bar: straight-line edges, the same SDF behind an ordinary validity checker.
     Result runCollisionChecked(const Problem &problem, const Barrier &barrier, double range,
-                               double timeLimit, double segmentFraction,
+                               double timeLimit, double segmentFraction, double shortcutDelta,
                                std::vector<UR5::Configuration> *record)
     {
         auto space = std::make_shared<ob::RealVectorStateSpace>(dimension);
@@ -336,6 +338,15 @@ namespace
             // mean the same thing in both rows.
             og::PathGeometric path(*std::static_pointer_cast<og::PathGeometric>(
                 pdef->getSolutionPath()));
+            if (shortcutDelta > 0.0)
+            {
+                // Stock RRT-Rope. This row's edges *are* straight lines, so OMPL's own
+                // implementation is exactly right for it -- but both rows must be shortcut
+                // at the same delta, or "shorter" measures rope's aggressiveness rather
+                // than the filter.
+                og::PathSimplifier simplifier(si);
+                simplifier.ropeShortcutPath(path, shortcutDelta);
+            }
             path.interpolate(static_cast<unsigned int>(path.length() / auditResolution));
             result.auditedStates = path.getStateCount();
             for (std::size_t i = 0; i < path.getStateCount(); ++i)
@@ -366,7 +377,7 @@ namespace
     /// anywhere: the barrier certifies each step as it is produced.
     Result runFiltered(const Problem &problem, const Barrier &audited, const Filter &filter,
                        double stepSize, double range, double timeLimit, double maxStepScale,
-                       std::vector<UR5::Configuration> *record)
+                       double shortcutDelta, std::vector<UR5::Configuration> *record)
     {
         auto space = std::make_shared<Space>(filter, stepSize, UR5::velocityLimits());
         space->setBounds(jointBounds());
@@ -412,8 +423,15 @@ namespace
         result.vertices = data.numVertices();
 
         if (result.solved)
-            audit(*std::static_pointer_cast<og::PathGeometric>(pdef->getSolutionPath()), audited,
-                  result, record);
+        {
+            og::PathGeometric solution(
+                *std::static_pointer_cast<og::PathGeometric>(pdef->getSolutionPath()));
+            if (shortcutDelta > 0.0)
+                // RRT-Rope with the CBF rollout as the edge test, at the same delta as the
+                // baseline's stock rope above.
+                ompl::cbf::ropeShortcut(solution, shortcutDelta);
+            audit(solution, audited, result, record);
+        }
         return result;
     }
 
@@ -421,6 +439,17 @@ namespace
     {
         int attempted{0};
         int skipped{0};  ///< start or goal inside our margin
+        /// Breakdown of `skipped` by which barrier rejected the endpoint. Not mutually
+        /// exclusive -- a problem can fail both -- so these need not sum to `skipped`.
+        /// Cross-checked once against the real UR5 mesh in PyBullet
+        /// (ur5_experiments/scripts/audit_self_collision.py): of 117 endpoints the
+        /// self-pair barrier flagged on this set, 85 were confirmed mesh self-collisions
+        /// (forearm_link overlapping wrist_2_link/wrist_3_link, up to 22 mm) -- a defect
+        /// in MotionBenchMaker's own goal poses, not a sphere-model false positive. The
+        /// other 32 were not confirmed, i.e. the calibrated per-pair margin is
+        /// conservative there. See UR5SelfCollisionAudit.h.
+        int skippedClearance{0};
+        int skippedSelfCollision{0};
         /// min(start, goal) sphere clearance at zero margin, per problem. VAMP validated
         /// this set against the same 40 spheres with no margin, so these should all be
         /// positive; how far above zero they sit is what decides which margins are
@@ -533,7 +562,7 @@ int main(int argc, char **argv)
     {
         std::printf("usage: %s scenes.txt [perScene] [seconds] [voxel] [stepSize] [range]\n"
                     "       [margin] [buffer] [segmentFraction] [gamma] [maxStepScale]\n"
-                    "       [selfMargin] [pathPrefix]\n\n"
+                    "       [selfMargin] [pathPrefix] [shortcutDelta]\n\n"
                     "Generate scenes.txt with scripts/mbm_to_scenes.py.\n",
                     argv[0]);
         return 1;
@@ -575,6 +604,11 @@ int main(int argc, char **argv)
     // against the real meshes, which is the only thing that can say the sphere model is
     // too coarse to stand in for them.
     const std::string pathPrefix = argc > 13 ? argv[13] : std::string();
+    // Rope anchor spacing, in radians, applied to both rows at the same value after they
+    // solve and before they are audited. Non-positive (the default) leaves both
+    // unsimplified -- shortcutting one row and not the other measures rope's
+    // aggressiveness, not the filter.
+    const double shortcutDelta = argc > 14 ? std::atof(argv[14]) : -1.0;
 
     // Tie the baseline's edge-checking spacing to the rollout's step unless told otherwise,
     // so neither row is scored at a resolution the other never saw. The rollout advances
@@ -611,9 +645,13 @@ int main(int argc, char **argv)
     std::printf("gamma %.2f, certified step %s, self-collision margin %.4f m over %d pairs%s\n",
                 gamma, maxStepScale > 0.0 ? "capped" : "uncapped", selfMargin,
                 static_cast<int>(UR5::nSelfPairs), selfMargin < 0.0 ? " (rows disabled)" : "");
-    std::printf("baseline segment: %.6f of extent = %.4f rad, rollout step %.4f rad (%s)\n\n",
+    std::printf("baseline segment: %.6f of extent = %.4f rad, rollout step %.4f rad (%s)\n",
                 segmentFraction, segmentFraction * extent, rolloutStep,
                 segmentFractionArg > 0.0 ? "overridden" : "matched to the rollout");
+    if (shortcutDelta > 0.0)
+        std::printf("rope shortcut on, delta %.4f rad, both rows\n\n", shortcutDelta);
+    else
+        std::printf("rope shortcut off, both rows unsimplified\n\n");
     std::printf("  %-11s %8s %-19s %10s %8s %8s %6s %10s %14s %6s %10s %7s\n", "planner", "solved",
                 "ms(min/med/max)", "evals", "vertices", "rad/call", "coarse", "worst clr",
                 "unsafe/audited", "missed", "worst self", "collide");
@@ -664,20 +702,36 @@ int main(int argc, char **argv)
         overall.endpointClearance.push_back(endpoints);
 
         // Valid upstream does not mean feasible here: our spheres do not enclose the
-        // meshes MotionBenchMaker checked, and the margin sits on top of that.
-        if (!audited.isSafe(problem.start) || !audited.isSafe(problem.goal))
+        // meshes MotionBenchMaker checked, and the margin sits on top of that. Split by
+        // which barrier rejected the endpoint -- world clearance and self-collision are
+        // different failure modes with different fixes, see Tally::skippedClearance.
+        const Barrier worldOnly(robot, field, margin, -1e6);
+        const Barrier selfOnly(robot, field, -1e6, selfMargin);
+        const bool worldUnsafe = !worldOnly.isSafe(problem.start) || !worldOnly.isSafe(problem.goal);
+        const bool selfUnsafe = !selfOnly.isSafe(problem.start) || !selfOnly.isSafe(problem.goal);
+        if (worldUnsafe || selfUnsafe)
         {
             ++tally.skipped;
             ++overall.skipped;
+            if (worldUnsafe)
+            {
+                ++tally.skippedClearance;
+                ++overall.skippedClearance;
+            }
+            if (selfUnsafe)
+            {
+                ++tally.skippedSelfCollision;
+                ++overall.skippedSelfCollision;
+            }
             continue;
         }
 
         std::vector<UR5::Configuration> checkedPath, rolledPath;
         const Result checked = runCollisionChecked(problem, audited, range, timeLimit,
-                                                   segmentFraction,
+                                                   segmentFraction, shortcutDelta,
                                                    pathPrefix.empty() ? nullptr : &checkedPath);
         const Result rolled = runFiltered(problem, audited, filter, stepSize, range, timeLimit,
-                                          maxStepScale,
+                                          maxStepScale, shortcutDelta,
                                           pathPrefix.empty() ? nullptr : &rolledPath);
         writeMotion(baselineOut, problem, checkedPath);
         writeMotion(filteredOut, problem, rolledPath);
@@ -699,8 +753,9 @@ int main(int argc, char **argv)
     for (const auto &entry : tallies)
     {
         const Tally &tally = entry.second;
-        std::printf("\n%s  (%d problems, %d skipped: start or goal inside the margin)\n",
-                    entry.first.c_str(), tally.attempted, tally.skipped);
+        std::printf("\n%s  (%d problems, %d skipped: %d clearance, %d self-collision)\n",
+                    entry.first.c_str(), tally.attempted, tally.skipped, tally.skippedClearance,
+                    tally.skippedSelfCollision);
         reportRow("rrtconnect", tally, 0);
         reportRow("cbf-rrtc", tally, 1);
     }
@@ -729,7 +784,9 @@ int main(int argc, char **argv)
                     share(0.09));
     }
 
-    std::printf("\nall scenes  (%d problems, %d skipped)\n", overall.attempted, overall.skipped);
+    std::printf("\nall scenes  (%d problems, %d skipped: %d clearance, %d self-collision)\n",
+                overall.attempted, overall.skipped, overall.skippedClearance,
+                overall.skippedSelfCollision);
     reportRow("rrtconnect", overall, 0);
     reportRow("cbf-rrtc", overall, 1);
     std::printf("\n\"evals\" is collision checks for rrtconnect and filter calls for cbf-rrtc.\n"
