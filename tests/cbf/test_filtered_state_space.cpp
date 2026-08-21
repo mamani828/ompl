@@ -836,11 +836,23 @@ BOOST_AUTO_TEST_CASE(StockRRTConnectPlansSafelyThroughTheRolloutSpace)
     auto pdef = std::make_shared<ob::ProblemDefinition>(si);
     pdef->setStartAndGoalStates(start, goal, 0.35);
 
+    std::size_t observedSamples = 0;
+    std::size_t productiveSamples = 0;
     auto planner = std::make_shared<og::RRTConnect>(si);
+    planner->setSampleExtensionCallback(
+        [&observedSamples, &productiveSamples](const ob::State *, const ob::State *, bool, bool productive,
+                                              bool, bool)
+        {
+            ++observedSamples;
+            productiveSamples += productive ? 1u : 0u;
+        });
     planner->setProblemDefinition(pdef);
     planner->setup();
     BOOST_REQUIRE(planner->solve(ob::timedPlannerTerminationCondition(10.0)) ==
                   ob::PlannerStatus::EXACT_SOLUTION);
+    BOOST_CHECK_GT(observedSamples, 0u);
+    BOOST_CHECK_GT(productiveSamples, 0u);
+    BOOST_CHECK_LE(productiveSamples, observedSamples);
 
     auto path = std::static_pointer_cast<og::PathGeometric>(pdef->getSolutionPath());
 

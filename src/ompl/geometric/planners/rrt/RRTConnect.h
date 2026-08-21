@@ -40,6 +40,9 @@
 #include "ompl/datastructures/NearestNeighbors.h"
 #include "ompl/geometric/planners/PlannerIncludes.h"
 
+#include <functional>
+#include <utility>
+
 namespace ompl
 {
     namespace geometric
@@ -61,6 +64,16 @@ namespace ompl
         class RRTConnect : public base::Planner
         {
         public:
+            /** \brief Observation hook for the planner's primary random-sample extension.
+
+                The callback receives the nearest tree state, the sampled target, whether
+                the target was within \c range, whether the extension added a state,
+                whether it reached the sampled target, and whether the start tree was
+                being grown. Connect-loop extensions are not reported. Intended for
+                diagnostics; leaving it unset has no effect. */
+            using SampleExtensionCallback =
+                std::function<void(const base::State *, const base::State *, bool, bool, bool, bool)>;
+
             /** \brief Constructor */
             RRTConnect(const base::SpaceInformationPtr &si, bool addIntermediateStates = false);
 
@@ -100,6 +113,12 @@ namespace ompl
             double getRange() const
             {
                 return maxDistance_;
+            }
+
+            /** \brief Observe the outcome of each primary random-sample extension. */
+            void setSampleExtensionCallback(SampleExtensionCallback callback)
+            {
+                sampleExtensionCallback_ = std::move(callback);
             }
 
             /** \brief Set a different nearest neighbors datastructure */
@@ -166,7 +185,8 @@ namespace ompl
             }
 
             /** \brief Grow a tree towards a random state */
-            GrowState growTree(TreeData &tree, TreeGrowingInfo &tgi, Motion *rmotion);
+            GrowState growTree(TreeData &tree, TreeGrowingInfo &tgi, Motion *rmotion,
+                               Motion **nearest = nullptr);
 
             /** \brief State sampler */
             base::StateSamplerPtr sampler_;
@@ -194,6 +214,9 @@ namespace ompl
 
             /** \brief Distance between the nearest pair of start tree and goal tree nodes. */
             double distanceBetweenTrees_;
+
+            /** \brief Optional diagnostic observer for primary sample extensions. */
+            SampleExtensionCallback sampleExtensionCallback_;
         };
     }  // namespace geometric
 }  // namespace ompl

@@ -114,10 +114,12 @@ void ompl::geometric::RRTConnect::clear()
 }
 
 ompl::geometric::RRTConnect::GrowState ompl::geometric::RRTConnect::growTree(TreeData &tree, TreeGrowingInfo &tgi,
-                                                                             Motion *rmotion)
+                                                                             Motion *rmotion, Motion **nearest)
 {
     /* find closest state in the tree */
     Motion *nmotion = tree->nearest(rmotion);
+    if (nearest != nullptr)
+        *nearest = nmotion;
 
     /* assume we can reach the state we go towards */
     bool reach = true;
@@ -271,7 +273,15 @@ ompl::base::PlannerStatus ompl::geometric::RRTConnect::solve(const base::Planner
         /* sample random state */
         sampler_->sampleUniform(rstate);
 
-        GrowState gs = growTree(tree, tgi, rmotion);
+        // Capture growTree()'s nearest state without performing the search twice, so a
+        // diagnostic observer can compare alternative steering methods on this exact pair.
+        Motion *sampleNearest = nullptr;
+        GrowState gs = growTree(tree, tgi, rmotion,
+                                sampleExtensionCallback_ ? &sampleNearest : nullptr);
+        if (sampleExtensionCallback_)
+            sampleExtensionCallback_(sampleNearest->state, rstate,
+                                     si_->distance(sampleNearest->state, rstate) <= maxDistance_,
+                                     gs != TRAPPED, gs == REACHED, tgi.start);
 
         if (gs != TRAPPED)
         {

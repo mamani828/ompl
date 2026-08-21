@@ -82,7 +82,7 @@ namespace ompl::cbf
         {
             /// CBF decay rate in (0, 1]: `h(q+) >= (1 - gamma) h(q)`. Smaller is
             /// more conservative. 1.0 permits clearance to reach zero in one step.
-            double gamma{0.4};
+            double gamma{0.99};
             /// Diagonal of W: the relative cost of deviating on each joint.
             Control weights{Control::Ones()};
             /// Per-joint speed limit, |u_j| <= maxSpeed_j.
