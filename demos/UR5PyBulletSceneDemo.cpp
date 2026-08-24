@@ -10,7 +10,7 @@
 //     ./build/demos/demo_UR5PyBulletScene <scene.problem> [seconds] [out.path]
 //         [trials] [maxStepScale] [checkResolution] [baselineAudit] [selfMargin]
 //         [shortcutDelta] [guardBuffer] [range] [minProgressFraction] [gamma]
-//         [trialSeedOffset]
+//         [trialSeedOffset] [picardIterations] [picardWindow] [picardWorkers]
 //     ./build/demos/demo_UR5PyBulletScene <scene.problem> --probe   < points.txt
 //
 // `--probe` reads "x y z" triples on stdin and prints the field value and
@@ -50,6 +50,7 @@
 #include <ompl/cbf/ExecutedPath.h>
 #include <ompl/cbf/FilteredMotionValidator.h>
 #include <ompl/cbf/FilteredStateSpace.h>
+#include <ompl/cbf/ParallelPicardRollout.h>
 #include <ompl/cbf/Profiler.h>
 #include <ompl/cbf/RopeShortcut.h>
 #include <ompl/geometric/PathGeometric.h>
@@ -227,6 +228,9 @@ namespace
     double filterGamma = -1.0;
 
     std::uint_fast32_t trialSeedOffset = 0;
+    unsigned int picardIterations = 0;
+    unsigned int picardWindow = 8;
+    unsigned int picardWorkers = 0;
 
     struct Result
     {
@@ -252,6 +256,16 @@ namespace
         std::size_t served{0};     ///< motion queries answered from staged/recorded rollouts
         std::size_t primarySamples{0};   ///< primary RRTConnect sample extensions observed
         std::size_t productiveSamples{0};  ///< primary samples that added at least one node
+        std::size_t proposalAttempts{0};
+        std::size_t proposalAccepted{0};
+        std::size_t proposalFallbacks{0};
+        std::size_t picardWindows{0};
+        std::size_t picardConvergedWindows{0};
+        std::size_t picardMapCertifiedWindows{0};
+        std::size_t picardMapCalls{0};
+        std::size_t picardVerificationCalls{0};
+        std::size_t picardVerificationFailures{0};
+        double picardSeconds{0.0};
         std::size_t misses{0};   ///< solution edges re-derived rather than replayed
         std::size_t evicted{0};  ///< ledger edges dropped for capacity; must stay zero
 
@@ -443,6 +457,26 @@ namespace
             space->setMaxStepScale(maxStepScale);
         if (minProgressFraction >= 0.0)
             space->setMinProgressFraction(minProgressFraction);
+
+        std::unique_ptr<ompl::cbf::ParallelPicardRollout> picard;
+        if (picardIterations > 0)
+        {
+            ompl::cbf::ParallelPicardRollout::Parameters picardParameters;
+            picardParameters.maxIterations = picardIterations;
+            picardParameters.windowSteps = picardWindow;
+            picardParameters.workers = picardWorkers;
+            picard = std::make_unique<ompl::cbf::ParallelPicardRollout>(filter,
+                                                                        picardParameters);
+            space->setRolloutPlanner(
+                [&picard, space](const UR5::Configuration &from,
+                                 const UR5::Configuration &to, double fraction,
+                                 ompl::cbf::FilteredStateSpace::Rollout &rollout)
+                {
+                    return picard->plan(from, to, fraction, space->stepSize(),
+                                        space->maxSpeed(), space->maxStepScale(),
+                                        space->reachTolerance(), rollout);
+                });
+        }
         auto si = std::make_shared<ob::SpaceInformation>(space);
         // The rollout certifies every step it emits, so there is nothing left for a
         // validity checker to do -- see README_CBF_USAGE.md on removing it.
@@ -480,6 +514,8 @@ namespace
         // Exclude state-space setup/sanity work from planner statistics.
         space->resetStatistics();
         space->clearLedger();
+        if (picard)
+            picard->resetStatistics();
 
         const ompl::time::point begin = ompl::time::now();
         const ob::PlannerStatus status = planner->solve(ob::timedPlannerTerminationCondition(timeLimit));
@@ -498,8 +534,22 @@ namespace
         result.recorded = stats.recorded;
         result.abandoned = stats.abandoned;
         result.served = stats.served;
+        result.proposalAttempts = stats.proposalAttempts;
+        result.proposalAccepted = stats.proposalAccepted;
+        result.proposalFallbacks = stats.proposalFallbacks;
         result.primarySamples = primarySamples;
         result.productiveSamples = productiveSamples;
+        if (picard)
+        {
+            const auto &picardStats = picard->statistics();
+            result.picardWindows = picardStats.windows;
+            result.picardConvergedWindows = picardStats.convergedWindows;
+            result.picardMapCertifiedWindows = picardStats.mapCertifiedWindows;
+            result.picardMapCalls = picardStats.mapFilterCalls;
+            result.picardVerificationCalls = picardStats.verificationFilterCalls;
+            result.picardVerificationFailures = picardStats.verificationFailures;
+            result.picardSeconds = picardStats.seconds;
+        }
 
         ob::PlannerData data(si);
         planner->getPlannerData(data);
@@ -586,7 +636,8 @@ int main(int argc, char **argv)
         std::printf("usage: %s <scene.problem> [seconds] [out.path] [trials] [maxStepScale]"
                     " [baselineCheckRadians] [baselineAuditRadians] [selfMargin]"
                     " [shortcutRadians] [guardBufferMeters] [rangeRadians]"
-                    " [minProgressFraction] [gamma] [trialSeedOffset]\n",
+                    " [minProgressFraction] [gamma] [trialSeedOffset]"
+                    " [picardIterations] [picardWindow] [picardWorkers]\n",
                     argv[0]);
         std::printf("       %s <scene.problem> --probe   < points.txt\n", argv[0]);
         return 1;
@@ -629,6 +680,12 @@ int main(int argc, char **argv)
         filterGamma = std::atof(argv[13]);
     if (argc > 14 && !probeMode)
         trialSeedOffset = static_cast<std::uint_fast32_t>(std::max(0, std::atoi(argv[14])));
+    if (argc > 15 && !probeMode)
+        picardIterations = static_cast<unsigned int>(std::max(0, std::atoi(argv[15])));
+    if (argc > 16 && !probeMode)
+        picardWindow = static_cast<unsigned int>(std::max(1, std::atoi(argv[16])));
+    if (argc > 17 && !probeMode)
+        picardWorkers = static_cast<unsigned int>(std::max(0, std::atoi(argv[17])));
 
     const Scene scene = readScene(problemPath);
     const sdf::GridSDF field = sdf::GridSDF::load(scene.gridPath);
@@ -656,6 +713,13 @@ int main(int argc, char **argv)
     std::printf("CBF gamma %.3f, RRTConnect range %.3f rad, min progress %.2f\n",
                 filterGamma > 0.0 ? filterGamma : Filter::Parameters().gamma, range,
                 minProgressFraction >= 0.0 ? minProgressFraction : 0.25);
+    if (picardIterations > 0)
+    {
+        const std::string workers =
+            picardWorkers == 0 ? "automatic" : std::to_string(picardWorkers);
+        std::printf("parallel Picard on: %u iterations, %u-step windows, %s workers\n",
+                    picardIterations, picardWindow, workers.c_str());
+    }
     // Confirm the two sides agree about the start before planning: a mismatch here
     // means the grid and the sphere model disagree about where the world is, and
     // every number after it would be measuring the wrong thing.
@@ -768,6 +832,16 @@ int main(int argc, char **argv)
                     r.recorded, r.rollouts,
                     r.rollouts > 0 ? 1e2 * static_cast<double>(r.recorded) / r.rollouts : 0.0,
                     r.abandoned, r.served);
+        if (picardIterations > 0)
+            std::printf("    parallel Picard: %zu/%zu proposals accepted, %zu fallbacks; "
+                        "%zu/%zu windows converged (%zu map-certified), "
+                        "%zu map + %zu verify filters, "
+                        "%zu verification failures, %.3f ms total\n",
+                        r.proposalAccepted, r.proposalAttempts, r.proposalFallbacks,
+                        r.picardConvergedWindows, r.picardWindows,
+                        r.picardMapCertifiedWindows, r.picardMapCalls,
+                        r.picardVerificationCalls, r.picardVerificationFailures,
+                        1e3 * r.picardSeconds);
         std::printf("    productive samples: rrtc %zu/%zu (%.1f%%), cbf %zu/%zu (%.1f%%)\n",
                     baselineProductiveSamples, baselinePrimarySamples,
                     baselinePrimarySamples > 0

@@ -16,6 +16,7 @@
 #include <ompl/cbf/ExecutedPath.h>
 #include <ompl/cbf/FilteredMotionValidator.h>
 #include <ompl/cbf/FilteredStateSpace.h>
+#include <ompl/cbf/ParallelPicardRollout.h>
 #include <ompl/cbf/RopeShortcut.h>
 #include <ompl/geometric/PathGeometric.h>
 #include <ompl/geometric/planners/rrt/RRTConnect.h>
@@ -220,6 +221,72 @@ BOOST_AUTO_TEST_CASE(FreeSpaceRolloutIsExactlyLinearInterpolation)
         const UR5::Configuration rolled = space->roll(a, b, t).end;
         BOOST_CHECK_LE((rolled - (a + t * (b - a))).norm(), stepTravel);
     }
+}
+
+BOOST_AUTO_TEST_CASE(ParallelPicardRolloutCertifiesItsActualSegments)
+{
+    const UR5 robot;
+    const Barrier barrier(robot, emptyField(), 0.0);
+    const Filter filter(barrier, filterParameters());
+    auto space = makeSpace(filter);
+
+    ompl::cbf::ParallelPicardRollout::Parameters parameters;
+    parameters.windowSteps = 8;
+    parameters.maxIterations = 2;
+    parameters.workers = 4;
+    ompl::cbf::ParallelPicardRollout picard(filter, parameters);
+    space->setRolloutPlanner(
+        [&picard, space](const UR5::Configuration &from, const UR5::Configuration &to,
+                         double fraction, Space::Rollout &rollout)
+        {
+            return picard.plan(from, to, fraction, space->stepSize(), space->maxSpeed(),
+                               space->maxStepScale(), space->reachTolerance(), rollout);
+        });
+
+    const UR5::Configuration a = configuration(0.0, -1.2, 1.8, -0.6, 1.57, 0.0);
+    const UR5::Configuration b = configuration(1.4, -0.7, 1.2, -0.2, 1.20, 0.5);
+    const Space::Rollout rollout = space->steer(a, b, 1.0);
+
+    BOOST_REQUIRE(rollout.reachedTarget);
+    BOOST_CHECK_LE((rollout.end - b).norm(), 1e-9);
+    BOOST_CHECK_GT(picard.statistics().mapCertifiedWindows +
+                       picard.statistics().verificationBatches,
+                   0u);
+    BOOST_CHECK_EQUAL(picard.statistics().verificationFailures, 0u);
+    BOOST_CHECK_EQUAL(picard.statistics().accepted, 1u);
+    BOOST_CHECK_EQUAL(space->statistics().proposalAccepted, 1u);
+    for (const UR5::Configuration &q : rollout.waypoints)
+        BOOST_CHECK(barrier.isSafe(q));
+}
+
+BOOST_AUTO_TEST_CASE(ParallelPicardFailurePreservesTheDirectFallback)
+{
+    const UR5 robot;
+    const Barrier barrier(robot, corneringField(), 0.0);
+    const Filter filter(barrier, filterParameters());
+    auto space = makeSpace(filter);
+
+    ompl::cbf::ParallelPicardRollout::Parameters parameters;
+    parameters.workers = 2;
+    ompl::cbf::ParallelPicardRollout picard(filter, parameters);
+    space->setRolloutPlanner(
+        [&picard, space](const UR5::Configuration &from, const UR5::Configuration &to,
+                         double fraction, Space::Rollout &rollout)
+        {
+            return picard.plan(from, to, fraction, space->stepSize(), space->maxSpeed(),
+                               space->maxStepScale(), space->reachTolerance(), rollout);
+        });
+
+    const UR5::Configuration a = UR5::Configuration::Zero();
+    const UR5::Configuration b = configuration(1.5, 0.0, 0.0, 0.0, 0.0, 0.0);
+    const Space::Rollout rollout = space->steer(a, b, 1.0);
+
+    BOOST_CHECK_EQUAL(picard.statistics().fallbacks, 1u);
+    BOOST_CHECK_EQUAL(space->statistics().proposalFallbacks, 1u);
+    BOOST_CHECK_EQUAL(rollout.waypoints.size(), 1u);
+    BOOST_CHECK_EQUAL(rollout.blocked, 1u);
+    // The rejected speculative probe and the ordinary fallback are both real work.
+    BOOST_CHECK_GE(space->statistics().steps, 2u);
 }
 
 BOOST_AUTO_TEST_CASE(StateSpaceIsGeneratedFromRobotModel)

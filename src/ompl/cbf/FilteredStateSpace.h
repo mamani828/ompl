@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <unordered_map>
@@ -129,6 +130,13 @@ namespace ompl::cbf
             bool reachedTarget{false};             ///< did it finish within reachTolerance of `to`?
         };
 
+        /// Optional speculative steering implementation. Returning false asks the space
+        /// to run its ordinary sequential rollout, so experiments can be installed
+        /// without weakening the production fallback. A rejected proposal may return
+        /// filter-work counters in its Rollout; they are charged but its motion is not.
+        using RolloutPlanner =
+            std::function<bool(const Configuration &, const Configuration &, double, Rollout &)>;
+
         /// Aggregate counters, so a planner run can be costed without instrumenting
         /// the planner. Mutable because `interpolate()` is const.
         struct Statistics
@@ -144,6 +152,9 @@ namespace ompl::cbf
             std::size_t served{0};     ///< queries answered from the ledger, at no filter cost
             std::size_t recorded{0};   ///< edges committed to the ledger
             std::size_t evicted{0};    ///< edges dropped for capacity; should stay zero
+            std::size_t proposalAttempts{0};
+            std::size_t proposalAccepted{0};
+            std::size_t proposalFallbacks{0};
         };
 
         /// \p filter is not copied and must outlive this space. \p stepSize is the
@@ -256,7 +267,6 @@ namespace ompl::cbf
                 double certified = 0.0;
                 const typename Filter::Status status =
                     filter_.filter(out.end, nominal, stepSize_, applied, certified);
-                ++statistics_.steps;
                 if (status == Filter::Status::Blocked)
                 {
                     // Nothing safe to do. Stop rather than sit still burning steps --
@@ -306,17 +316,48 @@ namespace ompl::cbf
                 budget - elapsed <= negligibleTime &&
                 Operations::distance(out.end, to, maxSpeed_) <= reachTolerance();
 
-            statistics_.rollouts += 1;
-            statistics_.filtered += out.filtered;
-            statistics_.blocked += out.blocked;
-            statistics_.coarse += out.coarse;
-            statistics_.travel += out.travel;
+            account(out);
             return out;
         }
 
         Rollout roll(const base::State *from, const base::State *to, double fraction) const
         {
             return roll(configurationOf(from), configurationOf(to), fraction);
+        }
+
+        /// Use the installed speculative planner when it can certify a proposal, and
+        /// otherwise preserve the exact direct-rollout behavior.
+        Rollout steer(const Configuration &from, const Configuration &to, double fraction) const
+        {
+            if (rolloutPlanner_)
+            {
+                ++statistics_.proposalAttempts;
+                Rollout proposal;
+                if (rolloutPlanner_(from, to, fraction, proposal))
+                {
+                    ++statistics_.proposalAccepted;
+                    account(proposal);
+                    return proposal;
+                }
+                ++statistics_.proposalFallbacks;
+                accountRejectedWork(proposal);
+            }
+            return roll(from, to, fraction);
+        }
+
+        Rollout steer(const base::State *from, const base::State *to, double fraction) const
+        {
+            return steer(configurationOf(from), configurationOf(to), fraction);
+        }
+
+        void setRolloutPlanner(RolloutPlanner planner)
+        {
+            rolloutPlanner_ = std::move(planner);
+        }
+
+        void clearRolloutPlanner()
+        {
+            rolloutPlanner_ = RolloutPlanner();
         }
 
         /// A recorded edge, oriented the way it was asked for.
@@ -544,7 +585,7 @@ namespace ompl::cbf
                 return;
             }
 
-            Rollout rollout = roll(a, b, t);
+            Rollout rollout = steer(a, b, t);
             staged_.waypoints.clear();
             staged_.valid = false;
 
@@ -715,12 +756,32 @@ namespace ompl::cbf
             }
         }
 
+        void account(const Rollout &rollout) const
+        {
+            ++statistics_.rollouts;
+            // A terminal blocked call consumes filter work but integrates no step, so
+            // Rollout::steps excludes it while the aggregate work counter includes it.
+            statistics_.steps += rollout.steps + rollout.blocked;
+            statistics_.filtered += rollout.filtered;
+            statistics_.blocked += rollout.blocked;
+            statistics_.coarse += rollout.coarse;
+            statistics_.travel += rollout.travel;
+        }
+
+        void accountRejectedWork(const Rollout &rollout) const
+        {
+            statistics_.steps += rollout.steps + rollout.blocked;
+            statistics_.filtered += rollout.filtered;
+            statistics_.blocked += rollout.blocked;
+        }
+
         const Filter &filter_;
         double stepSize_;
         Control maxSpeed_;
         double reachTolerance_{-1.0};
         double maxStepScale_{std::numeric_limits<double>::infinity()};
         double minProgressFraction_{0.25};
+        RolloutPlanner rolloutPlanner_;
         std::size_t ledgerCapacity_{1u << 20};
         mutable Statistics statistics_;
         mutable Staged staged_;
