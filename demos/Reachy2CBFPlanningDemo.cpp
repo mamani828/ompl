@@ -319,6 +319,7 @@ namespace
         pdef->setStartAndGoalStates(startState, goalState, 0.05);
         auto planner = std::make_shared<SeededRRTConnect>(si, seed + 2);
         planner->setRange(1.5);
+        planner->setRetainPartialSteering(true);
         planner->setProblemDefinition(pdef);
         planner->setup();
 

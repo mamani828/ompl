@@ -115,6 +115,30 @@ namespace ompl
                 return maxDistance_;
             }
 
+            /** \brief Keep useful state-space steering results even when a target is
+                already within range.
+
+                Stock RRTConnect uses the sampled state directly when it is within
+                \c range and asks the motion validator to accept that exact endpoint.
+                Some directed state spaces produce a safe, useful endpoint without
+                reaching the requested state. When this option is enabled, every grow
+                operation goes through StateSpace::interpolate(); a nonzero partial
+                result is added as an ADVANCED node and only an exact arrival is
+                reported as REACHED.
+
+                Disabled by default, so ordinary geometric state spaces and existing
+                RRTConnect users retain their original behavior. */
+            void setRetainPartialSteering(bool retain)
+            {
+                retainPartialSteering_ = retain;
+            }
+
+            /** \brief Return whether useful partial steering endpoints are retained. */
+            bool getRetainPartialSteering() const
+            {
+                return retainPartialSteering_;
+            }
+
             /** \brief Observe the outcome of each primary random-sample extension. */
             void setSampleExtensionCallback(SampleExtensionCallback callback)
             {
@@ -205,6 +229,10 @@ namespace ompl
 
             /** \brief Flag indicating whether intermediate states are added to the built tree of motions */
             bool addIntermediateStates_;
+
+            /** \brief Route within-range targets through state-space steering so a
+                directed space can retain a useful endpoint without exact arrival. */
+            bool retainPartialSteering_{false};
 
             /** \brief The random number generator */
             RNG rng_;

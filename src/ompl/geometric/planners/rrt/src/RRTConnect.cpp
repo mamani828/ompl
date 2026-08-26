@@ -48,6 +48,8 @@ ompl::geometric::RRTConnect::RRTConnect(const base::SpaceInformationPtr &si, boo
     Planner::declareParam<double>("range", this, &RRTConnect::setRange, &RRTConnect::getRange, "0.:1.:10000.");
     Planner::declareParam<bool>("intermediate_states", this, &RRTConnect::setIntermediateStates,
                                 &RRTConnect::getIntermediateStates, "0,1");
+    Planner::declareParam<bool>("retain_partial_steering", this, &RRTConnect::setRetainPartialSteering,
+                                &RRTConnect::getRetainPartialSteering, "0,1");
 
     connectionPoint_ = std::make_pair<base::State *, base::State *>(nullptr, nullptr);
     distanceBetweenTrees_ = std::numeric_limits<double>::infinity();
@@ -121,15 +123,18 @@ ompl::geometric::RRTConnect::GrowState ompl::geometric::RRTConnect::growTree(Tre
     if (nearest != nullptr)
         *nearest = nmotion;
 
-    /* assume we can reach the state we go towards */
-    bool reach = true;
-
-    /* find state to add */
+    /* Find the state to add. Ordinary RRTConnect only asks interpolate() to
+       truncate a target outside its range. A directed state space may also return
+       a useful, reachable endpoint without arriving at an in-range target, so the
+       opt-in path steers those motions too and retains the result as ADVANCED. */
     base::State *dstate = rmotion->state;
     double d = si_->distance(nmotion->state, rmotion->state);
-    if (d > maxDistance_)
+    const bool truncated = d > maxDistance_;
+    bool reach = !truncated;
+    if (truncated || retainPartialSteering_)
     {
-        si_->getStateSpace()->interpolate(nmotion->state, rmotion->state, maxDistance_ / d, tgi.xstate);
+        const double fraction = truncated ? maxDistance_ / d : 1.0;
+        si_->getStateSpace()->interpolate(nmotion->state, rmotion->state, fraction, tgi.xstate);
 
         /* Check if we have moved at all. Due to some stranger state spaces (e.g., the constrained state spaces),
          * interpolate can fail and no progress is made. Without this check, the algorithm gets stuck in a loop as it
@@ -138,7 +143,10 @@ ompl::geometric::RRTConnect::GrowState ompl::geometric::RRTConnect::growTree(Tre
             return TRAPPED;
 
         dstate = tgi.xstate;
-        reach = false;
+        // A directed interpolation may stop short even at fraction 1. Keep that
+        // endpoint, but do not tell the connect loop that the sampled state was
+        // reached unless it actually was.
+        reach = !truncated && si_->equalStates(dstate, rmotion->state);
     }
 
     bool validMotion = tgi.start ? si_->checkMotion(nmotion->state, dstate) :

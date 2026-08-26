@@ -582,25 +582,29 @@ with `range = 1.5`, `minProgressFraction = 0.10`, and `gamma = 0.99`:
 
 | goal | straight RRTConnect | CBF rollout |
 |---|---:|---:|
-| `high_forward` | 1187 / 4054 (**29.3%**) | 591 / 592 (**99.8%**) |
-| `behind` | 2251 / 11932 (**18.9%**) | 4860 / 5315 (**91.4%**) |
-| combined | 3438 / 15986 (**21.5%**) | 5451 / 5907 (**92.3%**) |
+| `high_forward` | 1187 / 4054 (**29.3%**) | 590 / 590 (**100.0%**) |
+| `behind` | 2251 / 11932 (**18.9%**) | 3877 / 4218 (**91.9%**) |
+| combined | 3438 / 15986 (**21.5%**) | 4467 / 4808 (**92.9%**) |
 
 That is the intended contribution: the CBF turns a sampled direction that straight steering
 would discard into retained safe progress. It is not a claim that one rollout reaches every
 raw sample exactly. RRTConnect deliberately truncates targets beyond `range`; even among
 within-range pairs whose straight segment is blocked, a reactive CBF can stall in a local
-minimum. The planner keeps useful partial progress and lets later samples grow the tree;
-it does not run a local beam planner inside `steer`.
+minimum. CBF planners therefore enable RRTConnect's opt-in `retain_partial_steering` mode:
+within-range targets go through the state-space steer too, and a safe endpoint that makes
+enough progress is retained as `ADVANCED` instead of requiring exact arrival. The planner
+keeps useful partial progress and lets later samples grow the tree; it does not run a local
+beam planner inside `steer`.
 
 A bounded tangent/waypoint recovery experiment could reach about 92% of blocked exact
 targets, but raised the clutter median to 6.25 ms and added a second local
 planner inside every arrive-or-reject edge. It and its diagnostic replay pass were removed.
-The production path is now one direct, certified CBF rollout per extension. This keeps the
-sample-efficiency contribution separate from exact-target recovery and removes the largest
-avoidable source of filter calls. On the same 501-trial clutter comparison the simplified
-path takes **3.64 ms**, versus **4.25 ms** at commit `bbbe7365`, while retaining 92.3%
-productive samples and zero audited violations.
+The production path is one direct, certified CBF rollout per extension, whose actual endpoint
+is now retained. Across two disjoint paired 501-seed A/Bs on the two clutter goals, retaining
+partial steering reduced filter calls by **12.6%**, reduced primary samples needed to solve by
+**19.5%**, and raised recorded edges per rollout from 71.1% to 77.8%. The summed per-goal
+median fell by **8.1%** in the first batch (6.689 to 6.148 ms) and **15.9%** in the second
+(6.616 to 5.566 ms), with both goals solved and zero audited violations.
 
 That comparison is against an **unsimplified** baseline, and most of it does not survive
 shortcutting both rows. Passing `shortcutRadians` to `demo_UR5PyBulletScene` (ninth

@@ -153,6 +153,7 @@ namespace
         definition->setStartAndGoalStates(start, goal, 0.35);
         auto planner = std::make_shared<og::RRTConnect>(si);
         planner->setRange(2.0);
+        planner->setRetainPartialSteering(true);
         planner->setProblemDefinition(definition);
         planner->setup();
         if (!planner->solve(ob::timedPlannerTerminationCondition(5.0)) || !definition->hasExactSolution())

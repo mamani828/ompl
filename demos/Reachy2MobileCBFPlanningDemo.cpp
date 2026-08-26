@@ -333,6 +333,7 @@ namespace
         definition->setGoal(makeGoals(si, goals));
         auto planner = std::make_shared<SeededRRTConnect>(si, seed + 2);
         planner->setRange(0.8);
+        planner->setRetainPartialSteering(true);
         planner->setProblemDefinition(definition);
         planner->setup();
         const auto begin = std::chrono::steady_clock::now();

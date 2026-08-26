@@ -231,6 +231,7 @@ namespace
     unsigned int picardIterations = 0;
     unsigned int picardWindow = 8;
     unsigned int picardWorkers = 0;
+    bool retainPartialSteering = true;
 
     struct Result
     {
@@ -499,6 +500,7 @@ namespace
 
         auto planner = std::make_shared<og::RRTConnect>(si);
         planner->setRange(range);
+        planner->setRetainPartialSteering(retainPartialSteering);
         std::size_t primarySamples = 0;
         std::size_t productiveSamples = 0;
         planner->setSampleExtensionCallback(
@@ -637,7 +639,8 @@ int main(int argc, char **argv)
                     " [baselineCheckRadians] [baselineAuditRadians] [selfMargin]"
                     " [shortcutRadians] [guardBufferMeters] [rangeRadians]"
                     " [minProgressFraction] [gamma] [trialSeedOffset]"
-                    " [picardIterations] [picardWindow] [picardWorkers]\n",
+                    " [picardIterations] [picardWindow] [picardWorkers]"
+                    " [retainPartialSteering]\n",
                     argv[0]);
         std::printf("       %s <scene.problem> --probe   < points.txt\n", argv[0]);
         return 1;
@@ -686,6 +689,8 @@ int main(int argc, char **argv)
         picardWindow = static_cast<unsigned int>(std::max(1, std::atoi(argv[16])));
     if (argc > 17 && !probeMode)
         picardWorkers = static_cast<unsigned int>(std::max(0, std::atoi(argv[17])));
+    if (argc > 18 && !probeMode)
+        retainPartialSteering = std::atoi(argv[18]) != 0;
 
     const Scene scene = readScene(problemPath);
     const sdf::GridSDF field = sdf::GridSDF::load(scene.gridPath);
@@ -713,6 +718,7 @@ int main(int argc, char **argv)
     std::printf("CBF gamma %.3f, RRTConnect range %.3f rad, min progress %.2f\n",
                 filterGamma > 0.0 ? filterGamma : Filter::Parameters().gamma, range,
                 minProgressFraction >= 0.0 ? minProgressFraction : 0.25);
+    std::printf("retain partial CBF steering: %s\n", retainPartialSteering ? "on" : "off");
     if (picardIterations > 0)
     {
         const std::string workers =
@@ -783,6 +789,11 @@ int main(int argc, char **argv)
                                         &basePath);
             cbfRun.push_back(r.seconds);
             baseRun.push_back(base.seconds);
+            diagnostics.steps += r.steps;
+            diagnostics.rollouts += r.rollouts;
+            diagnostics.recorded += r.recorded;
+            diagnostics.abandoned += r.abandoned;
+            diagnostics.served += r.served;
             diagnostics.primarySamples += r.primarySamples;
             diagnostics.productiveSamples += r.productiveSamples;
             baselinePrimarySamples += base.primarySamples;
@@ -828,10 +839,12 @@ int main(int argc, char **argv)
                     r.solved ? r.minSelfOverlap : 0.0, r.lengthBefore, r.lengthAfter, cutPercent(r),
                     1e3 * r.shortcutSeconds);
         std::printf("    cbf planner: %zu recorded / %zu rollouts (%.1f%%), %zu abandoned, "
-                    "%zu ledger-served\n",
-                    r.recorded, r.rollouts,
-                    r.rollouts > 0 ? 1e2 * static_cast<double>(r.recorded) / r.rollouts : 0.0,
-                    r.abandoned, r.served);
+                    "%zu ledger-served, %zu filter calls\n",
+                    diagnostics.recorded, diagnostics.rollouts,
+                    diagnostics.rollouts > 0
+                        ? 1e2 * static_cast<double>(diagnostics.recorded) / diagnostics.rollouts
+                        : 0.0,
+                    diagnostics.abandoned, diagnostics.served, diagnostics.steps);
         if (picardIterations > 0)
             std::printf("    parallel Picard: %zu/%zu proposals accepted, %zu fallbacks; "
                         "%zu/%zu windows converged (%zu map-certified), "

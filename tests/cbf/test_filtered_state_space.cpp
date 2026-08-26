@@ -869,7 +869,7 @@ BOOST_AUTO_TEST_CASE(MotionValidatorReportsReachabilityAndTheStateActuallyReache
 // immediately) and useless here -- with the arm extended it blocks about 2.5 rad of base
 // rotation, leaving a goal region only a few cm wide. That is a test about goal
 // tolerances in a near-infeasible problem, not about planning.
-BOOST_AUTO_TEST_CASE(StockRRTConnectPlansSafelyThroughTheRolloutSpace)
+BOOST_AUTO_TEST_CASE(PartialRetainingRRTConnectPlansSafelyThroughTheRolloutSpace)
 {
     const UR5 robot;
     const sdf::GridSDF field(
@@ -906,6 +906,7 @@ BOOST_AUTO_TEST_CASE(StockRRTConnectPlansSafelyThroughTheRolloutSpace)
     std::size_t observedSamples = 0;
     std::size_t productiveSamples = 0;
     auto planner = std::make_shared<og::RRTConnect>(si);
+    planner->setRetainPartialSteering(true);
     planner->setSampleExtensionCallback(
         [&observedSamples, &productiveSamples](const ob::State *, const ob::State *, bool, bool productive,
                                               bool, bool)

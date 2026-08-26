@@ -586,6 +586,7 @@ namespace
 
         auto planner = std::make_shared<og::RRTConnect>(si);
         planner->setRange(range);
+        planner->setRetainPartialSteering(true);
         planner->setProblemDefinition(pdef);
         planner->setup();
 
