@@ -411,6 +411,9 @@ namespace
         // in open space is the whole extension; at 1 it steps at `stepSize` regardless.
         if (maxStepScale > 0.0)
             space->setMaxStepScale(maxStepScale);
+        ompl::cbf::FilteredStateSpace::EarlyTermination earlyTermination;
+        earlyTermination.enabled = true;
+        space->setEarlyTermination(earlyTermination);
 
         auto si = std::make_shared<ob::SpaceInformation>(space);
         // The rollout certifies every step it emits, so there is nothing left for a

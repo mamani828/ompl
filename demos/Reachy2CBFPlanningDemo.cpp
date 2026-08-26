@@ -300,6 +300,9 @@ namespace
         Filter filter(barrier);
         using Space = ompl::cbf::RobotFilteredStateSpace<Robot>;
         auto space = std::make_shared<Space>(filter, integrationStep, Filter::maxSpeed());
+        typename Space::EarlyTermination earlyTermination;
+        earlyTermination.enabled = true;
+        space->setEarlyTermination(earlyTermination);
         space->setStateSamplerAllocator(
             [seed](const ob::StateSpace *stateSpace)
             { return std::make_shared<SeededRealVectorSampler>(stateSpace, seed + 1); });

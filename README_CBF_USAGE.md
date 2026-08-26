@@ -606,6 +606,27 @@ partial steering reduced filter calls by **12.6%**, reduced primary samples need
 median fell by **8.1%** in the first batch (6.689 to 6.148 ms) and **15.9%** in the second
 (6.616 to 5.566 ms), with both goals solved and zero audited violations.
 
+### Stop spending calls on one rollout
+
+The sequential rollout also has opt-in early termination. CBF planning enables it with a
+40-call budget, a three-step low-progress detector, and a numerical zero-control threshold.
+Each stop returns the safe trajectory produced so far; `interpolate()` retains it only when
+it passes the same `minProgressFraction` test as every other partial extension. A stillborn
+rollout therefore remains a rejection rather than a duplicate node. `FilteredStateSpace`'s
+public `roll()` keeps early termination disabled by default, and callers can configure all
+four values through `EarlyTermination`.
+
+The budget is intentionally 40 rather than the initially tempting 8-16 calls. Without a
+bounded RRTConnect connect loop, a short cap fragments a useful extension and immediately
+continues it in another rollout: at 12 calls, filter work rose 0.5% and the median rose 0.7%.
+Across two disjoint paired 501-seed clutter A/Bs, the 40-call setting reduced filter calls by
+**2.9%** and filter calls per primary sample by **13.1%**. The summed per-goal median fell by
+**2.5%** in one batch (5.611 to 5.473 ms) and **7.0%** in the other (6.915 to 6.428 ms).
+It needed 11.7% more primary samples because capped motions become shorter tree edges, but
+the productive-sample rate changed by only 0.5 percentage points. Both goals still solved,
+with zero audited violations. This is the gain available from early termination alone; no
+CONNECT-loop policy change is included.
+
 That comparison is against an **unsimplified** baseline, and most of it does not survive
 shortcutting both rows. Passing `shortcutRadians` to `demo_UR5PyBulletScene` (ninth
 argument) or `demo_UR5CBFPlanning` (eighth) runs RRT-Rope on each: stock

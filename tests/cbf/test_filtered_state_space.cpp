@@ -54,6 +54,54 @@ namespace
 
     using ThreeJointFilter = ompl::cbf::RobotPassthroughFilter<ThreeJointRobot>;
     using ThreeJointSpace = ompl::cbf::RobotFilteredStateSpace<ThreeJointRobot>;
+
+    class UncertifiedThreeJointFilter : public ompl::cbf::RobotControlFilter<ThreeJointRobot>
+    {
+    public:
+        Status filter(const Configuration &, const Control &nominal, double,
+                      Control &filtered) const override
+        {
+            filtered = nominal;
+            return Status::Unchanged;
+        }
+
+        const char *name() const override
+        {
+            return "uncertified-passthrough";
+        }
+    };
+
+    class TinyThreeJointFilter : public ompl::cbf::RobotControlFilter<ThreeJointRobot>
+    {
+    public:
+        Status filter(const Configuration &, const Control &nominal, double,
+                      Control &filtered) const override
+        {
+            filtered = 1e-8 * nominal;
+            return Status::Filtered;
+        }
+
+        const char *name() const override
+        {
+            return "tiny";
+        }
+    };
+
+    class SidewaysThreeJointFilter : public ompl::cbf::RobotControlFilter<ThreeJointRobot>
+    {
+    public:
+        Status filter(const Configuration &, const Control &, double,
+                      Control &filtered) const override
+        {
+            filtered << 0.0, 0.25, 0.0;
+            return Status::Filtered;
+        }
+
+        const char *name() const override
+        {
+            return "sideways";
+        }
+    };
 }  // namespace
 
 namespace
@@ -381,6 +429,80 @@ BOOST_AUTO_TEST_CASE(HorizonIsSetByTheSlowestJoint)
     BOOST_CHECK_EQUAL(space->horizonSteps(a, b), 40u);
 
     BOOST_CHECK_EQUAL(space->horizonSteps(a, a), 0u);
+}
+
+BOOST_AUTO_TEST_CASE(EarlyTerminationBoundsSequentialRolloutWork)
+{
+    const ThreeJointRobot::Configuration from = ThreeJointRobot::Configuration::Zero();
+    const ThreeJointRobot::Configuration to =
+        (ThreeJointRobot::Configuration() << 0.8, 0.0, 0.0).finished();
+
+    UncertifiedThreeJointFilter filter;
+    auto space = ompl::cbf::makeRobotFilteredStateSpace(filter, 0.1);
+    ThreeJointSpace::EarlyTermination early;
+    early.enabled = true;
+    early.maxFilterCalls = 4;
+    early.stalledSteps = 0;
+    early.minControlFraction = 0.0;
+    space->setEarlyTermination(early);
+
+    const ThreeJointSpace::Rollout rollout = space->roll(from, to, 1.0);
+    BOOST_CHECK_EQUAL(rollout.steps, 4u);
+    BOOST_CHECK(rollout.callBudgetReached);
+    BOOST_CHECK(!rollout.reachedTarget);
+    BOOST_CHECK_GT((rollout.end - from).norm(), 0.0);
+    BOOST_CHECK_LT((rollout.end - to).norm(), (from - to).norm());
+    BOOST_CHECK_EQUAL(space->statistics().callBudgetTerminations, 1u);
+
+    early.minProjectedProgressFraction = -0.1;
+    BOOST_CHECK_THROW(space->setEarlyTermination(early), ompl::Exception);
+    early.minProjectedProgressFraction = 0.01;
+    early.minControlFraction = 1.1;
+    BOOST_CHECK_THROW(space->setEarlyTermination(early), ompl::Exception);
+}
+
+BOOST_AUTO_TEST_CASE(EarlyTerminationRejectsNumericallyTinyControlImmediately)
+{
+    const ThreeJointRobot::Configuration from = ThreeJointRobot::Configuration::Zero();
+    const ThreeJointRobot::Configuration to =
+        (ThreeJointRobot::Configuration() << 0.8, 0.0, 0.0).finished();
+
+    TinyThreeJointFilter filter;
+    auto space = ompl::cbf::makeRobotFilteredStateSpace(filter, 0.1);
+    ThreeJointSpace::EarlyTermination early;
+    early.enabled = true;
+    early.maxFilterCalls = 0;
+    early.stalledSteps = 0;
+    space->setEarlyTermination(early);
+
+    const ThreeJointSpace::Rollout rollout = space->roll(from, to, 1.0);
+    BOOST_CHECK_EQUAL(rollout.steps, 1u);
+    BOOST_CHECK(rollout.tinyControl);
+    BOOST_CHECK(!rollout.reachedTarget);
+    BOOST_CHECK_EQUAL((rollout.end - from).norm(), 0.0);
+    BOOST_CHECK_EQUAL(space->statistics().tinyControlTerminations, 1u);
+}
+
+BOOST_AUTO_TEST_CASE(EarlyTerminationStopsConsecutiveSidewaysSteps)
+{
+    const ThreeJointRobot::Configuration from = ThreeJointRobot::Configuration::Zero();
+    const ThreeJointRobot::Configuration to =
+        (ThreeJointRobot::Configuration() << 0.8, 0.0, 0.0).finished();
+
+    SidewaysThreeJointFilter filter;
+    auto space = ompl::cbf::makeRobotFilteredStateSpace(filter, 0.1);
+    ThreeJointSpace::EarlyTermination early;
+    early.enabled = true;
+    early.maxFilterCalls = 0;
+    early.stalledSteps = 3;
+    early.minControlFraction = 0.0;
+    space->setEarlyTermination(early);
+
+    const ThreeJointSpace::Rollout rollout = space->roll(from, to, 1.0);
+    BOOST_CHECK_EQUAL(rollout.steps, 3u);
+    BOOST_CHECK(rollout.stalled);
+    BOOST_CHECK(!rollout.reachedTarget);
+    BOOST_CHECK_EQUAL(space->statistics().stallTerminations, 1u);
 }
 
 // The value proposition, in one test: aim along a line that is blocked, and the rollout

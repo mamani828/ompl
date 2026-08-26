@@ -138,6 +138,9 @@ namespace
             bounds.setHigh(j, UR5::upperBounds()[j]);
         }
         space->setBounds(bounds);
+        ompl::cbf::FilteredStateSpace::EarlyTermination earlyTermination;
+        earlyTermination.enabled = true;
+        space->setEarlyTermination(earlyTermination);
         auto si = std::make_shared<ob::SpaceInformation>(space);
         si->setStateValidityChecker(std::make_shared<ob::AllValidStateValidityChecker>(si));
         si->setMotionValidator(std::make_shared<ompl::cbf::FilteredMotionValidator>(si));

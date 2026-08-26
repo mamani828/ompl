@@ -232,6 +232,9 @@ namespace
     unsigned int picardWindow = 8;
     unsigned int picardWorkers = 0;
     bool retainPartialSteering = true;
+    bool rolloutEarlyTermination = true;
+    unsigned int rolloutCallBudget = 40;
+    unsigned int rolloutStalledSteps = 3;
 
     struct Result
     {
@@ -260,6 +263,9 @@ namespace
         std::size_t proposalAttempts{0};
         std::size_t proposalAccepted{0};
         std::size_t proposalFallbacks{0};
+        std::size_t callBudgetTerminations{0};
+        std::size_t stallTerminations{0};
+        std::size_t tinyControlTerminations{0};
         std::size_t picardWindows{0};
         std::size_t picardConvergedWindows{0};
         std::size_t picardMapCertifiedWindows{0};
@@ -458,6 +464,11 @@ namespace
             space->setMaxStepScale(maxStepScale);
         if (minProgressFraction >= 0.0)
             space->setMinProgressFraction(minProgressFraction);
+        ompl::cbf::FilteredStateSpace::EarlyTermination earlyTermination;
+        earlyTermination.enabled = rolloutEarlyTermination;
+        earlyTermination.maxFilterCalls = rolloutCallBudget;
+        earlyTermination.stalledSteps = rolloutStalledSteps;
+        space->setEarlyTermination(earlyTermination);
 
         std::unique_ptr<ompl::cbf::ParallelPicardRollout> picard;
         if (picardIterations > 0)
@@ -539,6 +550,9 @@ namespace
         result.proposalAttempts = stats.proposalAttempts;
         result.proposalAccepted = stats.proposalAccepted;
         result.proposalFallbacks = stats.proposalFallbacks;
+        result.callBudgetTerminations = stats.callBudgetTerminations;
+        result.stallTerminations = stats.stallTerminations;
+        result.tinyControlTerminations = stats.tinyControlTerminations;
         result.primarySamples = primarySamples;
         result.productiveSamples = productiveSamples;
         if (picard)
@@ -640,7 +654,8 @@ int main(int argc, char **argv)
                     " [shortcutRadians] [guardBufferMeters] [rangeRadians]"
                     " [minProgressFraction] [gamma] [trialSeedOffset]"
                     " [picardIterations] [picardWindow] [picardWorkers]"
-                    " [retainPartialSteering]\n",
+                    " [retainPartialSteering] [earlyTermination] [rolloutCallBudget]"
+                    " [rolloutStalledSteps]\n",
                     argv[0]);
         std::printf("       %s <scene.problem> --probe   < points.txt\n", argv[0]);
         return 1;
@@ -691,6 +706,12 @@ int main(int argc, char **argv)
         picardWorkers = static_cast<unsigned int>(std::max(0, std::atoi(argv[17])));
     if (argc > 18 && !probeMode)
         retainPartialSteering = std::atoi(argv[18]) != 0;
+    if (argc > 19 && !probeMode)
+        rolloutEarlyTermination = std::atoi(argv[19]) != 0;
+    if (argc > 20 && !probeMode)
+        rolloutCallBudget = static_cast<unsigned int>(std::max(0, std::atoi(argv[20])));
+    if (argc > 21 && !probeMode)
+        rolloutStalledSteps = static_cast<unsigned int>(std::max(0, std::atoi(argv[21])));
 
     const Scene scene = readScene(problemPath);
     const sdf::GridSDF field = sdf::GridSDF::load(scene.gridPath);
@@ -719,6 +740,9 @@ int main(int argc, char **argv)
                 filterGamma > 0.0 ? filterGamma : Filter::Parameters().gamma, range,
                 minProgressFraction >= 0.0 ? minProgressFraction : 0.25);
     std::printf("retain partial CBF steering: %s\n", retainPartialSteering ? "on" : "off");
+    std::printf("rollout early termination: %s, %u-call budget, %u stalled steps\n",
+                rolloutEarlyTermination ? "on" : "off", rolloutCallBudget,
+                rolloutStalledSteps);
     if (picardIterations > 0)
     {
         const std::string workers =
@@ -794,6 +818,9 @@ int main(int argc, char **argv)
             diagnostics.recorded += r.recorded;
             diagnostics.abandoned += r.abandoned;
             diagnostics.served += r.served;
+            diagnostics.callBudgetTerminations += r.callBudgetTerminations;
+            diagnostics.stallTerminations += r.stallTerminations;
+            diagnostics.tinyControlTerminations += r.tinyControlTerminations;
             diagnostics.primarySamples += r.primarySamples;
             diagnostics.productiveSamples += r.productiveSamples;
             baselinePrimarySamples += base.primarySamples;
@@ -845,6 +872,9 @@ int main(int argc, char **argv)
                         ? 1e2 * static_cast<double>(diagnostics.recorded) / diagnostics.rollouts
                         : 0.0,
                     diagnostics.abandoned, diagnostics.served, diagnostics.steps);
+        std::printf("    rollout early stops: %zu budget, %zu stalled, %zu tiny-control\n",
+                    diagnostics.callBudgetTerminations, diagnostics.stallTerminations,
+                    diagnostics.tinyControlTerminations);
         if (picardIterations > 0)
             std::printf("    parallel Picard: %zu/%zu proposals accepted, %zu fallbacks; "
                         "%zu/%zu windows converged (%zu map-certified), "

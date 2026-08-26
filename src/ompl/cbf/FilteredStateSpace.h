@@ -128,6 +128,28 @@ namespace ompl::cbf
             double travel{0.0};                    ///< joint-space radians covered
             double fraction{0.0};                  ///< share of the full horizon it got through
             bool reachedTarget{false};             ///< did it finish within reachTolerance of `to`?
+            bool callBudgetReached{false};         ///< stopped after the configured filter-call budget
+            bool stalled{false};                   ///< consecutive steps made negligible target progress
+            bool tinyControl{false};               ///< stopped on a numerically negligible applied control
+        };
+
+        /// Optional sequential-rollout work limits. Disabled by default because `roll()`
+        /// is also a public integration primitive; planners opt in when a useful partial
+        /// edge is preferable to spending an unbounded number of calls on one target.
+        struct EarlyTermination
+        {
+            bool enabled{false};
+            /// Zero leaves the number of filter calls unbounded.
+            /// Forty is deliberately above a typical useful extension: shorter caps
+            /// fragmented RRTConnect's greedy connect chain and increased total work.
+            unsigned int maxFilterCalls{40};
+            /// Stop after this many consecutive low-progress steps; zero disables it.
+            unsigned int stalledSteps{3};
+            /// A step is stalled when target-distance reduction is at most this share
+            /// of the nominal step's travel.
+            double minProjectedProgressFraction{0.01};
+            /// Applied max joint-speed fraction below which the control is treated as zero.
+            double minControlFraction{1e-4};
         };
 
         /// Optional speculative steering implementation. Returning false asks the space
@@ -155,6 +177,9 @@ namespace ompl::cbf
             std::size_t proposalAttempts{0};
             std::size_t proposalAccepted{0};
             std::size_t proposalFallbacks{0};
+            std::size_t callBudgetTerminations{0};
+            std::size_t stallTerminations{0};
+            std::size_t tinyControlTerminations{0};
         };
 
         /// \p filter is not copied and must outlive this space. \p stepSize is the
@@ -255,6 +280,7 @@ namespace ompl::cbf
             Control nominal;
             Control applied;
             double elapsed = 0.0;
+            unsigned int consecutiveStalls = 0;
             while (budget - elapsed > negligibleTime)
             {
                 // Time left in the *full* horizon, so a truncated rollout follows the
@@ -277,6 +303,21 @@ namespace ompl::cbf
                 if (status == Filter::Status::Filtered)
                     ++out.filtered;
 
+                ++out.steps;
+
+                // A QP can return a nonzero control whose motion is numerically useless.
+                // Treat it as zero before integrating a long chain of microscopic states.
+                if (earlyTermination_.enabled && earlyTermination_.minControlFraction > 0.0)
+                {
+                    const double appliedFraction =
+                        applied.cwiseAbs().cwiseQuotient(maxSpeed_).maxCoeff();
+                    if (appliedFraction <= earlyTermination_.minControlFraction)
+                    {
+                        out.tinyControl = true;
+                        break;
+                    }
+                }
+
                 // How far to run what the filter just handed back. The floor is the step
                 // it was asked about, which it answered for; above that the filter has
                 // certified itself a no-op, so running on is not an extrapolation but a
@@ -285,7 +326,9 @@ namespace ompl::cbf
                     std::min(std::max(stepSize_, std::min(certified, maxStepScale_ * stepSize_)),
                              budget - elapsed);
 
-                Configuration landing = Operations::integrate(out.end, applied, span);
+                const Configuration previous = out.end;
+                const double previousGap = Operations::distance(previous, to, maxSpeed_);
+                Configuration landing = Operations::integrate(previous, applied, span);
                 // A hop that runs the horizon out was aimed to finish on `to`, and with
                 // nothing in the way it does -- to the last bit. Recognising that lets an
                 // unobstructed edge end on the state that was asked for rather than one
@@ -294,19 +337,49 @@ namespace ompl::cbf
                     landing = Operations::normalize(to);
 
                 elapsed += span;
-                ++out.steps;
-                // A cornered-but-feasible QP answers with a zero control, which is
-                // certified for as long as you like and goes nowhere. Charge the call and
-                // run the clock out, but keep it out of the record: a repeated waypoint
-                // is not a motion.
-                if (bitwiseEqual(landing, out.end))
-                    continue;
+                // With early termination disabled, a cornered-but-feasible zero control
+                // runs the clock out without adding repeated waypoints. The enabled path
+                // catches exact and numerical zero controls above before integration.
+                const bool moved = !bitwiseEqual(landing, previous);
 
-                out.travel += Operations::distance(out.end, landing, maxSpeed_);
-                out.end = landing;
-                out.waypoints.push_back(out.end);
-                if (span > stepSize_)
-                    ++out.coarse;
+                if (moved)
+                {
+                    out.travel += Operations::distance(previous, landing, maxSpeed_);
+                    out.end = landing;
+                    out.waypoints.push_back(out.end);
+                    if (span > stepSize_)
+                        ++out.coarse;
+                }
+
+                if (earlyTermination_.enabled && earlyTermination_.stalledSteps > 0)
+                {
+                    const Configuration nominalLanding =
+                        Operations::integrate(previous, nominal, span);
+                    const double nominalTravel =
+                        Operations::distance(previous, nominalLanding, maxSpeed_);
+                    const double progress =
+                        previousGap - Operations::distance(out.end, to, maxSpeed_);
+                    if (nominalTravel > negligibleAngle &&
+                        progress <= earlyTermination_.minProjectedProgressFraction * nominalTravel)
+                        ++consecutiveStalls;
+                    else
+                        consecutiveStalls = 0;
+
+                    if (consecutiveStalls >= earlyTermination_.stalledSteps &&
+                        budget - elapsed > negligibleTime)
+                    {
+                        out.stalled = true;
+                        break;
+                    }
+                }
+
+                if (earlyTermination_.enabled && earlyTermination_.maxFilterCalls > 0 &&
+                    out.steps >= earlyTermination_.maxFilterCalls &&
+                    budget - elapsed > negligibleTime)
+                {
+                    out.callBudgetReached = true;
+                    break;
+                }
             }
 
             if (terminal)
@@ -557,6 +630,21 @@ namespace ompl::cbf
             maxStepScale_ = scale;
         }
 
+        const EarlyTermination &earlyTermination() const
+        {
+            return earlyTermination_;
+        }
+
+        void setEarlyTermination(const EarlyTermination &parameters)
+        {
+            if (parameters.minProjectedProgressFraction < 0.0 ||
+                parameters.minProjectedProgressFraction > 1.0)
+                throw Exception("FilteredStateSpace: min projected progress must be in [0, 1]");
+            if (parameters.minControlFraction < 0.0 || parameters.minControlFraction > 1.0)
+                throw Exception("FilteredStateSpace: min control fraction must be in [0, 1]");
+            earlyTermination_ = parameters;
+        }
+
         /// Minimum share of the free-space progress an extension must actually achieve
         /// to be reported at all. See `interpolate()`.
         double minProgressFraction() const
@@ -766,6 +854,9 @@ namespace ompl::cbf
             statistics_.blocked += rollout.blocked;
             statistics_.coarse += rollout.coarse;
             statistics_.travel += rollout.travel;
+            statistics_.callBudgetTerminations += rollout.callBudgetReached ? 1u : 0u;
+            statistics_.stallTerminations += rollout.stalled ? 1u : 0u;
+            statistics_.tinyControlTerminations += rollout.tinyControl ? 1u : 0u;
         }
 
         void accountRejectedWork(const Rollout &rollout) const
@@ -781,6 +872,7 @@ namespace ompl::cbf
         double reachTolerance_{-1.0};
         double maxStepScale_{std::numeric_limits<double>::infinity()};
         double minProgressFraction_{0.25};
+        EarlyTermination earlyTermination_;
         RolloutPlanner rolloutPlanner_;
         std::size_t ledgerCapacity_{1u << 20};
         mutable Statistics statistics_;

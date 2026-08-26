@@ -567,6 +567,9 @@ namespace
         space->setBounds(jointBounds());
         if (maxStepScale > 0.0)
             space->setMaxStepScale(maxStepScale);
+        Space::EarlyTermination earlyTermination;
+        earlyTermination.enabled = true;
+        space->setEarlyTermination(earlyTermination);
 
         auto si = std::make_shared<ob::SpaceInformation>(space);
         si->setStateValidityChecker(std::make_shared<ob::AllValidStateValidityChecker>(si));

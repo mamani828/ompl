@@ -320,6 +320,9 @@ namespace
         Filter filter(barrier, lower, upper, 0.001);
         using Space = ompl::cbf::RobotFilteredStateSpace<Robot>;
         auto space = std::make_shared<Space>(filter, 0.01, Robot::velocityLimits(), lower, upper);
+        typename Space::EarlyTermination earlyTermination;
+        earlyTermination.enabled = true;
+        space->setEarlyTermination(earlyTermination);
         space->setStateSamplerAllocator([seed, transit, &goals, uniformSampler](const ob::StateSpace *s)
         { return std::make_shared<BiasedSampler>(s, seed + 1, transit, goals, uniformSampler); });
         auto si = std::make_shared<ob::SpaceInformation>(space);
