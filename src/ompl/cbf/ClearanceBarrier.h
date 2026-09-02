@@ -110,7 +110,14 @@ namespace ompl::cbf
         /// One barrier value per constraint.
         using Values = Eigen::Matrix<double, nConstraints, 1>;
         /// Row i is dh_i/dq — the constraint row barrier i contributes.
-        using Rows = Eigen::Matrix<double, nConstraints, nJoints>;
+        ///
+        /// Row-major, which is how it is used at every point: `evaluateScreened()` writes
+        /// one whole row per surviving barrier, `CBFControlFilter` dots one whole row
+        /// against a candidate control, and qpmad walks the active rows. Column-major put
+        /// the six entries of a row 343 doubles apart, so each of those touched six cache
+        /// lines instead of one; the solve measures about 14% faster reading a contiguous
+        /// block, for identical arithmetic.
+        using Rows = Eigen::Matrix<double, nConstraints, nJoints, Eigen::RowMajor>;
 
         /// Covers sphere under-coverage (30.5 mm) plus SDF discretization plus
         /// step linearization. See the class comment.
@@ -141,9 +148,36 @@ namespace ompl::cbf
         /// it costs reachable configurations.
         static constexpr double defaultSelfMargin = 0.0;
 
+        /// Slack for the squared-domain comparisons in `evaluateScreened()` and
+        /// `certifiedDuration()`, as a relative widening of the squared bound.
+        ///
+        /// Testing `|p_a - p_b| - offset <= limit` as `dSq <= (offset + limit)^2` is exact
+        /// in real arithmetic and loses about half the mantissa in floating point: the
+        /// squared form resolves the barrier value only to roughly `offset * eps / 2`,
+        /// around 1e-17 m here. That is far below any physical scale in this class -- the
+        /// margins are millimetres -- but it is not below the scale at which a *ratio*
+        /// like `certifiedDuration()`'s `h / rate` is taken, and there a term can be
+        /// dropped that the linear test would have kept.
+        ///
+        /// So the bound is widened by a few epsilon, which decides that lost resolution in
+        /// the conservative direction every time: a pair within rounding of its threshold
+        /// is *kept* (one more constraint row than strictly needed) and a pair within
+        /// rounding of the certificate's current bound is *charged* (a certificate no
+        /// longer than the exact one). Both are the directions that cost work rather than
+        /// safety, which is the only asymmetry that matters here.
+        static constexpr double squaredCompareSlack = 8.0 * std::numeric_limits<double>::epsilon();
+
         struct Evaluation
         {
-            Values values;                ///< h_i(q), always for every constraint
+            /// h_i(q). Populated for every constraint by `evaluate()`, but only where it
+            /// could matter by `evaluateScreened()` -- see there. A caller wanting all
+            /// 343 values unconditionally wants `evaluate()` or `values()`.
+            Values values;
+            /// `|p_a - p_b|^2` for every self-collision pair, always, and the reason
+            /// `values` need not be. Squaring is exact, so a test on a pair's barrier
+            /// value can be made here instead, and the square root paid only where the
+            /// answer turns out to depend on it.
+            Eigen::Matrix<double, nSelfPairs, 1> pairDistanceSq;
             /// How far sphere i's centre may travel before leaving the SDF's box, always
             /// for every sphere -- or infinity when the box provably encloses everywhere
             /// the arm can reach, since then no centre can leave it however far it goes.
@@ -228,19 +262,39 @@ namespace ompl::cbf
             Robot::SphereCenters centers;
             Eigen::Matrix<double, nSpheres, 1> distances;
 
-            for (std::size_t i = 0; i < Robot::nSpheres; ++i)
+            // When the box encloses the reach, `inBounds` is true and `boundary` is
+            // infinite by construction, for every sphere at every configuration -- so the
+            // 40 box tests are 40 tests of a theorem. Split the loop rather than branch
+            // inside it, since the condition is a property of the field, not of q.
+            if (enclosesReach_)
             {
-                const Eigen::Index index = static_cast<Eigen::Index>(i);
-                const Eigen::Vector3d center = Robot::sphereCenter(kin, i);
-                centers.col(index) = center;
-                out.inBounds = out.inBounds && field_.inBounds(center);
-                out.boundary[index] = boundaryClearance(center);
+                Robot::sphereCenters(kin, centers);
+                out.boundary.setConstant(std::numeric_limits<double>::infinity());
+            }
+            else
+            {
+                for (std::size_t i = 0; i < Robot::nSpheres; ++i)
+                {
+                    const Eigen::Index index = static_cast<Eigen::Index>(i);
+                    const Eigen::Vector3d center = Robot::sphereCenter(kin, i);
+                    centers.col(index) = center;
+                    out.inBounds = out.inBounds && field_.inBounds(center);
+                    out.boundary[index] = field_.boundaryClearance(center);
+                }
             }
 
             {
                 ScopedTimer timer("sdf_query");
                 field_.distanceBatch(centers, distances);
             }
+
+            // Screening is decided here rather than in a pass of its own. The flat index
+            // puts every world constraint before every pair, so appending world rows in
+            // this loop and pair rows in the next one produces exactly the row order a
+            // single pass over `0..nConstraints` did -- and each family now tests its own
+            // values while they are still in registers.
+            Eigen::Matrix<Eigen::Index, nSpheres, 1> activeWorld;
+            Eigen::Index activeWorldCount = 0;
 
             double smallest = std::numeric_limits<double>::infinity();
             const auto &allSpheres = Robot::spheres();
@@ -254,58 +308,69 @@ namespace ompl::cbf
                     smallest = h;
                     out.worst = i;
                 }
+                if (h <= threshold[index])
+                {
+                    out.constraint[out.active++] = static_cast<int>(index);
+                    activeWorld[activeWorldCount++] = index;
+                }
             }
 
             // The values-only pass is even cheaper here than for the world: a subtraction
             // and a norm off centres already in hand, with no field query at all.
+            //
+            // Cheaper still without the norm. A pair's barrier value is only ever
+            // *compared* here -- against its screening threshold, and against the
+            // smallest value so far -- and both comparisons survive squaring:
+            //
+            //     |p_a - p_b| - offset <= limit   <=>   dSq <= (offset + limit)^2
+            //
+            // for `offset + limit >= 0`, which is exact rather than approximate. So the
+            // loop keeps squared distances and spends a square root only on a pair that
+            // is screened in or that actually lowers the minimum -- a handful, against
+            // 303 before. The rest never have a `values` entry written, which is the
+            // contract change `Evaluation::values` documents; `pairDistanceSq` is what
+            // `certifiedDuration()` reads in their place.
             double smallestPair = std::numeric_limits<double>::infinity();
             {
                 ScopedTimer selfTimer("self_collision");
                 // Hoisted out of the loop: each of these is a function call returning a
                 // static table, and there are 303 pairs, every filter call.
                 const auto &pairs = Robot::selfPairs();
-                const auto &radii = Robot::selfPairRadii();
-                const auto &margins = Robot::selfPairMargins();
+                const auto &offsets = Robot::selfPairOffsets();
                 for (std::size_t p = 0; p < Robot::nSelfPairs; ++p)
                 {
                     const Eigen::Index pairIndex = static_cast<Eigen::Index>(p);
-                    const Eigen::Index index = nSpheres + pairIndex;
-                    const double h = (centers.col(static_cast<Eigen::Index>(pairs[p].a)) -
-                                      centers.col(static_cast<Eigen::Index>(pairs[p].b)))
-                                         .norm() -
-                                     radii[pairIndex] - margins[pairIndex] - selfMargin_;
-                    out.values[index] = h;
+                    const double distanceSq =
+                        (centers.col(static_cast<Eigen::Index>(pairs[p].a)) -
+                         centers.col(static_cast<Eigen::Index>(pairs[p].b)))
+                            .squaredNorm();
+                    out.pairDistanceSq[pairIndex] = distanceSq;
+
+                    const double offset = offsets[pairIndex] + selfMargin_;
+                    // The largest barrier value at which this pair still changes an
+                    // answer: it either binds within the step, or it is the new worst.
+                    const double limit = std::max(threshold[nSpheres + pairIndex], smallestPair);
+                    const double bound = offset + limit;
+                    // Inclusive, matching `h <= limit`, and widened by
+                    // `squaredCompareSlack` so a pair that squaring cannot resolve is
+                    // kept rather than dropped.
+                    if (bound < 0.0 || distanceSq > bound * bound * (1.0 + squaredCompareSlack))
+                        continue;
+
+                    const double h = std::sqrt(distanceSq) - offset;
+                    out.values[nSpheres + pairIndex] = h;
                     if (h < smallestPair)
                     {
                         smallestPair = h;
                         out.worstPair = p;
                     }
+                    if (h <= threshold[nSpheres + pairIndex])
+                    {
+                        const Eigen::Index row = out.active++;
+                        out.constraint[row] = static_cast<int>(nSpheres + pairIndex);
+                        out.rows.row(row) = Robot::selfPairGradient(kin, centers, p).transpose();
+                    }
                 }
-            }
-
-            // One screening pass over both families: they are the same question asked of
-            // different geometry, and the flat index keeps the QP's row order stable.
-            Eigen::Matrix<Eigen::Index, nSpheres, 1> activeWorld;
-            Eigen::Matrix<Eigen::Index, nSpheres, 1> activeWorldRows;
-            Eigen::Index activeWorldCount = 0;
-
-            for (Eigen::Index i = 0; i < nConstraints; ++i)
-            {
-                if (out.values[i] > threshold[i])
-                    continue;
-
-                const Eigen::Index row = out.active++;
-                out.constraint[row] = static_cast<int>(i);
-                if (i < nSpheres)
-                {
-                    activeWorld[activeWorldCount] = i;
-                    activeWorldRows[activeWorldCount] = row;
-                    ++activeWorldCount;
-                }
-                else
-                    out.rows.row(row) =
-                        Robot::selfPairGradient(kin, centers, static_cast<std::size_t>(i - nSpheres))
-                            .transpose();
             }
 
             if (activeWorldCount > 0)
@@ -330,10 +395,12 @@ namespace ompl::cbf
                 }
                 (void)activeDistances;
 
+                // Row k, not a looked-up row index: the world family was appended first,
+                // so the k-th surviving sphere is the k-th row.
                 for (Eigen::Index k = 0; k < activeWorldCount; ++k)
                 {
                     const std::size_t sphere = static_cast<std::size_t>(activeWorld[k]);
-                    out.rows.row(activeWorldRows[k]) =
+                    out.rows.row(k) =
                         Robot::barrierGradient(kin, sphere, activeGradients.col(k)).transpose();
                 }
             }
@@ -376,31 +443,78 @@ namespace ompl::cbf
         /// can see that coming. They are charged less than the world rows, though —
         /// no Lipschitz constant, since a distance between two points has one exactly,
         /// and no boundary term, since a pair is not a query against the field.
+        /// ### How it is computed, which is not how it reads
+        ///
+        /// Written out, this is a minimum of 343 quotients, and spelling it that way costs
+        /// 343 divisions and a 303x6 matrix product on a path that runs once per tree
+        /// edge. Neither is necessary, and neither changes the answer:
+        ///
+        /// - **The quotients become products.** A term only matters if it *beats* the
+        ///   running minimum, and `allowance / travel < duration` is `allowance <
+        ///   duration * travel` for positive `travel`. So each constraint costs a multiply
+        ///   and a compare, and the division is paid only when the minimum actually moves
+        ///   — a handful of times, not 343.
+        /// - **The pair travel bounds become suffix sums.** `Robot::travelBounds()`
+        ///   builds them in 240 products instead of 1818; see
+        ///   `Robot::selfPairTravelIndex()` for why one table serves both families.
+        /// - **The pair barrier values stay squared.** `Evaluation::values` is only
+        ///   populated for the pairs that could matter (see `evaluateScreened()`), so this
+        ///   reads `Evaluation::pairDistanceSq` and compares in the squared domain,
+        ///   taking a square root only for a pair that improves the bound.
+        ///
+        /// The result is the same minimum over the same 343 terms.
         double certifiedDuration(const Evaluation &evaluation, const Configuration &u,
                                  double gamma) const
         {
-            const Configuration speed = u.cwiseAbs();
-            const auto travel = (Robot::leverArmBounds() * speed).eval();
+            Robot::TravelBounds travel;
+            Robot::travelBounds(u.cwiseAbs(), travel);
+
             const double lipschitz = std::max(field_.maxGradientNorm(), 1.0);
+            const double gammaOverLipschitz = gamma / lipschitz;
+            const double inverseGamma = 1.0 / gamma;
 
             double duration = std::numeric_limits<double>::infinity();
             for (Eigen::Index i = 0; i < nSpheres; ++i)
             {
-                if (travel[i] <= 0.0)  // no joint that moves this sphere is moving
+                const double rate = travel(i, 0);
+                if (rate <= 0.0)  // no joint that moves this sphere is moving
                     continue;
-                const double allowance = std::min(gamma * evaluation.values[i] / lipschitz,
-                                                  evaluation.boundary[i]);
-                duration = std::min(duration, allowance / travel[i]);
+                const double allowance =
+                    std::min(gammaOverLipschitz * evaluation.values[i], evaluation.boundary[i]);
+                if (allowance < duration * rate)
+                    duration = allowance / rate;
             }
 
-            const auto pairTravel = (Robot::selfPairLeverArms() * speed).eval();
+            const auto &index = Robot::selfPairTravelIndex();
+            const auto &base = Robot::selfPairOffsets();
             for (Eigen::Index p = 0; p < nSelfPairs; ++p)
             {
                 // Zero here is common rather than exceptional: only the joints strictly
                 // between the two frames can change a pair's separation at all.
-                if (pairTravel[p] <= 0.0)
+                const double rate = travel(index(p, 0), index(p, 1));
+                if (rate <= 0.0)
                     continue;
-                duration = std::min(duration, gamma * evaluation.values[nSpheres + p] / pairTravel[p]);
+
+                // h_p = sqrt(dSq) - offset, and h_p * gamma / rate < duration is
+                // sqrt(dSq) < offset + duration * rate / gamma, so squaring both sides
+                // says whether this pair can lower the bound -- without a square root.
+                //
+                // The squared test only *selects a candidate*. It is widened by
+                // `squaredCompareSlack`, so it admits pairs that turn out not to improve
+                // anything, and the update below must therefore be an honest comparison on
+                // the exact value rather than an assignment. Getting that wrong is not a
+                // rounding matter: a widened test that assigns unconditionally can raise
+                // the certificate, which is the unsafe direction.
+                const double offset = base[p] + selfMargin_;
+                const double bound = offset + duration * rate * inverseGamma;
+                if (bound <= 0.0 ||
+                    evaluation.pairDistanceSq[p] > bound * bound * (1.0 + squaredCompareSlack))
+                    continue;
+
+                const double candidate =
+                    gamma * (std::sqrt(evaluation.pairDistanceSq[p]) - offset) / rate;
+                if (candidate < duration)
+                    duration = candidate;
             }
             return std::max(duration, 0.0);
         }
@@ -529,12 +643,20 @@ namespace ompl::cbf
             double smallestPair = std::numeric_limits<double>::infinity();
             {
                 ScopedTimer selfTimer("self_collision");
+                const auto &pairs = Robot::selfPairs();
                 for (std::size_t p = 0; p < Robot::nSelfPairs; ++p)
                 {
-                    const Eigen::Index row = nSpheres + static_cast<Eigen::Index>(p);
-                    const double h = Robot::selfPairClearance(centers, p) -
-                                     Robot::selfPairMargins()[static_cast<Eigen::Index>(p)] -
-                                     selfMargin_;
+                    const Eigen::Index index = static_cast<Eigen::Index>(p);
+                    const Eigen::Index row = nSpheres + index;
+                    const double distanceSq =
+                        (centers.col(static_cast<Eigen::Index>(pairs[p].a)) -
+                         centers.col(static_cast<Eigen::Index>(pairs[p].b)))
+                            .squaredNorm();
+                    // Filled here too, so an Evaluation from evaluate() is a valid input
+                    // to certifiedDuration(), which reads it rather than `values`.
+                    out.pairDistanceSq[index] = distanceSq;
+                    const double h = std::sqrt(distanceSq) -
+                                     Robot::selfPairOffsets()[index] - selfMargin_;
 
                     out.constraint[row] = static_cast<int>(row);
                     out.values[row] = h;
@@ -581,10 +703,21 @@ namespace ompl::cbf
                 out[static_cast<Eigen::Index>(i)] =
                     distances[static_cast<Eigen::Index>(i)] - allSpheres[i].radius - margin_;
 
+            // Spelled the same way as `evaluate()` and `evaluateScreened()` -- one square
+            // root of a squared norm, minus one combined offset -- so that all three
+            // agree to the last bit and `worstValue()` really is the minimum of what an
+            // Evaluation reports.
+            const auto &pairs = Robot::selfPairs();
+            const auto &offsets = Robot::selfPairOffsets();
             for (std::size_t p = 0; p < Robot::nSelfPairs; ++p)
-                out[nSpheres + static_cast<Eigen::Index>(p)] =
-                    Robot::selfPairClearance(centers, p) -
-                    Robot::selfPairMargins()[static_cast<Eigen::Index>(p)] - selfMargin_;
+            {
+                const Eigen::Index index = static_cast<Eigen::Index>(p);
+                out[nSpheres + index] =
+                    std::sqrt((centers.col(static_cast<Eigen::Index>(pairs[p].a)) -
+                               centers.col(static_cast<Eigen::Index>(pairs[p].b)))
+                                  .squaredNorm()) -
+                    offsets[index] - selfMargin_;
+            }
         }
 
         Values values(const Configuration &q) const

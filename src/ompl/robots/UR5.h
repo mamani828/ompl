@@ -823,6 +823,75 @@ namespace ompl::robots
             return table;
         }
 
+        /// `selfPairRadii() + selfPairMargins()`, precomputed.
+        ///
+        /// Both are constants and every user adds them, so `h_ab` is
+        /// `|p_a - p_b| - selfPairOffsets()[p] - selfMargin`. Having the sum in one
+        /// table is what lets the hot loops compare against it in the squared domain
+        /// without first assembling it per pair.
+        static const Eigen::Matrix<double, nSelfPairs, 1> &selfPairOffsets()
+        {
+            static const Eigen::Matrix<double, nSelfPairs, 1> table = []
+            {
+                Eigen::Matrix<double, nSelfPairs, 1> sum;
+                for (Eigen::Index p = 0; p < static_cast<Eigen::Index>(nSelfPairs); ++p)
+                    sum[p] = selfPairRadii()[p] + selfPairMargins()[p];
+                return sum;
+            }();
+            return table;
+        }
+
+        /// `selfPairLeverArms()` re-expressed so that a whole column of it costs one
+        /// table lookup instead of a dot product: entry `p` is `(b, f_a)`, the later
+        /// sphere and the earlier sphere's frame.
+        ///
+        /// This exists because `selfPairLeverArms()(p, k)` is not an independent number.
+        /// It is `leverArmBounds()(b, k)` on the columns `[f_a, f_b)` and zero elsewhere,
+        /// and `leverArmBounds()(b, k)` is itself zero for `k >= f_b` — so
+        ///
+        ///     sum_k selfPairLeverArms()(p, k) * speed_k
+        ///       = sum_{k >= f_a} leverArmBounds()(b, k) * speed_k
+        ///
+        /// which is a *suffix sum* of row `b` of `leverArmBounds()`. Forty rows of suffix
+        /// sums (240 products) therefore answer the question for all 303 pairs at once,
+        /// where the honest matrix product spends 1818. See
+        /// `cbf::ClearanceBarrier::certifiedDuration()`, which is the only caller that
+        /// needs the whole column and was paying the difference on every filter call.
+        ///
+        /// Column 0 is the pair's later sphere, column 1 is `spheres()[pair.a].frame`.
+        static const Eigen::Matrix<int, nSelfPairs, 2> &selfPairTravelIndex()
+        {
+            static const Eigen::Matrix<int, nSelfPairs, 2> table = []
+            {
+                Eigen::Matrix<int, nSelfPairs, 2> index;
+                for (std::size_t p = 0; p < nSelfPairs; ++p)
+                {
+                    const SelfPair &pair = selfPairs()[p];
+                    index(static_cast<Eigen::Index>(p), 0) = static_cast<int>(pair.b);
+                    index(static_cast<Eigen::Index>(p), 1) =
+                        static_cast<int>(spheres()[pair.a].frame);
+                }
+                return index;
+            }();
+            return table;
+        }
+
+        /// Suffix sums of `leverArmBounds()` against a per-joint speed:
+        /// `out(i, f) = sum_{k >= f} leverArmBounds()(i, k) * speed_k`.
+        ///
+        /// Column 0 is the world-sphere travel bound `leverArmBounds() * speed`, and
+        /// `out(b, f_a)` is pair `(a, b)`'s — see `selfPairTravelIndex()` for why those
+        /// are the same table. `nJoints` columns would do; the extra zero column just
+        /// lets the accumulation start from a column that exists.
+        using TravelBounds = Eigen::Matrix<double, nSpheres, nJoints + 1>;
+
+        static void travelBounds(const Configuration &speed, TravelBounds &out)
+        {
+            out.col(nJoints).setZero();
+            for (Eigen::Index k = nJoints - 1; k >= 0; --k)
+                out.col(k) = out.col(k + 1) + leverArmBounds().col(k) * speed[k];
+        }
+
         /// Surface separation of pair `p`: `|p_a - p_b| - r_a - r_b`. Subtract a margin
         /// to get the barrier value; negative means the two spheres overlap.
         static double selfPairClearance(const SphereCenters &centers, std::size_t p)

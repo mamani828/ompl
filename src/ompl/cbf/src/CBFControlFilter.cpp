@@ -163,14 +163,27 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
         solver.rowLower[r] =
             evaluation.values[evaluation.constraint[r]] * (-parameters_.gamma / duration);
 
-    if (active == 0)
+    // The box-only optimum, which is the exact answer to the whole QP whenever it
+    // happens to satisfy the rows as well. `W` is diagonal and positive, so the
+    // objective is separable and its minimum over the box is the component-wise clamp;
+    // a feasible point that minimizes over a superset of the feasible region minimizes
+    // over the region. So this is not an approximation, and there is nothing to check
+    // afterwards.
+    filtered = nominal.cwiseMax(lower).cwiseMin(upper);
+
+    bool clamped = active == 0;
+    if (!clamped)
     {
-        // Screening has proved that no barrier can bind during this step. What remains
-        // is a diagonal box QP, whose exact solution is the component-wise clamp of the
-        // nominal control. Avoid entering qpmad for this common open-space case.
-        filtered = nominal.cwiseMax(lower).cwiseMin(upper);
+        // Screening said these rows *could* bind, which is a statement about every
+        // control in the box, not about this one. Testing the clamp against them costs
+        // one `active x 6` product and answers on about one call in seven here; the
+        // alternative is entering the solver to be told the same thing.
+        clamped = true;
+        for (Eigen::Index r = 0; r < active && clamped; ++r)
+            clamped = evaluation.rows.row(r).dot(filtered) >= solver.rowLower[r];
     }
-    else
+
+    if (!clamped)
     {
         // minimize 0.5 u^T W u - (W uNom)^T u, i.e. H = W and objective = -W uNom.
         solver.hessian.diagonal() = parameters_.weights;

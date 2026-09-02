@@ -445,6 +445,13 @@ BOOST_AUTO_TEST_CASE(DecreaseRatesBoundHowFastClearanceCanActuallyFall)
 // A screened evaluation must agree with a full one on everything it reports: identical
 // barrier values for every sphere, and identical rows for the spheres it kept. It is a
 // cheaper way to compute the same numbers, not a different barrier.
+//
+// "Everything it reports" is narrower for the self-collision pairs than it used to be.
+// `evaluateScreened()` compares pair values in the squared domain and only takes the
+// square root where the answer depends on it, so `values` holds a pair's barrier only
+// when that pair was kept or was the worst; `pairDistanceSq` is the field that is always
+// populated. The agreement asserted below is therefore: all 40 world values, every kept
+// constraint's value and row, the two argmins, and all 303 squared distances.
 BOOST_AUTO_TEST_CASE(ScreenedEvaluationAgreesWithTheFullOneOnWhatItKeeps)
 {
     const UR5 robot;
@@ -465,17 +472,31 @@ BOOST_AUTO_TEST_CASE(ScreenedEvaluationAgreesWithTheFullOneOnWhatItKeeps)
         Barrier::Evaluation screened;
         barrier.evaluateScreened(q, threshold, screened);
 
-        BOOST_REQUIRE_LE((screened.values - full.values).cwiseAbs().maxCoeff(), 1e-12);
+        BOOST_REQUIRE_LE((screened.values.head<Barrier::nSpheres>() -
+                          full.values.head<Barrier::nSpheres>())
+                             .cwiseAbs()
+                             .maxCoeff(),
+                         1e-12);
+        BOOST_REQUIRE_LE((screened.pairDistanceSq - full.pairDistanceSq).cwiseAbs().maxCoeff(),
+                         1e-12);
         BOOST_REQUIRE_EQUAL(screened.worst, full.worst);
         BOOST_REQUIRE_EQUAL(screened.worstPair, full.worstPair);
+        // The worst pair's value is one `evaluateScreened()` always resolves exactly.
+        BOOST_REQUIRE_LE(std::abs(screened.values[Barrier::nSpheres +
+                                                  static_cast<Eigen::Index>(screened.worstPair)] -
+                                  full.values[Barrier::nSpheres +
+                                              static_cast<Eigen::Index>(full.worstPair)]),
+                         1e-12);
         BOOST_REQUIRE_EQUAL(screened.inBounds, full.inBounds);
         BOOST_REQUIRE_LE(screened.active, Barrier::nConstraints);
 
         for (Eigen::Index r = 0; r < screened.active; ++r)
         {
             const Eigen::Index i = screened.constraint[r];
-            // Kept barriers are exactly those that could bind.
+            // Kept barriers are exactly those that could bind, and a kept barrier's value
+            // is resolved exactly -- so it can be compared against the full evaluation.
             BOOST_REQUIRE_LE(screened.values[i], threshold[i]);
+            BOOST_REQUIRE_LE(std::abs(screened.values[i] - full.values[i]), 1e-12);
             BOOST_REQUIRE_LE((screened.rows.row(r) - full.rows.row(i)).cwiseAbs().maxCoeff(), 1e-12);
         }
         kept += screened.active;
