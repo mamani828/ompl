@@ -135,7 +135,7 @@ namespace
     Filter::Parameters filterParameters()
     {
         Filter::Parameters p;
-        p.gamma = 0.4;
+        p.kappa = 8.0;  // 1/s: what the old per-step 0.4 came to at a 0.05 s step
         p.maxSpeed = UR5::Configuration::Constant(10.0);
         p.respectJointLimits = true;
         return p;

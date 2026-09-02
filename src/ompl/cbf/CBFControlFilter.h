@@ -17,16 +17,34 @@ namespace ompl::cbf
     /// collision sphere's clearance from decaying too fast:
     ///
     ///     minimize    0.5 (u - uNom)^T W (u - uNom)
-    ///     subject to  (dh_i/dq) u  >=  -gamma * h_i(q) / dt      for every sphere i
+    ///     subject to  (dh_i/dq) u  >=  -kappa * h_i(q)           for every sphere i
     ///                 uMin <= u <= uMax
     ///
-    /// The constraint is the discrete-time CBF condition `h_i(q + u dt) >=
-    /// (1 - gamma) h_i(q)` with `h_i(q + u dt)` linearized about `q`. With
-    /// `gamma = 1` the clearance is allowed to reach zero in a single step, which
-    /// leaves no room for the linearization to be wrong; smaller values keep a
-    /// buffer and make the safe set forward invariant rather than merely
-    /// non-negative at the next step. The linearization and geometric errors are
-    /// absorbed by `ClearanceBarrier`'s margin, not here.
+    /// The constraint is the continuous-time CBF condition `dh_i/dt >= -kappa h_i`,
+    /// whose solutions satisfy `h_i(t) >= h_i(0) e^{-kappa t}`: the safe set is
+    /// forward invariant, and the rate at which clearance may be spent is a property
+    /// of the filter rather than of whatever step a caller happens to ask about.
+    /// `kappa` has units of 1/s. Larger is more permissive — as `kappa -> inf` the
+    /// row disappears and only the control box remains — and `kappa = 0` forbids any
+    /// decay at all. The linearization and geometric errors are absorbed by
+    /// `ClearanceBarrier`'s margin, not here.
+    ///
+    /// ### Why not the discrete-time form
+    ///
+    /// Earlier revisions enforced `h_i(q + u dt) >= (1 - gamma) h_i(q)`, linearized,
+    /// which is this row with `kappa = gamma / dt`. That coupling is the problem: the
+    /// permitted decay *rate* then floats with the step a caller asks about, so halving
+    /// `dt` doubles how fast clearance may be spent per second and the condition does
+    /// not converge to anything as `dt -> 0`. It also makes the certificate and the
+    /// screening threshold answer questions in different units from the row they came
+    /// from. `decayRate()` converts an old per-step `gamma` at a reference step into the
+    /// rate that reproduces it exactly at that step.
+    ///
+    /// What the change does *not* do is make the implementation continuous-time: the
+    /// row is still imposed at sampled configurations with a control held constant in
+    /// between (`ParallelPicardRollout`), so the inter-sample guarantee still comes from
+    /// `ClearanceBarrier`'s margin and from `certifiedDuration()`, which is now an
+    /// interval statement about the same exponential envelope the row promises.
     ///
     /// ### Why the QP is cheap
     ///
@@ -48,11 +66,14 @@ namespace ompl::cbf
     /// them at the cost of one interpolated distance each, which is what a plain
     /// collision check would have paid anyway.
     ///
-    /// The trade is real and worth stating: the CBF decay condition is then enforced
-    /// only for the spheres that survived screening. The others are guaranteed
-    /// **safe** by the Lipschitz bound, but not to decay at rate `gamma`. Safety is
-    /// the invariant; the decay rate is a smoothness preference. Turn screening off
-    /// to recover the exact original semantics, at roughly twice the cost per step.
+    /// Under the continuous-time row this is exact rather than a trade. A row whose
+    /// clearance exceeds `rate_i / kappa` is satisfied by every control in the box, so
+    /// it cannot change the QP's feasible set and dropping it changes nothing; the
+    /// threshold is `rate_i * max(dt, 1/kappa)`, the larger horizon also covering the
+    /// separate requirement that a dropped row stay non-negative across the step the
+    /// caller integrates. The discrete-time version screened at `rate_i * dt` alone,
+    /// which was short of what its own row needed and so gave up the decay guarantee on
+    /// the spheres it skipped. Turning screening off now changes cost, not semantics.
     ///
     /// ### The certificate, which is the same bound spent differently
     ///
@@ -80,9 +101,11 @@ namespace ompl::cbf
     public:
         struct Parameters
         {
-            /// CBF decay rate in (0, 1]: `h(q+) >= (1 - gamma) h(q)`. Smaller is
-            /// more conservative. 1.0 permits clearance to reach zero in one step.
-            double gamma{0.99};
+            /// CBF decay rate in 1/s: `dh/dt >= -kappa h`, so `h(t) >= h(0) e^{-kappa t}`.
+            /// Smaller is more conservative; 0 forbids any decay. Independent of the step
+            /// a caller asks about — see `decayRate()` to convert an old per-step gamma.
+            /// The default is what `gamma = 0.99` amounted to at a 0.05 s step.
+            double kappa{19.8};
             /// Diagonal of W: the relative cost of deviating on each joint.
             Control weights{Control::Ones()};
             /// Per-joint speed limit, |u_j| <= maxSpeed_j.
@@ -108,6 +131,16 @@ namespace ompl::cbf
             /// five-argument `filter()` and `ClearanceBarrier::certifiedDuration()`.
             double certifiedDuration{0.0};
         };
+
+        /// The decay rate that reproduces the old per-step condition
+        /// `h(q + u dt) >= (1 - gamma) h(q)` exactly at a step of \p dt, for porting a
+        /// tuned `gamma` across. The row was `(dh/dq) u >= -gamma h / dt`, so the rate is
+        /// `gamma / dt` and nothing is approximated at that step; what changes is that
+        /// the rate now stays put when the step does not.
+        static double decayRate(double gamma, double dt)
+        {
+            return gamma / dt;
+        }
 
         /// \p barrier is not copied and must outlive this filter.
         explicit CBFControlFilter(const ClearanceBarrier &barrier);

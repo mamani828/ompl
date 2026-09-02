@@ -238,27 +238,31 @@ namespace ompl::cbf
         /// How long the constant control \p control may be applied from the
         /// configuration \p evaluation was taken at before any row could bind,
         /// i.e. the span over which a filter enforcing this barrier is provably
-        /// a no-op. \p buffer is subtracted (floored at zero) from every barrier
-        /// value before it is scaled by \p gamma -- see
-        /// `RobotCBFControlFilter`'s "integration buffer" doc for why a caller
-        /// might want that, and why it defaults to zero (a no-op, reproducing
-        /// the original fixed-base behaviour exactly). See
+        /// a no-op, for the continuous-time condition `dh/dt >= -kappa h`.
+        /// \p buffer is subtracted (floored at zero) from every barrier value
+        /// first -- see `RobotCBFControlFilter`'s "integration buffer" doc for
+        /// why a caller might want that, and why it defaults to zero (a no-op,
+        /// reproducing the original fixed-base behaviour exactly). See
         /// `ClearanceBarrier::certifiedDuration()` for the full Lipschitz
-        /// argument this specializes.
-        double certifiedDuration(const Evaluation &evaluation, const Configuration &control, double gamma,
+        /// argument this specializes, including why the span honours the
+        /// exponential envelope and not merely non-negativity.
+        double certifiedDuration(const Evaluation &evaluation, const Configuration &control, double kappa,
                                  double buffer = 0.0) const
         {
             const Configuration speed = control.cwiseAbs();
             const auto worldTravel = (leverBounds_ * speed).eval();
             const double lipschitz = std::max(field_.maxGradientNorm(), 1.0);
+            const double horizon = kappa > 0.0 ? 1.0 / kappa : std::numeric_limits<double>::infinity();
             double duration = std::numeric_limits<double>::infinity();
             for (std::size_t i = 0; i < Robot::nSpheres; ++i)
             {
                 const Eigen::Index index = static_cast<Eigen::Index>(i);
                 if (worldTravel[index] <= 0.0)
                     continue;
-                const double allowance = std::min(gamma * std::max(evaluation.values[index] - buffer, 0.0) / lipschitz,
-                                                  evaluation.boundary[index]);
+                const double allowance =
+                    std::min(std::max(evaluation.values[index] - buffer, 0.0) / lipschitz -
+                                 worldTravel[index] * horizon,
+                             evaluation.boundary[index]);
                 duration = std::min(duration, allowance / worldTravel[index]);
             }
             for (std::size_t p = 0; p < selfPairs_.size(); ++p)
@@ -266,8 +270,8 @@ namespace ompl::cbf
                 const double travel = pairLeverBounds_.row(static_cast<Eigen::Index>(p)).dot(speed);
                 if (travel > 0.0)
                     duration = std::min(duration,
-                        gamma * std::max(evaluation.values[static_cast<Eigen::Index>(nSpheres) +
-                                                            static_cast<Eigen::Index>(p)] - buffer, 0.0) / travel);
+                        std::max(evaluation.values[static_cast<Eigen::Index>(nSpheres) +
+                                                    static_cast<Eigen::Index>(p)] - buffer, 0.0) / travel - horizon);
             }
             return std::max(duration, 0.0);
         }

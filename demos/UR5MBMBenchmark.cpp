@@ -5,7 +5,7 @@
 //
 //     ./scripts/mbm_to_scenes.py /path/to/vamp/resources/ur5/problems.json scenes.txt
 //     ./build/demos/demo_UR5MBMBenchmark scenes.txt [perScene] [seconds] [voxel] [stepSize]
-//         [range] [margin] [buffer] [segmentFraction] [gamma] [maxStepScale] [selfMargin]
+//         [range] [margin] [buffer] [segmentFraction] [kappa] [maxStepScale] [selfMargin]
 //         [pathPrefix] [shortcutDelta] [seed] [csvPath]
 //
 // `pathPrefix` dumps the audited motions (`<prefix>.rrtc`, `<prefix>.cbf`, `<prefix>.vamp`) so
@@ -16,8 +16,10 @@
 // That is the only check that does not share the sphere model with the `collide` column.
 //
 // The last two are the certified-step A/B: `maxStepScale 1` pins the rollout to a fixed
-// `stepSize` however much room it has, and `gamma` scales how much of its clearance a
-// step may spend, so it scales the certificate with it.
+// `stepSize` however much room it has, and `kappa` is the CBF decay rate in 1/s, which
+// sets how fast clearance may be spent and so scales the certificate with it. It replaces
+// the old per-step `gamma`; the default 8 /s is what `gamma 0.4` amounted to at the
+// default 0.05 s step, so a default run is unchanged.
 //
 // Why this and not UR5CBFPlanningDemo's scene: that one is a pair of spheres placed to
 // block the direct sweep, and `geometric::RRTConnect` solves it in six vertices. A
@@ -769,7 +771,7 @@ int main(int argc, char **argv)
     if (argc < 2)
     {
         std::printf("usage: %s scenes.txt [perScene] [seconds] [voxel] [stepSize] [range]\n"
-                    "       [margin] [buffer] [segmentFraction] [gamma] [maxStepScale]\n"
+                    "       [margin] [buffer] [segmentFraction] [kappa] [maxStepScale]\n"
                     "       [selfMargin] [pathPrefix] [shortcutDelta] [seed] [csvPath]\n\n"
                     "Generate scenes.txt with scripts/mbm_to_scenes.py.\n",
                     argv[0]);
@@ -794,10 +796,11 @@ int main(int argc, char **argv)
     // at the default. Tightening this is what makes the comparison like for like: both
     // rows then have to be audit-clean, and the cost of being so is the thing to compare.
     const double segmentFractionArg = argc > 9 ? std::atof(argv[9]) : -1.0;
-    // The CBF decay rate, which is also the fraction of its clearance a step is allowed
-    // to spend -- so it scales the certified step directly. At 1.0 the barrier is a plain
-    // collision condition and the certificate is as long as the clearance allows.
-    const double gamma = argc > 10 ? std::atof(argv[10]) : 0.4;
+    // The CBF decay rate in 1/s: `dh/dt >= -kappa h`, so it sets how fast clearance may
+    // be spent and scales the certified step directly. Large values approach a plain
+    // collision condition, with the certificate as long as the clearance allows. The
+    // default is what the old per-step `gamma 0.4` amounted to at a 0.05 s step.
+    const double kappa = argc > 10 ? std::atof(argv[10]) : 8.0;
     // Cap on the certified step, as a multiple of stepSize. 1.0 is the fixed-step A/B.
     const double maxStepScale = argc > 11 ? std::atof(argv[11]) : -1.0;
     // The self-collision margin. A large negative value is the A/B for the rows
@@ -838,7 +841,7 @@ int main(int argc, char **argv)
     const UR5 robot;
 
     Filter::Parameters parameters;
-    parameters.gamma = gamma;
+    parameters.kappa = kappa;
     parameters.maxSpeed = UR5::velocityLimits();
     parameters.respectJointLimits = true;
 
@@ -852,8 +855,8 @@ int main(int argc, char **argv)
                                                 UR5::reachableBounds(), voxel))
                              : buffer,
                 stepSize, range, timeLimit);
-    std::printf("gamma %.2f, certified step %s, self-collision margin %.4f m over %d pairs%s\n",
-                gamma, maxStepScale > 0.0 ? "capped" : "uncapped", selfMargin,
+    std::printf("kappa %.2f /s, certified step %s, self-collision margin %.4f m over %d pairs%s\n",
+                kappa, maxStepScale > 0.0 ? "capped" : "uncapped", selfMargin,
                 static_cast<int>(UR5::nSelfPairs), selfMargin < 0.0 ? " (rows disabled)" : "");
     std::printf("baseline segment: %.6f of extent = %.4f rad, rollout step %.4f rad (%s)\n",
                 segmentFraction, segmentFraction * extent, rolloutStep,

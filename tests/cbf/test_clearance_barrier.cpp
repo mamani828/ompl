@@ -501,7 +501,7 @@ BOOST_AUTO_TEST_CASE(NothingCanBindWithinTheCertifiedDuration)
     const UR5 robot;
     const Barrier barrier(robot, obstacleField(), 0.0);
     const UR5::Configuration maxSpeed = UR5::velocityLimits();
-    constexpr double gamma = 0.4;
+    constexpr double kappa = 8.0;  // 1/s
 
     ompl::RNG rng;
     double longest = 0.0;
@@ -525,8 +525,12 @@ BOOST_AUTO_TEST_CASE(NothingCanBindWithinTheCertifiedDuration)
             u[j] = maxSpeed[j] * ((descend >= 0.0) ? 1.0 : -1.0);
         }
 
-        const double duration = barrier.certifiedDuration(evaluation, u, gamma);
-        BOOST_REQUIRE_GT(duration, 0.0);
+        // A rate-based certificate is empty when a row's clearance is already below
+        // `rate/kappa` -- there is no span over which that row provably cannot bind --
+        // so an empty answer is a legitimate one here, unlike under the per-step form.
+        const double duration = barrier.certifiedDuration(evaluation, u, kappa);
+        if (duration <= 0.0)
+            continue;
         longest = std::max(longest, duration);
         ++certified;
 
@@ -535,8 +539,12 @@ BOOST_AUTO_TEST_CASE(NothingCanBindWithinTheCertifiedDuration)
         {
             const double t = duration * step / samples;
             const Barrier::Values along = barrier.values(q + u * t);
+            // The envelope the row promises, `h(t) >= h(0) e^{-kappa t}`, and not merely
+            // non-negativity: the certificate is only worth having if the motion it
+            // licenses is the motion the filter would have allowed.
+            const double envelope = std::exp(-kappa * t);
             for (Eigen::Index i = 0; i < Barrier::nConstraints; ++i)
-                BOOST_REQUIRE_GE(along[i], (1.0 - gamma) * evaluation.values[i] - 1e-9);
+                BOOST_REQUIRE_GE(along[i], envelope * evaluation.values[i] - 1e-9);
         }
     }
 
@@ -578,7 +586,10 @@ BOOST_AUTO_TEST_CASE(TheCertificateStopsAtTheEdgeOfTheField)
 
     UR5::Configuration u = UR5::Configuration::Zero();
     u[1] = UR5::velocityLimits()[1];  // swing the arm through the wall of the box
-    const double duration = barrier.certifiedDuration(evaluation, u, 1.0);
+    // A deliberately permissive rate: 1 ms of horizon, so no clearance row can be what
+    // binds and the boundary term -- which carries no rate at all -- is isolated.
+    constexpr double permissive = 1000.0;
+    const double duration = barrier.certifiedDuration(evaluation, u, permissive);
 
     BOOST_REQUIRE_GT(duration, 0.0);
     BOOST_REQUIRE(std::isfinite(duration));
@@ -591,7 +602,7 @@ BOOST_AUTO_TEST_CASE(TheCertificateStopsAtTheEdgeOfTheField)
     const sdf::GridSDF roomy(sphereField(Eigen::Vector3d(0.0, 0.0, 40.0), 0.1),
                              UR5::reachableBounds(), 4 * voxel);
     const Barrier unbounded(robot, roomy, 0.0);
-    BOOST_CHECK_GT(unbounded.certifiedDuration(unbounded.evaluate(q), u, 1.0), duration);
+    BOOST_CHECK_GT(unbounded.certifiedDuration(unbounded.evaluate(q), u, permissive), duration);
 
     for (int step = 0; step <= 20; ++step)
     {

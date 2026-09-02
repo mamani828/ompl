@@ -12,10 +12,10 @@
 // step depends on. The QP there always has this shape:
 //
 //   minimize   0.5 (u - uNom)^T W (u - uNom)      W diagonal, positive definite
-//   subject to A u >= -gamma * h                  one clearance row per sphere
+//   subject to A u >= -kappa * h                  one clearance row per sphere
 //              uMin <= u <= uMax                  control and joint-limit box
 //
-// which qpmad takes as (H = W, h = -W uNom, lb, ub, A, Alb = -gamma h, Aub = inf).
+// which qpmad takes as (H = W, h = -W uNom, lb, ub, A, Alb = -kappa h, Aub = inf).
 
 namespace
 {

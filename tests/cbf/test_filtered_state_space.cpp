@@ -145,7 +145,7 @@ namespace
     Filter::Parameters filterParameters()
     {
         Filter::Parameters p;
-        p.gamma = 0.4;
+        p.kappa = 8.0;  // 1/s: what the old per-step 0.4 came to at a 0.05 s step
         p.maxSpeed = UR5::velocityLimits();
         p.respectJointLimits = true;
         return p;
@@ -1107,8 +1107,10 @@ BOOST_AUTO_TEST_CASE(AnUnobstructedEdgeIsAStraightLineOfCoarseSteps)
     BOOST_CHECK_EQUAL((rollout.end - b).norm(), 0.0);
 
     // Every step ran past `stepSize` on a certificate, and there are far fewer of them
-    // than the fixed step would have taken.
-    BOOST_CHECK_EQUAL(rollout.coarse, rollout.steps);
+    // than the fixed step would have taken. The last step is the exception, and has to
+    // be: it covers whatever is left of the edge once the certified hops have run, which
+    // is a remainder rather than a step the certificate had any say in.
+    BOOST_CHECK_GE(rollout.coarse, rollout.steps - 1u);
     BOOST_CHECK_EQUAL(rollout.waypoints.size(), rollout.steps + 1u);
     BOOST_CHECK_LT(rollout.steps, fixed / 2u);
 

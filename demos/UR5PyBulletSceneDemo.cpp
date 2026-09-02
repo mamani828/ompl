@@ -9,7 +9,7 @@
 //
 //     ./build/demos/demo_UR5PyBulletScene <scene.problem> [seconds] [out.path]
 //         [trials] [maxStepScale] [checkResolution] [baselineAudit] [selfMargin]
-//         [shortcutDelta] [guardBuffer] [range] [minProgressFraction] [gamma]
+//         [shortcutDelta] [guardBuffer] [range] [minProgressFraction] [kappa]
 //         [trialSeedOffset] [picardIterations] [picardWindow] [picardWorkers]
 //     ./build/demos/demo_UR5PyBulletScene <scene.problem> --probe   < points.txt
 //
@@ -225,7 +225,8 @@ namespace
     double minProgressFraction = 0.10;
 
     /// Negative keeps CBFControlFilter's default; exposed for benchmark A/B runs.
-    double filterGamma = -1.0;
+    /// CBF decay rate in 1/s (`dh/dt >= -kappa h`); negative leaves the filter default.
+    double filterKappa = -1.0;
 
     std::uint_fast32_t trialSeedOffset = 0;
     unsigned int picardIterations = 0;
@@ -440,8 +441,8 @@ namespace
         const Barrier guard = Barrier::guarding(robot, field, scene.margin, guardBuffer, selfMargin);
 
         Filter::Parameters parameters;
-        if (filterGamma > 0.0)
-            parameters.gamma = filterGamma;
+        if (filterKappa > 0.0)
+            parameters.kappa = filterKappa;
         const Filter filter(guard, parameters);
 
         auto space = std::make_shared<ompl::cbf::FilteredStateSpace>(filter, stepSize,
@@ -652,7 +653,7 @@ int main(int argc, char **argv)
         std::printf("usage: %s <scene.problem> [seconds] [out.path] [trials] [maxStepScale]"
                     " [baselineCheckRadians] [baselineAuditRadians] [selfMargin]"
                     " [shortcutRadians] [guardBufferMeters] [rangeRadians]"
-                    " [minProgressFraction] [gamma] [trialSeedOffset]"
+                    " [minProgressFraction] [kappa] [trialSeedOffset]"
                     " [picardIterations] [picardWindow] [picardWorkers]"
                     " [retainPartialSteering] [earlyTermination] [rolloutCallBudget]"
                     " [rolloutStalledSteps]\n",
@@ -695,7 +696,7 @@ int main(int argc, char **argv)
     if (argc > 12 && !probeMode)
         minProgressFraction = std::atof(argv[12]);
     if (argc > 13 && !probeMode)
-        filterGamma = std::atof(argv[13]);
+        filterKappa = std::atof(argv[13]);
     if (argc > 14 && !probeMode)
         trialSeedOffset = static_cast<std::uint_fast32_t>(std::max(0, std::atoi(argv[14])));
     if (argc > 15 && !probeMode)
@@ -736,8 +737,8 @@ int main(int argc, char **argv)
                 dims[2], scene.voxel, field.maxGradientNorm());
     std::printf("margin %.4f, interpolation buffer %.4f, guarded margin %.4f\n", scene.margin,
                 guardBuffer, scene.margin + guardBuffer);
-    std::printf("CBF gamma %.3f, RRTConnect range %.3f rad, min progress %.2f\n",
-                filterGamma > 0.0 ? filterGamma : Filter::Parameters().gamma, range,
+    std::printf("CBF kappa %.3f /s, RRTConnect range %.3f rad, min progress %.2f\n",
+                filterKappa > 0.0 ? filterKappa : Filter::Parameters().kappa, range,
                 minProgressFraction >= 0.0 ? minProgressFraction : 0.25);
     std::printf("retain partial CBF steering: %s\n", retainPartialSteering ? "on" : "off");
     std::printf("rollout early termination: %s, %u-call budget, %u stalled steps\n",

@@ -50,10 +50,12 @@ namespace
     /// The step length every test propagates over.
     constexpr double duration = 0.05;
 
-    Filter::Parameters parameters(double gamma = 0.4)
+    /// Rates are quoted per second; 8 /s is what the old per-step gamma of 0.4 came to
+    /// at `duration`, so the numbers these tests assert against are unchanged.
+    Filter::Parameters parameters(double kappa = 8.0)
     {
         Filter::Parameters p;
-        p.gamma = gamma;
+        p.kappa = kappa;
         // Generous, so the clearance rows rather than the box are what bind.
         p.maxSpeed = UR5::Configuration::Constant(10.0);
         p.respectJointLimits = false;
@@ -104,7 +106,7 @@ BOOST_AUTO_TEST_CASE(ProjectionMatchesTheClosedForm)
     const Barrier::Evaluation evaluation = barrier.evaluate(q);
     const Eigen::Index worst = static_cast<Eigen::Index>(evaluation.worst);
     const UR5::Configuration a = evaluation.rows.row(worst).transpose();
-    const double b = -p.gamma * evaluation.values[worst] / duration;
+    const double b = -p.kappa * evaluation.values[worst];
     const UR5::Configuration expected = a * b / a.squaredNorm();
 
     for (double speed : {2.0, 4.0, 10.0, 20.0})
@@ -133,16 +135,15 @@ BOOST_AUTO_TEST_CASE(EveryClearanceRowIsSatisfied)
     BOOST_REQUIRE(filter.filter(q, towardWorstSphere(barrier, q, 10.0), duration, filtered) ==
                   ControlFilter::Status::Filtered);
 
-    // rows * u >= -gamma * h / dt, for all spheres.
-    const Barrier::Values slack =
-        evaluation.rows * filtered + evaluation.values * (p.gamma / duration);
+    // rows * u >= -kappa * h, for all spheres.
+    const Barrier::Values slack = evaluation.rows * filtered + evaluation.values * p.kappa;
     BOOST_CHECK_GE(slack.minCoeff(), -1e-9);
 }
 
-// The point of the whole exercise: a nominal control that would drive the arm into
-// the obstacle is replaced by one that keeps clearance above (1 - gamma) of what it
-// was, and the true clearance -- not just the linearized prediction -- holds up.
-BOOST_AUTO_TEST_CASE(ClearanceDecayIsCappedByGamma)
+// The point of the whole exercise: a nominal control that would drive the arm into the
+// obstacle is replaced by one that spends clearance no faster than `kappa`, and the true
+// clearance -- not just the linearized prediction -- holds up.
+BOOST_AUTO_TEST_CASE(ClearanceDecayIsCappedByKappa)
 {
     const UR5 robot;
     const Barrier barrier(robot, nearField(), /*margin=*/0.0);
@@ -160,22 +161,24 @@ BOOST_AUTO_TEST_CASE(ClearanceDecayIsCappedByGamma)
     // Unfiltered, this step ends in collision.
     BOOST_CHECK_LT(barrier.worstValue(q + nominal * duration), 0.0);
 
-    // Filtered, clearance stays above the CBF floor. The 1 mm slack covers step
-    // linearization; measured error at this step size is about 0.3 mm.
+    // Filtered, clearance stays above the CBF floor. The row bounds dh/dt, so over a
+    // step held constant it delivers the first-order term of the exponential envelope,
+    // `(1 - kappa dt) h`, which is the weaker of the two and so the right thing to assert.
+    // The 1 mm slack covers step linearization; measured error here is about 0.3 mm.
     const double after = barrier.worstValue(q + filtered * duration);
-    BOOST_CHECK_GE(after, (1.0 - p.gamma) * before - 1e-3);
+    BOOST_CHECK_GE(after, (1.0 - p.kappa * duration) * before - 1e-3);
     BOOST_CHECK_GT(after, 0.0);
 }
 
-BOOST_AUTO_TEST_CASE(SmallerGammaIsMoreConservative)
+BOOST_AUTO_TEST_CASE(SmallerKappaIsMoreConservative)
 {
     const UR5 robot;
     // Self rows are switched off for this one, and they have to be. The claim under test is
     // about the row the step is being driven *into* -- `nominal` aims at the worst sphere
-    // against `nearField()` -- and gamma decides how much of that row's clearance the step
-    // may spend. Leave the self rows in and a different row binds at some gammas but not
+    // against `nearField()` -- and kappa decides how fast that row's clearance may be
+    // spent. Leave the self rows in and a different row binds at some rates but not
     // others, so `worstValue()` stops tracking the row the experiment is about and the
-    // sequence is not monotone in gamma. That is not gamma failing to be conservative; it
+    // sequence is not monotone in kappa. That is not kappa failing to be conservative; it
     // is the measurement changing what it measures. A large negative margin puts every self
     // row far out of reach so none can ever be the minimum.
     const Barrier barrier(robot, nearField(), /*margin=*/0.0, /*selfMargin=*/-100.0);
@@ -183,14 +186,14 @@ BOOST_AUTO_TEST_CASE(SmallerGammaIsMoreConservative)
     const UR5::Configuration nominal = towardWorstSphere(barrier, q, 10.0);
 
     double previous = -1.0;
-    for (double gamma : {0.2, 0.4, 0.8, 1.0})
+    for (double kappa : {4.0, 8.0, 16.0, 20.0})
     {
-        const Filter::Parameters p = parameters(gamma);
+        const Filter::Parameters p = parameters(kappa);
         const Filter filter(barrier, p);
         UR5::Configuration filtered;
         BOOST_REQUIRE(filter.filter(q, nominal, duration, filtered) == ControlFilter::Status::Filtered);
 
-        // Larger gamma permits more decay, so the resulting clearance shrinks.
+        // A larger rate permits more decay, so the resulting clearance shrinks.
         const double after = barrier.worstValue(q + filtered * duration);
         if (previous >= 0.0)
             BOOST_CHECK_LT(after, previous);
@@ -362,15 +365,15 @@ BOOST_AUTO_TEST_CASE(ControlBoundsIntersectSpeedAndJointLimits)
     BOOST_CHECK_CLOSE(upper[0], 0.5, 1e-9);
 }
 
-// Screening skips constraint rows for spheres that cannot bind within the step. Two
-// things have to hold for that to be worth having: the control must almost always be the
-// one the full 40-row solve would have produced, and the row count must actually drop.
+// Screening skips constraint rows that cannot bind. Two things have to hold for that to
+// be worth having: the control must be the one the full 40-row solve would have produced,
+// and the row count must actually drop.
 //
-// "Almost" is the honest word. For a screened-out sphere the CBF *decay* condition is no
-// longer imposed, so a filtered control may differ from the unscreened one -- it is only
-// guaranteed to keep that sphere safe, which is checked in test_clearance_barrier's
-// DecreaseRatesBoundHowFastClearanceCanActuallyFall. What is checked here is that the
-// difference is rare, and that when it happens the screened control is still admissible.
+// Under the continuous-time row the first is exact rather than statistical. A row is
+// dropped only when its clearance exceeds `rate/kappa`, at which point every control in
+// the box satisfies it, so it cannot change the feasible set and cannot change the argmin
+// of a strictly convex objective. The discrete-time predecessor screened at `rate*dt`,
+// which was short of that, and could only claim agreement most of the time.
 BOOST_AUTO_TEST_CASE(ScreeningMatchesTheFullSolveAndDropsMostRows)
 {
     const UR5 robot;
@@ -423,5 +426,5 @@ BOOST_AUTO_TEST_CASE(ScreeningMatchesTheFullSolveAndDropsMostRows)
     const double agreement = static_cast<double>(agreed) / steps;
     BOOST_TEST_MESSAGE("screened rows " << meanRows << " of 40, agreement " << agreement);
     BOOST_CHECK_LT(meanRows, 25.0);
-    BOOST_CHECK_GT(agreement, 0.9);
+    BOOST_CHECK_EQUAL(agreed, steps);
 }

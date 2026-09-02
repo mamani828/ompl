@@ -200,19 +200,24 @@ namespace ompl::cbf
         }
 
         /// Barrier values for every sphere, but constraint rows only for the spheres whose
-        /// clearance is at or below \p threshold — normally `decreaseRates(maxSpeed) * dt`.
+        /// clearance is at or below \p threshold — normally
+        /// `decreaseRates(maxSpeed) * max(dt, 1/kappa)`.
         ///
         /// The saving is the point: a skipped sphere costs one interpolated *value*, while
         /// an included one costs an interpolated gradient and a Jacobian contraction on
         /// top, and then a row in the QP. In open space almost every sphere is skipped and
         /// this collapses to the cost of a collision check.
         ///
-        /// What a caller gives up, and it is a real change rather than an optimisation:
-        /// the discrete CBF condition `h(q + u dt) >= (1 - gamma) h(q)` is enforced only
-        /// for the spheres that were included. Skipped spheres are guaranteed to stay
-        /// **safe** (`h_i > 0`) by the Lipschitz argument above, but not to decay at the
-        /// prescribed rate. Safety is the invariant that matters; the decay rate is a
-        /// smoothness preference. Audit rather than assume — see `guarding()`.
+        /// Under the continuous-time condition `dh_i/dq u >= -kappa h_i` the threshold
+        /// buys back what the discrete-time version had to give up. A row is satisfied by
+        /// *every* admissible control once `rate_i <= kappa h_i`, because `rate_i` bounds
+        /// `|dh_i/dq u|` over the whole control box; such a row cannot change the feasible
+        /// set, so dropping it leaves the QP's solution bit-for-bit identical rather than
+        /// merely safe. Screening at `rate_i / kappa` is therefore an optimisation and
+        /// nothing more. The `dt` half of the maximum is a separate guarantee for a
+        /// separate question — a dropped row must also stay non-negative for the span the
+        /// caller is about to integrate, which needs `h_i > rate_i dt` — and taking the
+        /// larger of the two horizons buys both at once.
         void evaluateScreened(const Configuration &q, const Values &threshold, Evaluation &out) const
         {
             const Robot::Kinematics kin = robot_.kinematics(q);
@@ -343,16 +348,31 @@ namespace ompl::cbf
         /// applied from the configuration \p evaluation was taken at before *any* row
         /// could bind. Zero when one already binds.
         ///
-        /// This is the screening argument turned into a step length. A row binds when
-        /// the discrete CBF condition `h_i(q + u t) >= (1 - gamma) h_i(q)` stops holding
-        /// with room to spare, and `h_i` cannot fall faster than `rate_i`, so the
-        /// condition survives for as long as `rate_i * t <= gamma * h_i` — and it
-        /// survives at every point of the interval, not merely at its end, because the
-        /// same inequality holds for every prefix. Taking the minimum over spheres gives
-        /// a duration over which the filter is *provably a no-op*: integrating \p u for
-        /// any shorter span yields exactly the motion the filter would have produced,
-        /// step by step, at no further cost. That is what makes skipping it sound rather
-        /// than merely optimistic.
+        /// This is the screening argument turned into a step length, and under the
+        /// continuous-time condition it is an interval statement in its own right rather
+        /// than a chain of per-step ones. Row i is satisfied by \p u at time s whenever
+        /// `L travel_i <= kappa h_i(s)`, and `h_i(s) >= h_i - L travel_i s`, so the row
+        /// cannot bind for as long as
+        ///
+        ///     t <= h_i / (L travel_i) - 1 / kappa
+        ///
+        /// where `travel_i` is the decrease rate of *this* control rather than of the
+        /// whole box. The bound holds at every point of the interval, not merely at its
+        /// end, because the right-hand side was derived from the worst case over the
+        /// prefix. Taking the minimum over rows gives a duration over which the filter is
+        /// *provably a no-op*: integrating \p u for any shorter span yields exactly the
+        /// motion the filter would have produced, step by step, at no further cost. That
+        /// is what makes skipping it sound rather than merely optimistic.
+        ///
+        /// The span also honours the decay the filter promises, which is the stronger
+        /// claim and the one worth checking. Over it, `h_i(t) >= h_i e^{-kappa t}`: at
+        /// `x = kappa h_i / (L travel_i) >= 1` the linear lower bound at the endpoint is
+        /// `L travel_i / kappa` against an exponential `(L travel_i / kappa) x e^{1-x}`,
+        /// and `x e^{1-x} <= 1` everywhere, with the interior covered because the gap
+        /// between the two rises and then falls and so is smallest at an endpoint.
+        ///
+        /// The `1 / kappa` subtraction is why a certificate shortens as the decay rate
+        /// falls: a slower promised decay binds sooner, not later.
         ///
         /// Two details keep it honest:
         ///
@@ -377,18 +397,24 @@ namespace ompl::cbf
         /// no Lipschitz constant, since a distance between two points has one exactly,
         /// and no boundary term, since a pair is not a query against the field.
         double certifiedDuration(const Evaluation &evaluation, const Configuration &u,
-                                 double gamma) const
+                                 double kappa) const
         {
             const Configuration speed = u.cwiseAbs();
             const auto travel = (Robot::leverArmBounds() * speed).eval();
             const double lipschitz = std::max(field_.maxGradientNorm(), 1.0);
+            // kappa == 0 is "never let clearance fall at all", which no motion towards an
+            // obstacle can certify; the reciprocal is infinite and every term goes to zero.
+            const double horizon = kappa > 0.0 ? 1.0 / kappa : std::numeric_limits<double>::infinity();
 
             double duration = std::numeric_limits<double>::infinity();
             for (Eigen::Index i = 0; i < nSpheres; ++i)
             {
                 if (travel[i] <= 0.0)  // no joint that moves this sphere is moving
                     continue;
-                const double allowance = std::min(gamma * evaluation.values[i] / lipschitz,
+                // h_i / (L travel_i) - 1/kappa, kept in the allowance/travel shape the
+                // boundary term wants: leaving the box is bounded by plain travel, with
+                // no field gradient and no decay rate in it.
+                const double allowance = std::min(evaluation.values[i] / lipschitz - travel[i] * horizon,
                                                   evaluation.boundary[i]);
                 duration = std::min(duration, allowance / travel[i]);
             }
@@ -400,7 +426,8 @@ namespace ompl::cbf
                 // between the two frames can change a pair's separation at all.
                 if (pairTravel[p] <= 0.0)
                     continue;
-                duration = std::min(duration, gamma * evaluation.values[nSpheres + p] / pairTravel[p]);
+                duration = std::min(duration,
+                                    evaluation.values[nSpheres + p] / pairTravel[p] - horizon);
             }
             return std::max(duration, 0.0);
         }
@@ -419,7 +446,7 @@ namespace ompl::cbf
         /// How much a *filter* must over-reserve so that the invariant it enforces
         /// still holds when checked afterwards.
         ///
-        /// A discrete CBF step certifies h(q + u dt) >= (1-gamma) h(q) using a
+        /// A CBF step certifies h(q + u dt) >= h(q) e^{-kappa dt} using a
         /// linear model built from `rows`. `GridSDF` now differentiates the same
         /// trilinear scalar field it evaluates, so value/gradient inconsistency is not
         /// the cause of the remaining error. The finite joint-space step still crosses
@@ -443,7 +470,7 @@ namespace ompl::cbf
         /// travel on arcs, and the row is a chord.
         ///
         /// That error is small and, unlike the field's, does shrink with the step.
-        /// Measured over 10k rollout waypoints at gamma up to 1.0 and steps up to
+        /// Measured over 10k rollout waypoints at decay rates up to 1/dt and steps up to
         /// 0.08 rad, the enforced self barrier never fell below its margin by more than
         /// rounding. A millimetre is therefore generous, and generosity is affordable
         /// here in a way it is not for the margin itself: the buffer comes out of the

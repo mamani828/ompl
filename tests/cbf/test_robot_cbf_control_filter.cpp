@@ -33,7 +33,9 @@ namespace
     const Eigen::Vector3d obstacleCenter(0.5, 0.3, 1.1);
     constexpr double obstacleRadius = 0.15;
     constexpr double voxel = 0.02;
-    constexpr double duration = 0.05;
+    // The step this filter family actually integrates at (see the Reachy2 demos), which
+    // is what `Filter::kappa` is the rate for.
+    constexpr double duration = 0.02;
 
     sdf::DistanceFn sphereField(const Eigen::Vector3d &center, double radius)
     {
@@ -143,13 +145,13 @@ namespace
         {
             using RBarrier = Barrier<Reachy2>;
             constexpr int N = RBarrier::nJoints;
-            constexpr double gamma = 0.6;
+            constexpr double kappa = 30.0;
             const Reachy2::Configuration maxSpeed =
                 Reachy2::velocityLimits().cwiseMin(Reachy2::Configuration::Constant(1.2));
 
             RBarrier::Values decreaseRates;
             barrier.decreaseRates(maxSpeed, decreaseRates);
-            const RBarrier::Values threshold = decreaseRates * dt;
+            const RBarrier::Values threshold = decreaseRates * std::max(dt, 1.0 / kappa);
 
             RBarrier::Evaluation evaluation;
             barrier.evaluateScreened(q, threshold, evaluation);
@@ -178,7 +180,7 @@ namespace
                 RBarrier::Values rowLower, rowUpper;
                 rowUpper.setConstant(std::numeric_limits<double>::infinity());
                 for (Eigen::Index row = 0; row < active; ++row)
-                    rowLower[row] = -gamma * evaluation.values[evaluation.constraint[row]] / dt;
+                    rowLower[row] = -kappa * evaluation.values[evaluation.constraint[row]];
                 Solver solver;
                 solver.solve(filtered, hessian, objective, lower, upper, evaluation.rows.topRows(active),
                              rowLower.head(active), rowUpper.head(active));
@@ -196,7 +198,7 @@ namespace
         {
             using RBarrier = Barrier<MobileReachy2>;
             constexpr int N = RBarrier::nJoints;
-            constexpr double gamma = 0.6;
+            constexpr double kappa = 30.0;
             constexpr double integrationBuffer = 0.001;
             const MobileReachy2::Configuration maxSpeed = MobileReachy2::velocityLimits();
             const MobileReachy2::Configuration inverseSquared =
@@ -204,7 +206,7 @@ namespace
 
             RBarrier::Values decreaseRates;
             barrier.decreaseRates(maxSpeed, decreaseRates);
-            RBarrier::Values threshold = decreaseRates * dt;
+            RBarrier::Values threshold = decreaseRates * std::max(dt, 1.0 / kappa);
             threshold.array() += integrationBuffer;
 
             RBarrier::Evaluation evaluation;
@@ -235,7 +237,7 @@ namespace
                 RBarrier::Values rowLower, rowUpper;
                 rowUpper.setConstant(std::numeric_limits<double>::infinity());
                 for (Eigen::Index row = 0; row < active; ++row)
-                    rowLower[row] = -gamma * (evaluation.values[evaluation.constraint[row]] - integrationBuffer) / dt;
+                    rowLower[row] = -kappa * (evaluation.values[evaluation.constraint[row]] - integrationBuffer);
                 Solver solver;
                 solver.solve(filtered, hessian, objective, lower, upper, evaluation.rows.topRows(active),
                              rowLower.head(active), rowUpper.head(active));
@@ -274,15 +276,16 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(EveryClearanceRowIsSatisfied, Robot, RobotTypes)
     typename Robot::Configuration filtered;
     BOOST_REQUIRE(filter.filter(q, towardWorstSphere(barrier, q, 10.0), duration, filtered) == Status<Robot>::Filtered);
 
-    const auto slack = evaluation.rows * filtered + evaluation.values * (Filter<Robot>::gamma / duration);
+    const auto slack = evaluation.rows * filtered + evaluation.values * Filter<Robot>::kappa;
     BOOST_CHECK_GE(slack.minCoeff(), -1e-6);
 }
 
-// The point of the whole exercise: a nominal that would drive the robot into
-// the obstacle is replaced by one keeping clearance above (1 - gamma) of what
-// it was, and the *true* clearance -- not just the linearized prediction --
-// holds up.
-BOOST_AUTO_TEST_CASE_TEMPLATE(ClearanceDecayIsCappedByGamma, Robot, RobotTypes)
+// The point of the whole exercise: a nominal that would drive the robot into the
+// obstacle is replaced by one spending clearance no faster than `kappa`, and the *true*
+// clearance -- not just the linearized prediction -- holds up. A step of constant control
+// realizes the first-order term of the exponential envelope, `(1 - kappa dt) h`, which is
+// the weaker of the two and so the right floor to assert.
+BOOST_AUTO_TEST_CASE_TEMPLATE(ClearanceDecayIsCappedByKappa, Robot, RobotTypes)
 {
     const Robot robot;
     const auto q = midConfiguration<Robot>();
@@ -293,7 +296,10 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(ClearanceDecayIsCappedByGamma, Robot, RobotTypes)
     BOOST_REQUIRE(barrier.safe(q, &beforeWorld, &beforeSelf));
     const double before = std::min(beforeWorld, beforeSelf);
 
-    const auto nominal = towardWorstSphere(barrier, q, 10.0);
+    // Fast enough that the *unfiltered* step still ends in collision over this short a
+    // span; the filtered control is clamped to `maxSpeed` either way, so the speed here
+    // sets up the comparison rather than changing its outcome.
+    const auto nominal = towardWorstSphere(barrier, q, 30.0);
     typename Robot::Configuration filtered;
     BOOST_REQUIRE(filter.filter(q, nominal, duration, filtered) == Status<Robot>::Filtered);
 
@@ -304,7 +310,7 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(ClearanceDecayIsCappedByGamma, Robot, RobotTypes)
     double afterWorld = 0.0, afterSelf = 0.0;
     barrier.safe((q + filtered * duration).eval(), &afterWorld, &afterSelf);
     const double after = std::min(afterWorld, afterSelf);
-    BOOST_CHECK_GE(after, (1.0 - Filter<Robot>::gamma) * before - 1e-3);
+    BOOST_CHECK_GE(after, (1.0 - Filter<Robot>::kappa * duration) * before - 1e-3);
     BOOST_CHECK_GT(after, 0.0);
 }
 
@@ -331,7 +337,7 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(ZeroActiveRowsUseTheExactBoxProjection, Robot, Rob
     const Barrier<Robot> barrier(robot, farField(), q);
     typename Barrier<Robot>::Values rates;
     barrier.decreaseRates(clampedSpeed<Robot>(), rates);
-    const typename Barrier<Robot>::Values threshold = rates * duration;
+    const typename Barrier<Robot>::Values threshold = rates * std::max(duration, 1.0 / Filter<Robot>::kappa);
     typename Barrier<Robot>::Evaluation evaluation;
     barrier.evaluateScreened(q, threshold, evaluation);
     BOOST_REQUIRE_EQUAL(evaluation.active, 0);

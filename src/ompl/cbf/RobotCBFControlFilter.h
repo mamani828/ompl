@@ -24,8 +24,12 @@ namespace ompl::cbf
     /// every screened-in barrier's clearance from decaying too fast:
     ///
     ///     minimize    0.5 (u - uNom)^T W (u - uNom)
-    ///     subject to  (dh_i/dq) u  >=  -gamma * (h_i(q) - buffer) / dt
+    ///     subject to  (dh_i/dq) u  >=  -kappa * (h_i(q) - buffer)
     ///                 lower <= u <= upper
+    ///
+    /// `kappa` is a decay rate in 1/s, so the row is the continuous-time condition
+    /// `dh/dt >= -kappa h` and carries no step length; see
+    /// `ompl::cbf::CBFControlFilter` for why that replaced the per-step form.
     ///
     /// ### Why the objective is speed-weighted, not identity
     ///
@@ -89,7 +93,9 @@ namespace ompl::cbf
 
         static constexpr int nJoints = Barrier::nJoints;
         static constexpr int nBaseJoints = Barrier::nBaseJoints;
-        static constexpr double gamma = 0.6;
+        /// What the old per-step decay of 0.6 amounted to at this family's 0.02 s
+        /// integration step, now stated as a rate: `dh/dt >= -kappa h`.
+        static constexpr double kappa = 30.0;
 
         /// Position bounds default to the robot's compiled-in joint limits, and
         /// `integrationBuffer` defaults to zero. This is the fixed-base
@@ -145,7 +151,10 @@ namespace ompl::cbf
                 return Status::Blocked;
             }
 
-            threshold_ = decreaseRates_ * dt;
+            // rate * max(dt, 1/kappa): the first horizon keeps a skipped row non-negative
+            // across the step, the second makes it provably non-binding in the QP. See
+            // ClearanceBarrier::evaluateScreened().
+            threshold_ = decreaseRates_ * std::max(dt, 1.0 / kappa);
             threshold_.array() += integrationBuffer_;  // a no-op when integrationBuffer_ == 0
             barrier_.evaluateScreened(q, threshold_, evaluation_);
             activeRows_ += static_cast<std::size_t>(evaluation_.active);
@@ -179,7 +188,7 @@ namespace ompl::cbf
                 objective_ = -inverseSquaredSpeed_.cwiseProduct(nominal);
                 for (Eigen::Index row = 0; row < active; ++row)
                     rowLower_[row] =
-                        -gamma * (evaluation_.values[evaluation_.constraint[row]] - integrationBuffer_) / dt;
+                        -kappa * (evaluation_.values[evaluation_.constraint[row]] - integrationBuffer_);
                 try
                 {
                     const auto status = solver_.solve(filtered, hessian_, objective_, lower, upper,
@@ -198,7 +207,7 @@ namespace ompl::cbf
                 }
             }
 
-            certified = barrier_.certifiedDuration(evaluation_, filtered, gamma, integrationBuffer_);
+            certified = barrier_.certifiedDuration(evaluation_, filtered, kappa, integrationBuffer_);
             for (int j = 0; j < nJoints; ++j)
             {
                 if constexpr (nBaseJoints >= 3)

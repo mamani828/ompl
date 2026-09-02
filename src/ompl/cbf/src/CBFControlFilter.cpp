@@ -117,10 +117,15 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     ClearanceBarrier::Evaluation &evaluation = solver.evaluation;
     if (parameters_.screening)
     {
-        // A sphere cannot lose more than rate*dt of clearance over the step, so anything
-        // clear by more than that cannot bind and needs no row -- and so no gradient and
-        // no Jacobian either, which is where the cost is.
-        solver.threshold = solver.decreaseRates * duration;
+        // Two horizons, and the row has to clear both. A sphere with h > rate/kappa is
+        // satisfied by every control in the box, so its row cannot change the QP; a
+        // sphere with h > rate*dt cannot reach zero across the step the caller is about
+        // to integrate. Screening on the larger keeps the QP's answer identical to the
+        // unscreened one and the skipped spheres safe -- and costs no gradient and no
+        // Jacobian, which is where the money is.
+        const double horizon = parameters_.kappa > 0.0 ? 1.0 / parameters_.kappa
+                                                       : std::numeric_limits<double>::infinity();
+        solver.threshold = solver.decreaseRates * std::max(duration, horizon);
         ScopedTimer timer("evaluate_screened");
         barrier_.evaluateScreened(q, solver.threshold, evaluation);
     }
@@ -155,13 +160,13 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     Control upper;
     controlBounds(q, duration, lower, upper);
 
-    // Discrete-time CBF: (dh_i/dq) u >= -gamma h_i / dt. Row r constrains barrier
-    // evaluation.constraint[r], which is r itself unless screening reordered things --
-    // and which may be a world sphere or a self-collision pair, indifferently.
+    // Continuous-time CBF: (dh_i/dq) u >= -kappa h_i, with no step length in it. Row r
+    // constrains barrier evaluation.constraint[r], which is r itself unless screening
+    // reordered things -- and which may be a world sphere or a self-collision pair,
+    // indifferently.
     const Eigen::Index active = evaluation.active;
     for (Eigen::Index r = 0; r < active; ++r)
-        solver.rowLower[r] =
-            evaluation.values[evaluation.constraint[r]] * (-parameters_.gamma / duration);
+        solver.rowLower[r] = evaluation.values[evaluation.constraint[r]] * -parameters_.kappa;
 
     if (active == 0)
     {
@@ -215,7 +220,7 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     // out of joint travel is not something the barrier can see coming.
     {
         ScopedTimer certTimer("certified_duration");
-        diagnostics.certifiedDuration = barrier_.certifiedDuration(evaluation, filtered, parameters_.gamma);
+        diagnostics.certifiedDuration = barrier_.certifiedDuration(evaluation, filtered, parameters_.kappa);
     }
     if (parameters_.respectJointLimits)
     {

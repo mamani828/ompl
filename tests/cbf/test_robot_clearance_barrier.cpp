@@ -468,7 +468,11 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(NothingCanBindWithinTheCertifiedDuration, Robot, R
     const Robot robot;
     const Barrier<Robot> barrier(robot, obstacleField(), midConfiguration<Robot>());
     const auto maxSpeed = clampedSpeed<Robot>();
-    constexpr double gamma = 0.4;
+    // The rate `RobotCBFControlFilter` runs this family at. It has to be this brisk for
+    // there to be anything to certify: every joint at full speed can spend what clearance
+    // these robots have in a few tens of milliseconds, and a certificate is empty
+    // whenever a row is already inside `rate/kappa`.
+    constexpr double kappa = 30.0;  // 1/s
 
     ompl::RNG rng;
     for (double buffer : {0.0, 0.02})
@@ -486,8 +490,11 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(NothingCanBindWithinTheCertifiedDuration, Robot, R
             for (int j = 0; j < Barrier<Robot>::nJoints; ++j)
                 u[j] = maxSpeed[j] * (rng.uniform01() < 0.5 ? -1.0 : 1.0);
 
-            const double duration = barrier.certifiedDuration(evaluation, u, gamma, buffer);
-            BOOST_REQUIRE_GT(duration, 0.0);
+            // Empty is a legitimate answer for a rate-based certificate: a row already
+            // inside `rate/kappa` has no span over which it provably cannot bind.
+            const double duration = barrier.certifiedDuration(evaluation, u, kappa, buffer);
+            if (duration <= 0.0)
+                continue;
             ++certified;
 
             constexpr int samples = 15;
@@ -496,8 +503,10 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(NothingCanBindWithinTheCertifiedDuration, Robot, R
                 const double t = duration * step / samples;
                 typename Barrier<Robot>::Evaluation along;
                 fullEvaluate(barrier, (q + u * t).eval(), along);
+                const double envelope = std::exp(-kappa * t);
                 for (Eigen::Index i = 0; i < static_cast<Eigen::Index>(barrier.constraintCount()); ++i)
-                    BOOST_REQUIRE_GE(along.values[i], (1.0 - gamma) * (evaluation.values[i] - buffer) + buffer - 1e-9);
+                    BOOST_REQUIRE_GE(along.values[i],
+                                     envelope * (evaluation.values[i] - buffer) + buffer - 1e-9);
             }
         }
         BOOST_REQUIRE_GT(certified, 20);
@@ -532,7 +541,10 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(TheCertificateStopsAtTheEdgeOfTheField, Robot, Rob
 
     typename Robot::Configuration u = Robot::Configuration::Zero();
     u[0] = clampedSpeed<Robot>()[0];
-    const double duration = barrier.certifiedDuration(evaluation, u, 1.0);
+    // A deliberately permissive rate: 1 ms of horizon, so no clearance row can be what
+    // binds and the boundary term -- which carries no rate at all -- is isolated.
+    constexpr double permissive = 1000.0;
+    const double duration = barrier.certifiedDuration(evaluation, u, permissive);
     BOOST_REQUIRE_GT(duration, 0.0);
     BOOST_REQUIRE(std::isfinite(duration));
 
@@ -541,5 +553,5 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(TheCertificateStopsAtTheEdgeOfTheField, Robot, Rob
     const Barrier<Robot> unbounded(robot, wide, q);
     typename Barrier<Robot>::Evaluation wideEvaluation;
     fullEvaluate(unbounded, q, wideEvaluation);
-    BOOST_CHECK_GT(unbounded.certifiedDuration(wideEvaluation, u, 1.0), duration);
+    BOOST_CHECK_GT(unbounded.certifiedDuration(wideEvaluation, u, permissive), duration);
 }
