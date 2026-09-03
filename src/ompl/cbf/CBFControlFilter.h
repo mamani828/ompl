@@ -92,6 +92,40 @@ namespace ompl::cbf
     /// why the certificate is a Lipschitz bound over the interval rather than an
     /// extrapolation of the rows.
     ///
+    /// ### The adaptive gain, which costs a division
+    ///
+    /// The gain can be treated as a decision variable rather than a constant: among the
+    /// controls that deviate least from the nominal one, prefer the one needing the least
+    /// allowance to spend clearance. Written out, that is the lexicographic program
+    ///
+    ///     lexmin_{u, kappa}  ( 0.5 (u - uNom)^T W (u - uNom),  kappa )
+    ///     subject to         (dh_i/dq) u >= -kappa h_i,  u in U,  0 <= kappa <= kappaMax
+    ///
+    /// and it decomposes, which is the whole point. Because every `h_i > 0` on the safe
+    /// set, row i reads `kappa >= -(dh_i/dq) u / h_i`, so a control is feasible for *some*
+    /// gain at or below the cap exactly when it is feasible *at* the cap. The first
+    /// stage's feasible set is therefore the fixed-gain one at `kappa = kappaMax`, and its
+    /// minimiser is the fixed-gain QP's — `W` positive definite makes it unique, so the
+    /// second stage has a single control to price and no search to do.
+    ///
+    /// Two things follow, and both are worth being blunt about.
+    ///
+    /// The first is that `kappa` here *is* `kappaMax`: this class already solves stage
+    /// one, and no parameter was added because none is needed. The second is that
+    /// **the returned control is the same vector either way**. Minimising the gain does
+    /// not bend the trajectory; it reports what the trajectory cost. So an A/B between
+    /// "adaptive" and "fixed at the cap" would measure nothing, and the value is not
+    /// speed or reach but the number itself: `Diagnostics::requiredGain`, the gain the
+    /// step actually needed, which tightens the decay envelope an audit can claim and
+    /// gives `kappa` something to be tuned against other than taste.
+    ///
+    /// It is read off the certified region rather than the gradients — see
+    /// `ClearanceBarrier::requiredGain()` for why a region can answer a question about
+    /// rows, and for the upper-bound direction that makes doing so sound. Having the
+    /// region answer it is what makes the gain free: it is the reciprocal of a span this
+    /// class computes anyway, so the second stage is a division, and it is computed on
+    /// every call for the same reason the certificate is.
+    ///
     /// ### Threading
     ///
     /// Not thread safe: the solver and its scratch space are reused across calls.
@@ -105,6 +139,11 @@ namespace ompl::cbf
             /// Smaller is more conservative; 0 forbids any decay. Independent of the step
             /// a caller asks about — see `decayRate()` to convert an old per-step gamma.
             /// The default is what `gamma = 0.99` amounted to at a 0.05 s step.
+            ///
+            /// This is also the `kappaMax` of the adaptive-gain program, which needs no
+            /// parameter of its own: see the class comment for why a cap and a fixed gain
+            /// are the same number here, and `Diagnostics::requiredGain` for what the step
+            /// spent of it.
             double kappa{19.8};
             /// Diagonal of W: the relative cost of deviating on each joint.
             Control weights{Control::Ones()};
@@ -134,6 +173,23 @@ namespace ompl::cbf
             /// could reach zero, against `certifiedDuration`'s "before any row could
             /// bind". Both come from one pass; see `ClearanceBarrier::durations()`.
             double safeDuration{0.0};
+            /// The smallest gain that would have produced this control: the adaptive
+            /// gain, read off the certified region by `ClearanceBarrier::requiredGain()`.
+            ///
+            /// `kappa` is the *cap*; this is what the step actually needed, and it is
+            /// usually far below. Aggregated over a rollout it says what gain a plan
+            /// would have run at, which is the number to tune `kappa` from and the one an
+            /// audit should quote: over the returned control every barrier obeys
+            /// `h_i(t) >= h_i e^{-requiredGain t}`, a tighter envelope than `kappa`
+            /// promises.
+            ///
+            /// Infinite on a `Blocked` call, and on any call whose region certifies
+            /// nothing -- consistent with the two durations, which report zero for the
+            /// same reason. It may exceed `kappa` even on a call the QP accepted, since
+            /// the region bounds the rows more coarsely than the gradients the QP solved
+            /// against; that is the region being honest about what *it* can prove, not a
+            /// violation of the row the filter enforced.
+            double requiredGain{std::numeric_limits<double>::infinity()};
             /// The certified region at the configuration this call evaluated, which
             /// falls out of that evaluation for free -- it reads the values and
             /// boundaries already in hand and needs no gradient. A caller wanting the

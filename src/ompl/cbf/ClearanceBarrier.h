@@ -647,6 +647,63 @@ namespace ompl::cbf
             return duration;
         }
 
+        /// The smallest decay rate at which \p region certifies that \p u satisfies every
+        /// CBF row: the least `kappa` for which `(dh_i/dq) u >= -kappa h_i` provably holds
+        /// at the configuration \p region was taken at, for every constraint at once.
+        ///
+        /// ### Why the region can answer a question about gradients
+        ///
+        /// The row asks about `(dh_i/dq) u`, which is a gradient. The region never
+        /// computes one. It does not have to: the same lever-arm table that bounds how
+        /// fast a barrier can fall bounds the row's left-hand side from below,
+        ///
+        ///     (dh_i/dq)  u >= -L travel_i     for a world sphere,
+        ///     (dh_ab/dq) u >=   -travel_p     for a self-collision pair,
+        ///
+        /// with `travel = leverArms() * |u|` as everywhere else here. So row i holds at
+        /// any `kappa >= L travel_i / h_i`, and since `slack_i <= h_i / L` for a world row
+        /// and `slack_p = h_ab` for a pair, `kappa >= travel_i / slack_i` suffices for
+        /// both. The maximum over rows is what this returns, and it is exactly the
+        /// reciprocal of `safeDuration()`:
+        ///
+        ///     requiredGain(region, u) = max_i travel_i / slack_i = 1 / safeDuration(region, u)
+        ///
+        /// which is the reading worth keeping: **the gain a control needs is the
+        /// reciprocal of how long it could be run for.** A control with half a second of
+        /// clear road needs 2 /s; one with ten seconds needs 0.1 /s.
+        ///
+        /// ### What it is for
+        ///
+        /// It is the second stage of the lexicographic gain program. The first stage --
+        /// minimise the deviation from the nominal control -- is the ordinary CBF-QP run
+        /// at the *cap*, because for `h_i > 0` a control is feasible for some
+        /// `kappa <= kappaMax` exactly when it is feasible at `kappaMax`. That leaves the
+        /// gain itself to be read off after the fact rather than optimised, and this is
+        /// how it is read off. `CBFControlFilter::Diagnostics::requiredGain` is this
+        /// quantity for the control that filter returned.
+        ///
+        /// ### What it is conservative about
+        ///
+        /// Everything the region is, and one thing more. The lever arms are maxima over
+        /// the whole configuration space, so `travel_i` overstates the true directional
+        /// derivative by however much the arm is folded away from its worst pose; the
+        /// answer is therefore an upper bound on the gain the gradients would have
+        /// demanded, never an under-estimate, which is the safe direction for a number a
+        /// certificate is built on. In exchange it sees one thing the gradients cannot:
+        /// `slack_i` carries `Evaluation::boundary`, so a control that would walk a sphere
+        /// centre out of the baked field -- where clearance is clamped and over-reported,
+        /// and no barrier value sees it coming -- is charged for it here.
+        ///
+        /// Infinite when nothing certifies \p u: the region is invalid, or a row it must
+        /// clear has no slack left. Zero when \p u moves no constraint at all, which is
+        /// correct rather than degenerate -- a control that changes no clearance needs no
+        /// allowance to spend it.
+        static double requiredGain(const CertifiedRegion &region, const Configuration &u)
+        {
+            const double safe = safeDuration(region, u);
+            return safe > 0.0 ? 1.0 / safe : std::numeric_limits<double>::infinity();
+        }
+
         /// The largest L-infinity ball inscribed in \p region: every configuration
         /// within this many radians of the centre, on every joint at once, is certified.
         ///

@@ -311,9 +311,32 @@ namespace ompl::cbf
 
                 ++out.steps;
 
+                // How far to run what the filter just handed back. The floor is the step
+                // it was asked about, which it answered for; above that the filter has
+                // certified itself a no-op, so running on is not an extrapolation but a
+                // saving of calls whose outcome is already known.
+                const double span =
+                    std::min(std::max(stepSize_, std::min(reach, maxStepScale_ * stepSize_)),
+                             budget - elapsed);
+
                 // A QP can return a nonzero control whose motion is numerically useless.
                 // Treat it as zero before integrating a long chain of microscopic states.
-                if (earlyTermination_.enabled && earlyTermination_.minControlFraction > 0.0)
+                //
+                // Guarded by what is left *after* this step, exactly as the stall and
+                // call-budget tests below are, and for a reason those two do not have to
+                // spell out. A short extension has a small nominal control by
+                // construction -- it is `(to - from) / horizon`, so it shrinks with the
+                // request, not with how cornered the robot is -- and testing the
+                // control's size alone therefore refused every extension shorter than
+                // `minControlFraction * stepSize * maxSpeed`, arriving ones included.
+                // That put a floor under how short an extension the planner could make,
+                // which is precisely what the probabilistic-completeness argument needs
+                // absent: it covers a solution path in balls and asks for the tree to be
+                // extendable to a sample anywhere inside one, however close that sample
+                // lands to the vertex it grew from. There is no long chain to guard
+                // against when the step ends the rollout, so there is nothing to trade.
+                if (earlyTermination_.enabled && earlyTermination_.minControlFraction > 0.0 &&
+                    budget - elapsed - span > negligibleTime)
                 {
                     const double appliedFraction =
                         applied.cwiseAbs().cwiseQuotient(maxSpeed_).maxCoeff();
@@ -323,14 +346,6 @@ namespace ompl::cbf
                         break;
                     }
                 }
-
-                // How far to run what the filter just handed back. The floor is the step
-                // it was asked about, which it answered for; above that the filter has
-                // certified itself a no-op, so running on is not an extrapolation but a
-                // saving of calls whose outcome is already known.
-                const double span =
-                    std::min(std::max(stepSize_, std::min(reach, maxStepScale_ * stepSize_)),
-                             budget - elapsed);
 
                 const Configuration previous = out.end;
                 const double previousGap = Operations::distance(previous, to, maxSpeed_);

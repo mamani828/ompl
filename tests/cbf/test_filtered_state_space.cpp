@@ -1199,3 +1199,129 @@ BOOST_AUTO_TEST_CASE(CertifiedStepsAreSafeAlongTheirWholeSpan)
     }
     BOOST_REQUIRE_GT(spans, 0);
 }
+
+// Lemma 2 of the probabilistic-completeness argument, executable.
+//
+// The proof needs a radius `rho > 0` around a positive-clearance path inside which the
+// CBF steer is *transparent*: asked to go somewhere within `rho`, it goes exactly there,
+// in one step, and the filter never touches the nominal control. Everything downstream
+// rests on it -- with transparency the ball-covering argument for geometric RRT applies
+// unchanged, and without it there is no argument at all, because the planner cannot be
+// shown to reach a sample it has drawn.
+//
+// The proof's `rho` is the least of three: the clearance certificate `r0`, the one-step
+// speed bound `stepSize * min(maxSpeed)`, and the gain headroom `kappa * stepSize * h/G`.
+// Here the obstacle is far away, so the first and third are enormous and the speed bound
+// binds at `0.05 * 0.5 = 0.025` rad.
+//
+// The lengths swept run down to 1e-9 rad, eleven orders below that bound. That end of
+// the sweep is the point: the argument covers a path in balls and asks for the tree to
+// be extendable to a sample anywhere inside one, and a sample may land arbitrarily close
+// to the vertex it grows from. A *lower* bound on extension length is as fatal to it as
+// an upper one, and `minControlFraction` used to impose one at 2.5e-6 rad.
+BOOST_AUTO_TEST_CASE(ShortExtensionsAreTransparentToTheFilter)
+{
+    const UR5 robot;
+    const Barrier barrier(robot, emptyField(), 0.0);
+    const Filter filter(barrier, filterParameters());
+    auto space = makeSpace(filter);
+
+    // The configuration the benchmark runs, not the permissive default: early
+    // termination on is what the planner actually steers under.
+    Space::EarlyTermination early;
+    early.enabled = true;
+    space->setEarlyTermination(early);
+
+    const double speedBound = stepSize * UR5::velocityLimits().minCoeff();
+    const UR5::Configuration q = configuration(0.0, -1.2, 1.8, -0.6, 1.57, 0.0);
+
+    ompl::RNG rng;
+    for (double length : {1e-9, 1e-8, 1e-7, 1e-6, 2.5e-6, 1e-5, 1e-4, 1e-3, 1e-2, 0.02})
+    {
+        BOOST_REQUIRE_LT(length, speedBound);
+        for (int direction = 0; direction < 8; ++direction)
+        {
+            UR5::Configuration delta;
+            for (int j = 0; j < dim; ++j)
+                delta[j] = rng.gaussian01();
+            delta = delta.normalized() * length;
+            const UR5::Configuration z = q + delta;
+
+            const Space::Rollout rollout = space->steer(q, z, 1.0);
+
+            // Transparent: one step, the filter left the control alone, and it landed on
+            // the state that was asked for rather than near it. Exactness matters as much
+            // as arrival -- the planner stores `z` and the ledger keys on it, so a
+            // rollout ending a rounding away would make the recorded edge a different
+            // motion from the one the tree believes it has.
+            BOOST_REQUIRE_MESSAGE(rollout.reachedTarget,
+                                  "did not arrive at length " << length);
+            BOOST_REQUIRE_EQUAL(rollout.steps, 1u);
+            BOOST_REQUIRE_EQUAL(rollout.filtered, 0u);
+            BOOST_REQUIRE_EQUAL(rollout.blocked, 0u);
+            BOOST_REQUIRE(!rollout.tinyControl);
+            BOOST_REQUIRE(!rollout.stalled);
+            BOOST_REQUIRE(!rollout.callBudgetReached);
+            BOOST_REQUIRE_EQUAL((rollout.end - z).norm(), 0.0);
+        }
+    }
+}
+
+// The same property one level up, where the planner sees it: a short edge has to be
+// accepted by the motion validator and land the tree on the sampled state. `roll()`
+// arriving is necessary but not sufficient -- `interpolate()` applies its own progress
+// test, and the validator its own arrive-or-reject -- so the claim is only worth
+// anything if it survives both.
+BOOST_AUTO_TEST_CASE(ShortEdgesAreAcceptedByTheMotionValidator)
+{
+    const UR5 robot;
+    const Barrier barrier(robot, emptyField(), 0.0);
+    const Filter filter(barrier, filterParameters());
+    auto space = makeSpace(filter);
+    Space::EarlyTermination early;
+    early.enabled = true;
+    space->setEarlyTermination(early);
+
+    auto si = std::make_shared<ob::SpaceInformation>(space);
+    si->setStateValidityChecker(std::make_shared<ob::AllValidStateValidityChecker>(si));
+    si->setMotionValidator(std::make_shared<ompl::cbf::FilteredMotionValidator>(si));
+    si->setup();
+
+    // A second space that has never seen these edges, for the goal-tree direction. It has
+    // to be separate: once the forward edge is in the first space's ledger a reversed
+    // query is answered by lookup, which would test the ledger rather than the rollout.
+    auto reverseSpace = makeSpace(filter);
+    reverseSpace->setEarlyTermination(early);
+    auto reverseSi = std::make_shared<ob::SpaceInformation>(reverseSpace);
+    reverseSi->setStateValidityChecker(std::make_shared<ob::AllValidStateValidityChecker>(reverseSi));
+    reverseSi->setMotionValidator(std::make_shared<ompl::cbf::FilteredMotionValidator>(reverseSi));
+    reverseSi->setup();
+
+    const UR5::Configuration q = configuration(0.0, -1.2, 1.8, -0.6, 1.57, 0.0);
+    ob::ScopedState<> from(space), to(space), reached(space);
+    Space::setState(from.get(), q);
+
+    for (double length : {1e-8, 1e-6, 2.5e-6, 1e-4, 1e-2})
+    {
+        UR5::Configuration delta = UR5::Configuration::Zero();
+        delta[0] = length;
+        Space::setState(to.get(), q + delta);
+
+        // The goal tree's direction, which `RRTConnect` validates backwards
+        // (`RRTConnect.cpp:152`, `checkMotion(dstate, nmotion->state)`): the rollout
+        // starts at the *sample* and runs to the tree vertex. Lemma 2 quantifies over the
+        // configuration the steer starts from, so it covers this -- but only because the
+        // sample is inside the tube too, which is worth having a test say out loud.
+        BOOST_REQUIRE_MESSAGE(reverseSi->checkMotion(to.get(), from.get()),
+                              "goal-tree edge rejected at length " << length);
+
+        // What `RRTConnect` does with `retainPartialSteering`: interpolate the whole way,
+        // then validate the endpoint it was handed.
+        space->interpolate(from.get(), to.get(), 1.0, reached.get());
+        BOOST_REQUIRE_MESSAGE(!si->equalStates(from.get(), reached.get()),
+                              "extension reported as going nowhere at length " << length);
+        BOOST_REQUIRE_EQUAL((Space::configurationOf(reached.get()) - (q + delta)).norm(), 0.0);
+        BOOST_REQUIRE_MESSAGE(si->checkMotion(from.get(), reached.get()),
+                              "edge rejected at length " << length);
+    }
+}

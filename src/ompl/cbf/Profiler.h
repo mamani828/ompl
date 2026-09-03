@@ -1,7 +1,9 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -136,6 +138,24 @@ namespace ompl::cbf
             double certifiedDurationSum{0.0};
             double certifiedDurationMin{std::numeric_limits<double>::infinity()};
             double certifiedDurationMax{0.0};
+            /// The gain each call actually needed, against the cap it was allowed. A
+            /// mean and a max would not settle the question this is asked to settle --
+            /// the max is set by the handful of near-contact calls in the run, and the
+            /// mean by the thousands in open space -- so the distribution is kept, in
+            /// four log-spaced buckets per decade from 1e-3 to 1e4 /s. That is 28
+            /// counters, which is cheaper than the branch that fills them.
+            static constexpr int gainBuckets = 28;
+            static constexpr double gainLogMin = -3.0;  ///< log10 of the first bucket edge
+            static constexpr double gainPerDecade = 4.0;
+            std::array<std::size_t, gainBuckets> gainHistogram{};
+            double gainSum{0.0};
+            double gainMax{0.0};
+            std::size_t gainFinite{0};
+            /// Calls whose region certified no gain at all -- a barrier already at or
+            /// below zero, so no allowance makes the row hold. Counted, never averaged
+            /// in: folding an infinity into a mean would destroy the mean and hide how
+            /// rare it is.
+            std::size_t gainInfinite{0};
         };
 
         static FilterStats &instance()
@@ -146,9 +166,12 @@ namespace ompl::cbf
 
         /// \p activeRows and \p solverIterations are always meaningful (screening
         /// runs, and produces a row count, even for a Blocked call); \p certifiedDuration
-        /// is meaningful only when a control was actually returned, i.e. not Blocked.
+        /// and \p requiredGain are meaningful only when a control was actually returned,
+        /// i.e. not Blocked. \p requiredGain defaults to infinity so a filter that does
+        /// not compute one is recorded as certifying no gain rather than a gain of zero.
         void record(FilterOutcome outcome, int activeRows, std::ptrdiff_t solverIterations,
-                   double certifiedDuration)
+                   double certifiedDuration,
+                   double requiredGain = std::numeric_limits<double>::infinity())
         {
             if (!profilingEnabled())
                 return;
@@ -178,6 +201,26 @@ namespace ompl::cbf
                 s.certifiedDurationSum += certifiedDuration;
                 s.certifiedDurationMin = std::min(s.certifiedDurationMin, certifiedDuration);
                 s.certifiedDurationMax = std::max(s.certifiedDurationMax, certifiedDuration);
+
+                if (std::isfinite(requiredGain))
+                {
+                    ++s.gainFinite;
+                    s.gainSum += requiredGain;
+                    s.gainMax = std::max(s.gainMax, requiredGain);
+                    // A gain of zero -- a control that moves no barrier -- is real and
+                    // belongs in the first bucket rather than at log10 of minus infinity.
+                    const double decades =
+                        requiredGain > 0.0
+                            ? (std::log10(requiredGain) - Snapshot::gainLogMin) * Snapshot::gainPerDecade
+                            : 0.0;
+                    const int bucket = static_cast<int>(
+                        std::clamp(decades, 0.0, static_cast<double>(Snapshot::gainBuckets - 1)));
+                    ++s.gainHistogram[static_cast<std::size_t>(bucket)];
+                }
+                else
+                {
+                    ++s.gainInfinite;
+                }
             }
         }
 
@@ -204,6 +247,39 @@ namespace ompl::cbf
             std::fprintf(out, "  certified duration: avg=%.5fs  min=%.5fs  max=%.5fs  (over %zu non-blocked calls)\n",
                         certifiedCalls ? s.certifiedDurationSum / static_cast<double>(certifiedCalls) : 0.0,
                         certifiedCalls ? s.certifiedDurationMin : 0.0, s.certifiedDurationMax, certifiedCalls);
+
+            // The gain the run actually needed, against the cap it was given. Quantiles
+            // come off the histogram's upper edges, so each is an upper bound on the true
+            // one and reads high by at most a quarter decade -- which is the honest
+            // direction for a number used to argue a cap could be lowered.
+            std::fprintf(out, "  required gain:     avg=%.3f/s  max=%.3f/s  p50=%.3f/s  p90=%.3f/s  "
+                              "p99=%.3f/s  (over %zu calls, %zu uncertified)\n",
+                        s.gainFinite ? s.gainSum / static_cast<double>(s.gainFinite) : 0.0, s.gainMax,
+                        gainQuantile(s, 0.50), gainQuantile(s, 0.90), gainQuantile(s, 0.99),
+                        s.gainFinite, s.gainInfinite);
+        }
+
+        /// The \p fraction quantile of the required-gain histogram, as the upper edge of
+        /// the bucket the fraction falls in. Infinite when that bucket is the last one,
+        /// which is the overflow bin and so has no upper edge to report.
+        static double gainQuantile(const Snapshot &s, double fraction)
+        {
+            if (s.gainFinite == 0)
+                return 0.0;
+            const auto target = static_cast<double>(s.gainFinite) * fraction;
+            std::size_t seen = 0;
+            for (int bucket = 0; bucket < Snapshot::gainBuckets; ++bucket)
+            {
+                seen += s.gainHistogram[static_cast<std::size_t>(bucket)];
+                if (static_cast<double>(seen) >= target)
+                {
+                    if (bucket == Snapshot::gainBuckets - 1)
+                        return std::numeric_limits<double>::infinity();
+                    return std::pow(10.0, Snapshot::gainLogMin +
+                                              (bucket + 1) / Snapshot::gainPerDecade);
+                }
+            }
+            return std::numeric_limits<double>::infinity();
         }
 
         void reset()

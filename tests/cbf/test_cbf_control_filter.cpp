@@ -2,6 +2,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <cmath>
+#include <limits>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
@@ -427,4 +428,242 @@ BOOST_AUTO_TEST_CASE(ScreeningMatchesTheFullSolveAndDropsMostRows)
     BOOST_TEST_MESSAGE("screened rows " << meanRows << " of 40, agreement " << agreement);
     BOOST_CHECK_LT(meanRows, 25.0);
     BOOST_CHECK_EQUAL(agreed, steps);
+}
+
+// The claim `requiredGain` makes, checked against the gradients it never looked at:
+// every row -- including the ones screening dropped -- holds at the gain reported, so a
+// caller may quote the tighter envelope `h_i(t) >= h_i e^{-requiredGain t}` in place of
+// the one `kappa` promises. Randomised, because the interesting failures are poses where
+// the lever-arm bound is loose in an unexpected direction.
+BOOST_AUTO_TEST_CASE(RequiredGainSatisfiesEveryRowItReports)
+{
+    const UR5 robot;
+    const Barrier barrier(robot, nearField(), /*margin=*/0.0);
+    Filter::Parameters p = parameters();
+    p.maxSpeed = UR5::velocityLimits();
+    const Filter filter(barrier, p);
+
+    ompl::RNG rng;
+    int steps = 0, belowCap = 0;
+    double worstSlack = std::numeric_limits<double>::infinity();
+    for (int sample = 0; sample < 1500; ++sample)
+    {
+        UR5::Configuration q, nominal;
+        for (Eigen::Index j = 0; j < 6; ++j)
+        {
+            q[j] = rng.uniformReal(UR5::lowerBounds()[j], UR5::upperBounds()[j]);
+            nominal[j] = rng.uniformReal(-p.maxSpeed[j], p.maxSpeed[j]);
+        }
+
+        UR5::Configuration filtered;
+        Filter::Diagnostics diagnostics;
+        if (filter.filter(q, nominal, duration, filtered, diagnostics) == ControlFilter::Status::Blocked)
+            continue;
+
+        // The gain is a statement about the safe set, and at `margin = 0` over the whole
+        // joint range most random poses are not in it. A row that is already negative has
+        // no slack for the region to divide into, so the honest report is infinity -- no
+        // gain certifies a barrier that has already gone. Those poses are not what this
+        // test is about; the ones inside the set are.
+        const Barrier::Evaluation full = barrier.evaluate(q);
+        if (full.values.minCoeff() <= 0.0 || diagnostics.region.slack.minCoeff() <= 0.0)
+            continue;
+        ++steps;
+
+        BOOST_REQUIRE(std::isfinite(diagnostics.requiredGain));
+        BOOST_REQUIRE_GE(diagnostics.requiredGain, 0.0);
+
+        // The rows, from a full evaluation -- gradients for all 40, screened or not.
+        for (Eigen::Index i = 0; i < Barrier::nConstraints; ++i)
+        {
+            const double slack =
+                full.rows.row(i).dot(filtered) + diagnostics.requiredGain * full.values[i];
+            worstSlack = std::min(worstSlack, slack);
+            BOOST_REQUIRE_GE(slack, -1e-9);
+        }
+
+        if (diagnostics.requiredGain < p.kappa)
+            ++belowCap;
+    }
+
+    BOOST_REQUIRE_GT(steps, 200);
+    BOOST_TEST_MESSAGE("worst row slack at requiredGain " << worstSlack << ", below cap "
+                                                          << belowCap << "/" << steps);
+    // The point of reporting it: the gain a step needs is usually well under the cap.
+    BOOST_CHECK_GT(static_cast<double>(belowCap) / steps, 0.5);
+}
+
+// It is the reciprocal of the safety span, which is what makes the second stage of the
+// lexicographic program a division rather than a solve. Both spellings, since the filter
+// takes the cheap one and callers get the explicit one.
+BOOST_AUTO_TEST_CASE(RequiredGainIsTheReciprocalOfTheSafeSpan)
+{
+    const UR5 robot;
+    const Barrier barrier(robot, nearField(), /*margin=*/0.0);
+    const Filter filter(barrier, parameters());
+
+    const UR5::Configuration q = UR5::Configuration::Zero();
+    for (double speed : {0.5, 1.0, 4.0, 10.0})
+    {
+        UR5::Configuration filtered;
+        Filter::Diagnostics diagnostics;
+        BOOST_REQUIRE(filter.filter(q, towardWorstSphere(barrier, q, speed), duration, filtered,
+                                    diagnostics) != ControlFilter::Status::Blocked);
+
+        BOOST_CHECK_CLOSE(diagnostics.requiredGain, 1.0 / diagnostics.safeDuration, 1e-9);
+        BOOST_CHECK_CLOSE(diagnostics.requiredGain,
+                          Barrier::requiredGain(diagnostics.region, filtered), 1e-9);
+    }
+}
+
+// Screening drops *rows*; the region reads values and boundaries, which are filled for
+// every constraint either way. So the gain a screened solve reports is the gain a full
+// solve reports, bit for bit -- which is the reason to read it off the region at all.
+BOOST_AUTO_TEST_CASE(RequiredGainIsUnaffectedByScreening)
+{
+    const UR5 robot;
+    const Barrier barrier(robot, nearField(), /*margin=*/0.0);
+    Filter::Parameters base = parameters();
+    base.maxSpeed = UR5::velocityLimits();
+    Filter::Parameters screenedParameters = base;
+    screenedParameters.screening = true;
+    Filter::Parameters fullParameters = base;
+    fullParameters.screening = false;
+
+    const Filter screened(barrier, screenedParameters);
+    const Filter full(barrier, fullParameters);
+
+    ompl::RNG rng;
+    int steps = 0;
+    for (int sample = 0; sample < 500; ++sample)
+    {
+        UR5::Configuration q, nominal;
+        for (Eigen::Index j = 0; j < 6; ++j)
+        {
+            q[j] = rng.uniformReal(UR5::lowerBounds()[j], UR5::upperBounds()[j]);
+            nominal[j] = rng.uniformReal(-base.maxSpeed[j], base.maxSpeed[j]);
+        }
+
+        UR5::Configuration screenedControl, fullControl;
+        Filter::Diagnostics screenedDiagnostics, fullDiagnostics;
+        if (screened.filter(q, nominal, duration, screenedControl, screenedDiagnostics) ==
+            ControlFilter::Status::Blocked)
+            continue;
+        full.filter(q, nominal, duration, fullControl, fullDiagnostics);
+        ++steps;
+
+        BOOST_REQUIRE_EQUAL(screenedDiagnostics.requiredGain, fullDiagnostics.requiredGain);
+    }
+    BOOST_REQUIRE_GT(steps, 100);
+}
+
+// A control that moves no clearance needs no allowance to spend it; a call that was
+// refused certifies nothing and must not be read as the former. Zero and infinity are
+// the two ends of the same statement, and confusing them would let an audit quote a
+// gain of zero for a step the filter would not take.
+BOOST_AUTO_TEST_CASE(RequiredGainBracketsTheDegenerateCases)
+{
+    const UR5 robot;
+    const Barrier barrier(robot, farField(), /*margin=*/0.0);
+    const Filter filter(barrier, parameters());
+
+    const UR5::Configuration q = UR5::Configuration::Zero();
+    UR5::Configuration filtered;
+    Filter::Diagnostics diagnostics;
+    BOOST_REQUIRE(filter.filter(q, UR5::Configuration::Zero(), duration, filtered, diagnostics) ==
+                  ControlFilter::Status::Unchanged);
+    BOOST_CHECK_EQUAL(diagnostics.requiredGain, 0.0);
+
+    // Out of the baked field: blocked before the QP, and nothing is certified.
+    const Eigen::AlignedBox3d tiny(Eigen::Vector3d(-0.05, -0.05, 0.35), Eigen::Vector3d(0.05, 0.05, 0.45));
+    const sdf::GridSDF field(sphereField(obstacleCenter, obstacleRadius), tiny, voxel);
+    const Barrier clipped(robot, field, /*margin=*/0.0);
+    const Filter blocking(clipped, parameters());
+    Filter::Diagnostics blockedDiagnostics;
+    BOOST_REQUIRE(blocking.filter(q, UR5::Configuration::Zero(), duration, filtered,
+                                  blockedDiagnostics) == ControlFilter::Status::Blocked);
+    BOOST_CHECK(std::isinf(blockedDiagnostics.requiredGain));
+}
+
+// How much the region overstates the gain, which the class comment leaves to
+// measurement. The gradients give the exact answer -- `max_i [-(dh_i/dq) u]_+ / h_i` --
+// and the region must never come in under it, or the envelope it licenses is a fiction.
+// The ratio between them is the price of not computing a gradient, and it is reported
+// rather than asserted tightly: it is a property of the lever-arm table, which is a
+// worst case over the whole configuration space, so it is large by construction and
+// changes whenever the sphere model does.
+BOOST_AUTO_TEST_CASE(RequiredGainUpperBoundsTheGradientAnswer)
+{
+    const UR5 robot;
+    const Barrier barrier(robot, nearField(), /*margin=*/0.0);
+    Filter::Parameters p = parameters();
+    p.maxSpeed = UR5::velocityLimits();
+    const Filter filter(barrier, p);
+
+    const double lipschitz = std::max(nearField().maxGradientNorm(), 1.0);
+    ompl::RNG rng;
+    int steps = 0, wanted = 0;
+    int bindingClearance = 0, bindingBoundary = 0, bindingSelf = 0;
+    double ratioSum = 0.0, ratioMax = 0.0;
+    for (int sample = 0; sample < 1500; ++sample)
+    {
+        UR5::Configuration q, nominal;
+        for (Eigen::Index j = 0; j < 6; ++j)
+        {
+            q[j] = rng.uniformReal(UR5::lowerBounds()[j], UR5::upperBounds()[j]);
+            nominal[j] = rng.uniformReal(-p.maxSpeed[j], p.maxSpeed[j]);
+        }
+
+        UR5::Configuration filtered;
+        Filter::Diagnostics diagnostics;
+        if (filter.filter(q, nominal, duration, filtered, diagnostics) == ControlFilter::Status::Blocked)
+            continue;
+        const Barrier::Evaluation full = barrier.evaluate(q);
+        if (full.values.minCoeff() <= 0.0 || diagnostics.region.slack.minCoeff() <= 0.0)
+            continue;
+        ++steps;
+
+        double exact = 0.0;
+        for (Eigen::Index i = 0; i < Barrier::nConstraints; ++i)
+            exact = std::max(exact, -full.rows.row(i).dot(filtered) / full.values[i]);
+
+        // Which term of `slack` set the answer. A world row's slack is
+        // `min(h_i/L, boundary_i)`, and the two mean different things: clearance is the
+        // obstacle, boundary is the edge of the baked field. If the gain were usually
+        // set by the second, it would be reporting the size of the SDF box rather than
+        // anything about the scene.
+        const auto travel = (Barrier::leverArms() * filtered.cwiseAbs()).eval();
+        Eigen::Index binding = 0;
+        double bindingRatio = -1.0;
+        for (Eigen::Index i = 0; i < Barrier::nConstraints; ++i)
+            if (travel[i] > 0.0 && travel[i] / diagnostics.region.slack[i] > bindingRatio)
+            {
+                bindingRatio = travel[i] / diagnostics.region.slack[i];
+                binding = i;
+            }
+        if (binding >= Barrier::nSpheres)
+            ++bindingSelf;
+        else if (full.boundary[binding] < full.values[binding] / lipschitz)
+            ++bindingBoundary;
+        else
+            ++bindingClearance;
+
+        // The bound direction is the assertion; everything else here is a measurement.
+        BOOST_REQUIRE_GE(diagnostics.requiredGain, exact - 1e-9);
+
+        if (exact > 0.0)
+        {
+            const double ratio = diagnostics.requiredGain / exact;
+            ratioSum += ratio;
+            ratioMax = std::max(ratioMax, ratio);
+            ++wanted;
+        }
+    }
+
+    BOOST_REQUIRE_GT(steps, 200);
+    BOOST_TEST_MESSAGE("region/gradient gain ratio: mean " << (wanted ? ratioSum / wanted : 0.0)
+                                                          << ", max " << ratioMax << " over " << wanted
+                                                          << " of " << steps << " steps");
+    BOOST_TEST_MESSAGE("binding row was clearance " << bindingClearance << ", sdf-box boundary "
+                                                    << bindingBoundary << ", self-pair " << bindingSelf);
 }

@@ -1,6 +1,7 @@
 #include "ompl/cbf/CBFControlFilter.h"
 
 #include <algorithm>
+#include <limits>
 #include <stdexcept>
 
 #include <qpmad/solver.h>
@@ -173,8 +174,11 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     diagnostics.activeRows = evaluation.active;
     // Nothing is certified until a control has been settled on; every path that gives
     // up below leaves both at zero, which asks the caller to come back rather than run.
+    // The gain is the same statement upside down, so its "certifies nothing" is
+    // infinity: a blocked call must not be read as one that needed no allowance.
     diagnostics.certifiedDuration = 0.0;
     diagnostics.safeDuration = 0.0;
+    diagnostics.requiredGain = std::numeric_limits<double>::infinity();
 
     // Outside the baked field, GridSDF clamps and over-reports clearance, so the
     // barrier cannot be trusted. Refusing to move is the only safe answer.
@@ -252,6 +256,21 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
         barrier_.durations(evaluation, filtered, parameters_.kappa, diagnostics.safeDuration,
                            diagnostics.certifiedDuration);
     }
+
+    // The lexicographic program's second stage, and it is this cheap because the first
+    // stage was the QP above: the least gain certifying `filtered` is the reciprocal of
+    // how long `filtered` may safely run, which `durations()` has just computed. Taken
+    // before the joint-limit clamp below deliberately -- running out of joint travel
+    // shortens a step without any barrier having asked for a faster decay, and charging
+    // the gain for it would report an allowance the rows never wanted.
+    //
+    // Identical to `ClearanceBarrier::requiredGain(diagnostics.region, filtered)`, which
+    // is where the derivation lives; spelled as the reciprocal here to avoid repeating
+    // that function's matvec on a number already in hand.
+    diagnostics.requiredGain = diagnostics.safeDuration > 0.0
+                                   ? 1.0 / diagnostics.safeDuration
+                                   : std::numeric_limits<double>::infinity();
+
     if (parameters_.respectJointLimits)
     {
         const Configuration jointLower = robots::UR5::lowerBounds();
@@ -272,6 +291,6 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     FilterStats::instance().record(status == Status::Unchanged ? FilterOutcome::Unchanged
                                                                 : FilterOutcome::Filtered,
                                    diagnostics.activeRows, diagnostics.solverIterations,
-                                   diagnostics.certifiedDuration);
+                                   diagnostics.certifiedDuration, diagnostics.requiredGain);
     return status;
 }
