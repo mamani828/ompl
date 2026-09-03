@@ -58,9 +58,11 @@ namespace ompl::cbf
     /// ### Straight where it can be, filtered where it must be
     ///
     /// A rollout does not step at a fixed rate. Each filter call also hands back how
-    /// long the control it returned stays certified -- the span over which nothing the
-    /// filter enforces can bind -- and the rollout runs that control for exactly that
-    /// long before asking again. Where there is room, one call certifies the whole
+    /// long the control it returned stays certified -- by default the span over which no
+    /// barrier can reach zero, and with `setSafeHops(false)` the shorter span over which
+    /// nothing the filter enforces can bind -- and the rollout runs that control for
+    /// exactly that long before asking again. `setSafeHops()` documents what separates
+    /// the two and what the longer one costs. Where there is room, one call certifies the whole
     /// extension and the edge is a single straight line, produced without checking
     /// anything along it, because there is nothing along it left to find out. Where
     /// there is not, the certificate is short, the step falls back to `stepSize`, and
@@ -291,8 +293,12 @@ namespace ompl::cbf
                     nominal[j] = std::clamp(nominal[j], -maxSpeed_[j], maxSpeed_[j]);
 
                 double certified = 0.0;
+                double safe = 0.0;
                 const typename Filter::Status status =
-                    filter_.filter(out.end, nominal, stepSize_, applied, certified);
+                    filter_.filter(out.end, nominal, stepSize_, applied, certified, safe);
+                // Which of the two certificates the hop is allowed to spend. See
+                // `setSafeHops()` for what the longer one gives up.
+                const double reach = safeHops_ ? safe : certified;
                 if (status == Filter::Status::Blocked)
                 {
                     // Nothing safe to do. Stop rather than sit still burning steps --
@@ -323,7 +329,7 @@ namespace ompl::cbf
                 // certified itself a no-op, so running on is not an extrapolation but a
                 // saving of calls whose outcome is already known.
                 const double span =
-                    std::min(std::max(stepSize_, std::min(certified, maxStepScale_ * stepSize_)),
+                    std::min(std::max(stepSize_, std::min(reach, maxStepScale_ * stepSize_)),
                              budget - elapsed);
 
                 const Configuration previous = out.end;
@@ -623,6 +629,42 @@ namespace ompl::cbf
             return maxStepScale_;
         }
 
+        /// Whether a hop may spend the *safety* certificate rather than the no-op one.
+        ///
+        /// On by default. A hop then runs until a barrier could reach zero rather than
+        /// until a constraint row could bind -- longer by `1/kappa` on every row, and
+        /// longer again because the certified region's slack is the whole clearance
+        /// rather than the clearance less that lookahead.
+        ///
+        /// What that buys is filter calls, which are most of the rollout's cost. On the
+        /// MotionBenchMaker set it is 5-21% fewer barrier evaluations and 9-21% less
+        /// planning time, the gain growing as `kappa` falls because that is what widens
+        /// the gap between the two certificates.
+        ///
+        /// What it gives up is that an edge is no longer *the* filtered edge. It is
+        /// collision-free, and the safe set is still forward invariant -- a hop ends with
+        /// `h >= 0`, the filter resumes, and a zero control is always admissible for a
+        /// single integrator, so no hop can strand the arm -- but inside a hop `h` may
+        /// decay faster than the CBF's exponential envelope allows.
+        ///
+        /// Turn it off to recover the previous behaviour, where every edge is exactly the
+        /// motion repeated filtering would have produced. That is what a caller wants if
+        /// it intends to reproduce the trajectory a continuously-filtered execution would
+        /// follow, rather than merely to plan a valid one.
+        ///
+        /// See `ClearanceBarrier::safeDuration()` against `certifiedDuration()`, and
+        /// `ClearanceBarrier::noOpTraversalTime()` for the third option: keeping the
+        /// envelope by slowing the traversal down instead of shortening the hop.
+        bool safeHops() const
+        {
+            return safeHops_;
+        }
+
+        void setSafeHops(bool enabled)
+        {
+            safeHops_ = enabled;
+        }
+
         void setMaxStepScale(double scale)
         {
             if (scale < 1.0)
@@ -871,6 +913,7 @@ namespace ompl::cbf
         Control maxSpeed_;
         double reachTolerance_{-1.0};
         double maxStepScale_{std::numeric_limits<double>::infinity()};
+        bool safeHops_{true};
         double minProgressFraction_{0.25};
         EarlyTermination earlyTermination_;
         RolloutPlanner rolloutPlanner_;

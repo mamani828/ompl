@@ -38,6 +38,10 @@ struct ompl::cbf::CBFControlFilter::Solver
     /// ClearanceBarrier::decreaseRates(). Constant, so computed once.
     ClearanceBarrier::Values decreaseRates;
     ClearanceBarrier::Values threshold;
+    /// The horizon `threshold` was last scaled by. A rollout asks about the same step
+    /// over and over, so rebuilding 343 scaled rows every call is pure repetition; the
+    /// profile put it at 10% of a call. NaN forces the first build.
+    double thresholdHorizon{std::numeric_limits<double>::quiet_NaN()};
 };
 
 ompl::cbf::CBFControlFilter::CBFControlFilter(const ClearanceBarrier &barrier)
@@ -101,6 +105,20 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
 
 ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Configuration &q,
                                                                     const Control &nominal, double duration,
+                                                                    Control &filtered, double &certified,
+                                                                    double &safe) const
+{
+    Diagnostics diagnostics;
+    const Status status = filter(q, nominal, duration, filtered, diagnostics);
+    certified = diagnostics.certifiedDuration;
+    // Both spans came out of the one pass `filter()` already made over the evaluation.
+    // A blocked call leaves the control zero and certifies nothing either way.
+    safe = status == Status::Blocked ? 0.0 : diagnostics.safeDuration;
+    return status;
+}
+
+ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Configuration &q,
+                                                                    const Control &nominal, double duration,
                                                                     Control &filtered,
                                                                     Diagnostics &diagnostics) const
 {
@@ -125,7 +143,12 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
         // Jacobian, which is where the money is.
         const double horizon = parameters_.kappa > 0.0 ? 1.0 / parameters_.kappa
                                                        : std::numeric_limits<double>::infinity();
-        solver.threshold = solver.decreaseRates * std::max(duration, horizon);
+        const double scale = std::max(duration, horizon);
+        if (!(scale == solver.thresholdHorizon))
+        {
+            solver.threshold = solver.decreaseRates * scale;
+            solver.thresholdHorizon = scale;
+        }
         ScopedTimer timer("evaluate_screened");
         barrier_.evaluateScreened(q, solver.threshold, evaluation);
     }
@@ -135,6 +158,11 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
         barrier_.evaluate(q, evaluation);
     }
 
+    // Free: the region reads the values and boundaries this evaluation already
+    // produced, and no gradient. Computed before the early returns below so a Blocked
+    // call still reports where it may safely move, which is the one thing a caller
+    // that has just been refused actually wants to know.
+    diagnostics.region = barrier_.certifiedRegion(evaluation);
     diagnostics.worstValue = evaluation.values[static_cast<Eigen::Index>(evaluation.worst)];
     diagnostics.worstSphere = evaluation.worst;
     diagnostics.worstSelfValue =
@@ -144,8 +172,9 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     diagnostics.solverIterations = 0;
     diagnostics.activeRows = evaluation.active;
     // Nothing is certified until a control has been settled on; every path that gives
-    // up below leaves it at zero, which asks the caller to come back rather than run.
+    // up below leaves both at zero, which asks the caller to come back rather than run.
     diagnostics.certifiedDuration = 0.0;
+    diagnostics.safeDuration = 0.0;
 
     // Outside the baked field, GridSDF clamps and over-reports clearance, so the
     // barrier cannot be trusted. Refusing to move is the only safe answer.
@@ -220,7 +249,8 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     // out of joint travel is not something the barrier can see coming.
     {
         ScopedTimer certTimer("certified_duration");
-        diagnostics.certifiedDuration = barrier_.certifiedDuration(evaluation, filtered, parameters_.kappa);
+        barrier_.durations(evaluation, filtered, parameters_.kappa, diagnostics.safeDuration,
+                           diagnostics.certifiedDuration);
     }
     if (parameters_.respectJointLimits)
     {
@@ -231,8 +261,9 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
             if (filtered[j] == 0.0)
                 continue;
             const double room = (filtered[j] > 0.0 ? jointUpper[j] : jointLower[j]) - q[j];
-            diagnostics.certifiedDuration =
-                std::min(diagnostics.certifiedDuration, std::max(room / filtered[j], 0.0));
+            const double travel = std::max(room / filtered[j], 0.0);
+            diagnostics.certifiedDuration = std::min(diagnostics.certifiedDuration, travel);
+            diagnostics.safeDuration = std::min(diagnostics.safeDuration, travel);
         }
     }
 

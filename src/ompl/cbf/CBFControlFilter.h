@@ -130,6 +130,16 @@ namespace ompl::cbf
             /// How long the returned control stays certified; see `ControlFilter`'s
             /// five-argument `filter()` and `ClearanceBarrier::certifiedDuration()`.
             double certifiedDuration{0.0};
+            /// The longer, weaker span: how long \p filtered may run before any barrier
+            /// could reach zero, against `certifiedDuration`'s "before any row could
+            /// bind". Both come from one pass; see `ClearanceBarrier::durations()`.
+            double safeDuration{0.0};
+            /// The certified region at the configuration this call evaluated, which
+            /// falls out of that evaluation for free -- it reads the values and
+            /// boundaries already in hand and needs no gradient. A caller wanting the
+            /// longer, weaker span asks it for `ClearanceBarrier::safeDuration()`; see
+            /// there for what separates the two.
+            ClearanceBarrier::CertifiedRegion region;
         };
 
         /// The decay rate that reproduces the old per-step condition
@@ -152,6 +162,9 @@ namespace ompl::cbf
 
         Status filter(const Configuration &q, const Control &nominal, double duration,
                       Control &filtered, double &certified) const override;
+
+        Status filter(const Configuration &q, const Control &nominal, double duration,
+                      Control &filtered, double &certified, double &safe) const override;
 
         /// As above, additionally reporting why.
         Status filter(const Configuration &q, const Control &nominal, double duration, Control &filtered,

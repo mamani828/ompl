@@ -563,12 +563,17 @@ namespace
     /// anywhere: the barrier certifies each step as it is produced.
     Result runFiltered(const Problem &problem, const Barrier &audited, const Filter &filter,
                        double stepSize, double range, double timeLimit, double maxStepScale,
-                       double shortcutDelta, std::vector<UR5::Configuration> *record)
+                       double shortcutDelta, bool safeHops,
+                       std::vector<UR5::Configuration> *record)
     {
         auto space = std::make_shared<Space>(filter, stepSize, UR5::velocityLimits());
         space->setBounds(jointBounds());
         if (maxStepScale > 0.0)
             space->setMaxStepScale(maxStepScale);
+        // The A/B for the certified region: off spends the no-op certificate, on spends
+        // the safety one. Everything else about the row is identical, and the audit
+        // column is what says whether the longer hops cost anything.
+        space->setSafeHops(safeHops);
         Space::EarlyTermination earlyTermination;
         earlyTermination.enabled = true;
         space->setEarlyTermination(earlyTermination);
@@ -822,6 +827,12 @@ int main(int argc, char **argv)
     const double shortcutDelta = argc > 14 ? std::atof(argv[14]) : -1.0;
     const unsigned long seed = argc > 15 ? std::strtoul(argv[15], nullptr, 10) : 1UL;
     const std::string csvPath = argc > 16 ? argv[16] : std::string();
+    // Whether a rollout hop may spend the safety certificate rather than the no-op one --
+    // `ClearanceBarrier::safeDuration()` against `certifiedDuration()`. Longer hops and
+    // fewer filter calls, at the cost of the edge no longer being the filtered edge.
+    // On by default, matching `FilteredStateSpace`; zero recovers the behaviour every
+    // run before the certified region had.
+    const bool safeHops = argc > 17 ? std::atoi(argv[17]) != 0 : true;
 
     // Tie the baseline's edge-checking spacing to the rollout's step unless told otherwise,
     // so neither row is scored at a resolution the other never saw. The rollout advances
@@ -855,6 +866,7 @@ int main(int argc, char **argv)
                                                 UR5::reachableBounds(), voxel))
                              : buffer,
                 stepSize, range, timeLimit);
+    std::printf("hop certificate: %s\n", safeHops ? "safe (region)" : "no-op (default)");
     std::printf("kappa %.2f /s, certified step %s, self-collision margin %.4f m over %d pairs%s\n",
                 kappa, maxStepScale > 0.0 ? "capped" : "uncapped", selfMargin,
                 static_cast<int>(UR5::nSelfPairs), selfMargin < 0.0 ? " (rows disabled)" : "");
@@ -973,7 +985,7 @@ int main(int argc, char **argv)
                                                    segmentFraction, shortcutDelta,
                                                    pathPrefix.empty() ? nullptr : &checkedPath);
         const Result rolled = runFiltered(problem, audited, filter, stepSize, range, timeLimit,
-                                          maxStepScale, shortcutDelta,
+                                          maxStepScale, shortcutDelta, safeHops,
                                           pathPrefix.empty() ? nullptr : &rolledPath);
 #ifdef OMPL_MBM_HAVE_VAMP
         std::vector<UR5::Configuration> vampPath;

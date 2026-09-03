@@ -104,6 +104,27 @@ namespace ompl::cbf
             return filter(q, nominal, duration, filtered);
         }
 
+        /// As above, additionally reporting the *safety* certificate: the longest span
+        /// over which applying \p filtered from \p q keeps every barrier non-negative.
+        ///
+        /// This is the weaker and longer of the two, and the difference is exactly what
+        /// the no-op claim costs. Over \p certified the filter provably would not have
+        /// acted, so integrating past it reproduces the filtered motion. Over \p safe it
+        /// might have acted and did not get the chance -- the motion is collision-free
+        /// but is not the filtered one, and whatever decay envelope the filter enforces
+        /// may be violated inside the span.
+        ///
+        /// A caller that needs a valid edge should use \p safe; one that needs *the*
+        /// filtered edge should use \p certified. The default reports them equal, which
+        /// is the conservative reading and leaves every existing filter unchanged.
+        virtual Status filter(const Configuration &q, const Control &nominal, double duration,
+                              Control &filtered, double &certified, double &safe) const
+        {
+            const Status status = filter(q, nominal, duration, filtered, certified);
+            safe = certified;
+            return status;
+        }
+
         /// Human-readable name, for logging and benchmark labels.
         virtual const char *name() const = 0;
     };
@@ -135,6 +156,15 @@ namespace ompl::cbf
         {
             filtered = nominal;
             certified = std::numeric_limits<double>::infinity();
+            return Status::Unchanged;
+        }
+
+        Status filter(const Configuration & /*q*/, const Control &nominal, double /*duration*/,
+                      Control &filtered, double &certified, double &safe) const override
+        {
+            filtered = nominal;
+            certified = std::numeric_limits<double>::infinity();
+            safe = certified;
             return Status::Unchanged;
         }
 
