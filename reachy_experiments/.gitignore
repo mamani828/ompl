@@ -1,0 +1,9 @@
+# Byte-compiled
+__pycache__/
+*.py[cod]
+
+# Rendered videos and stills: large, and regenerable with `demo.py --video`.
+# The cached .npz maps are NOT ignored - they are what lets the planning
+# experiments run without bringing Gazebo up.
+out/*.mp4
+out/*.png
