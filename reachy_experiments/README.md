@@ -205,7 +205,7 @@ experiments practical — a cached map costs 0.9 MB and is checked in under
 REACHY_WORLD=clutter.world docker compose --env-file config/scenarios/sim.env up -d
 
 python scripts/cache_sdf.py --out out/clutter_map.npz          # ~4 min of mapping
-python scripts/planning_experiment.py --map out/clutter_map.npz --env clutter
+python scripts/planning_experiment.py --map out/clutter_map.npz
 python scripts/clutter_experiment.py                           # plan + execute in Gazebo
 ```
 
