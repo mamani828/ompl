@@ -48,6 +48,9 @@ ompl::geometric::RRTConnect::RRTConnect(const base::SpaceInformationPtr &si, boo
     Planner::declareParam<double>("range", this, &RRTConnect::setRange, &RRTConnect::getRange, "0.:1.:10000.");
     Planner::declareParam<bool>("intermediate_states", this, &RRTConnect::setIntermediateStates,
                                 &RRTConnect::getIntermediateStates, "0,1");
+    Planner::declareParam<unsigned int>("max_intermediate_states", this,
+                                        &RRTConnect::setMaxIntermediateStates,
+                                        &RRTConnect::getMaxIntermediateStates, "0:1:1000");
     Planner::declareParam<bool>("retain_partial_steering", this, &RRTConnect::setRetainPartialSteering,
                                 &RRTConnect::getRetainPartialSteering, "0,1");
 
@@ -161,10 +164,15 @@ ompl::geometric::RRTConnect::GrowState ompl::geometric::RRTConnect::growTree(Tre
         const base::State *bstate = tgi.start ? dstate : nmotion->state;
 
         std::vector<base::State *> states;
-        const unsigned int count = si_->getStateSpace()->validSegmentCount(astate, bstate);
+        unsigned int count = si_->getStateSpace()->validSegmentCount(astate, bstate);
+        if (maxIntermediateStates_ > 0)
+            count = std::min(count, maxIntermediateStates_);
 
         if (si_->getMotionStates(astate, bstate, states, count, true, true))
         {
+            if (intermediateStatesCallback_)
+                intermediateStatesCallback_(states);
+
             // if coming from start, don't add the start state (start->goal)
             if (tgi.start)
                 si_->freeState(states[0]);

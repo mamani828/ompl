@@ -337,6 +337,47 @@ BOOST_AUTO_TEST_CASE(ParallelPicardFailurePreservesTheDirectFallback)
     BOOST_CHECK_GE(space->statistics().steps, 2u);
 }
 
+BOOST_AUTO_TEST_CASE(SubdividedTreeEdgesRetainTheCertifiedPolyline)
+{
+    ThreeJointFilter filter;
+    auto space = ompl::cbf::makeRobotFilteredStateSpace(filter, 0.1);
+
+    const ThreeJointRobot::Configuration a =
+        (ThreeJointRobot::Configuration() << 0.0, 0.0, 0.0).finished();
+    const ThreeJointRobot::Configuration bend1 =
+        (ThreeJointRobot::Configuration() << 0.2, 0.6, 0.0).finished();
+    const ThreeJointRobot::Configuration bend2 =
+        (ThreeJointRobot::Configuration() << 0.7, -0.4, 0.0).finished();
+    const ThreeJointRobot::Configuration b =
+        (ThreeJointRobot::Configuration() << 1.0, 0.0, 0.0).finished();
+    space->record(a, b, {a, bend1, bend2, b});
+
+    std::vector<ob::State *> states(3);
+    for (ob::State *&state : states)
+        state = space->allocState();
+    const auto whole = space->recordedEdge(a, b);
+    BOOST_REQUIRE(whole);
+    for (std::size_t i = 0; i < states.size(); ++i)
+        ThreeJointSpace::setState(states[i], whole.at(static_cast<double>(i) / 2.0));
+
+    space->recordSubdivisions(states);
+    for (std::size_t i = 0; i + 1 < states.size(); ++i)
+    {
+        const auto piece = space->recordedEdge(states[i], states[i + 1]);
+        BOOST_REQUIRE(piece);
+        BOOST_CHECK(ThreeJointSpace::bitwiseEqual(
+            piece[0], ThreeJointSpace::configurationOf(states[i])));
+        BOOST_CHECK(ThreeJointSpace::bitwiseEqual(
+            piece[piece.size() - 1], ThreeJointSpace::configurationOf(states[i + 1])));
+    }
+    // The midpoint lies between the original bends. Each subedge must therefore
+    // retain an interior source waypoint; replacing it by a chord would leave size 2.
+    BOOST_CHECK_EQUAL(space->recordedEdge(states[0], states[1]).size(), 3u);
+    BOOST_CHECK_EQUAL(space->recordedEdge(states[1], states[2]).size(), 3u);
+    for (ob::State *state : states)
+        space->freeState(state);
+}
+
 BOOST_AUTO_TEST_CASE(StateSpaceIsGeneratedFromRobotModel)
 {
     ThreeJointFilter filter;

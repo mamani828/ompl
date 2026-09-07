@@ -42,6 +42,7 @@
 
 #include <functional>
 #include <utility>
+#include <vector>
 
 namespace ompl
 {
@@ -74,6 +75,16 @@ namespace ompl
             using SampleExtensionCallback =
                 std::function<void(const base::State *, const base::State *, bool, bool, bool, bool)>;
 
+            /** \brief Hook invoked after an accepted motion has been subdivided for
+                insertion into the tree.
+
+                The states are ordered from the motion's geometric start to its end and
+                include both endpoints. This is useful for directed state spaces that
+                keep an executed-trajectory ledger and need to split the corresponding
+                edge record at the same points. */
+            using IntermediateStatesCallback =
+                std::function<void(const std::vector<base::State *> &)>;
+
             /** \brief Constructor */
             RRTConnect(const base::SpaceInformationPtr &si, bool addIntermediateStates = false);
 
@@ -97,6 +108,22 @@ namespace ompl
             void setIntermediateStates(bool addIntermediateStates)
             {
                 addIntermediateStates_ = addIntermediateStates;
+            }
+
+            /** \brief Cap the number of interior states inserted per accepted motion.
+
+                Zero preserves the resolution-derived count used by ordinary
+                RRTConnect. A positive cap is useful when intermediate states are
+                exploratory prefixes rather than collision-checking samples. */
+            void setMaxIntermediateStates(unsigned int count)
+            {
+                maxIntermediateStates_ = count;
+            }
+
+            /** \brief Return the interior-state cap, or zero when uncapped. */
+            unsigned int getMaxIntermediateStates() const
+            {
+                return maxIntermediateStates_;
             }
 
             /** \brief Set the range the planner is supposed to use.
@@ -143,6 +170,13 @@ namespace ompl
             void setSampleExtensionCallback(SampleExtensionCallback callback)
             {
                 sampleExtensionCallback_ = std::move(callback);
+            }
+
+            /** \brief Observe an accepted motion immediately before its intermediate
+                states are inserted into the tree. */
+            void setIntermediateStatesCallback(IntermediateStatesCallback callback)
+            {
+                intermediateStatesCallback_ = std::move(callback);
             }
 
             /** \brief Set a different nearest neighbors datastructure */
@@ -230,6 +264,9 @@ namespace ompl
             /** \brief Flag indicating whether intermediate states are added to the built tree of motions */
             bool addIntermediateStates_;
 
+            /** \brief Optional cap on interior states inserted for one motion. */
+            unsigned int maxIntermediateStates_{0};
+
             /** \brief Route within-range targets through state-space steering so a
                 directed space can retain a useful endpoint without exact arrival. */
             bool retainPartialSteering_{false};
@@ -245,6 +282,9 @@ namespace ompl
 
             /** \brief Optional diagnostic observer for primary sample extensions. */
             SampleExtensionCallback sampleExtensionCallback_;
+
+            /** \brief Optional hook for state spaces that retain subdivided edge data. */
+            IntermediateStatesCallback intermediateStatesCallback_;
         };
     }  // namespace geometric
 }  // namespace ompl

@@ -6,7 +6,9 @@
 //     ./scripts/mbm_to_scenes.py /path/to/vamp/resources/ur5/problems.json scenes.txt
 //     ./build/demos/demo_UR5MBMBenchmark scenes.txt [perScene] [seconds] [voxel] [stepSize]
 //         [range] [margin] [buffer] [segmentFraction] [kappa] [maxStepScale] [selfMargin]
-//         [pathPrefix] [shortcutDelta] [seed] [csvPath]
+//         [pathPrefix] [shortcutDelta] [seed] [csvPath] [safeHops]
+//         [picardIterations] [picardWindow] [picardWorkers] [trajectoryPrefixes]
+//         [rolloutCallBudget]
 //
 // `pathPrefix` dumps the audited motions (`<prefix>.rrtc`, `<prefix>.cbf`, `<prefix>.vamp`) so
 // they can be replayed against the real UR5 meshes in PyBullet:
@@ -74,6 +76,7 @@
 #include <ompl/cbf/ExecutedPath.h>
 #include <ompl/cbf/FilteredMotionValidator.h>
 #include <ompl/cbf/FilteredStateSpace.h>
+#include <ompl/cbf/ParallelPicardRollout.h>
 #include <ompl/cbf/Profiler.h>
 #include <ompl/cbf/RopeShortcut.h>
 #include <ompl/geometric/PathGeometric.h>
@@ -242,6 +245,11 @@ namespace
         double seconds{0.0};
         std::size_t evaluations{0};  ///< sampled configurations, barrier calls, or SIMD lanes
         std::size_t vertices{0};
+        std::size_t primarySamples{0};
+        std::size_t productiveSamples{0};
+        std::size_t picardAttempts{0};
+        std::size_t picardAccepted{0};
+        std::size_t picardFallbacks{0};
         double pathLength{0.0};
         std::size_t waypoints{0};
         std::size_t unsafeStates{0};
@@ -376,12 +384,18 @@ namespace
         auto pdef = std::make_shared<ob::ProblemDefinition>(si);
         pdef->setStartAndGoalStates(start, goal, 0.05);
 
+        Result result;
         auto planner = std::make_shared<og::RRTConnect>(si);
         planner->setRange(range);
+        planner->setSampleExtensionCallback(
+            [&result](const ob::State *, const ob::State *, bool, bool productive, bool, bool)
+            {
+                ++result.primarySamples;
+                result.productiveSamples += productive ? 1u : 0u;
+            });
         planner->setProblemDefinition(pdef);
         planner->setup();
 
-        Result result;
         const ompl::time::point begin = ompl::time::now();
         const ob::PlannerStatus status = planner->solve(ob::timedPlannerTerminationCondition(timeLimit));
         result.seconds = ompl::time::seconds(ompl::time::now() - begin);
@@ -563,7 +577,9 @@ namespace
     /// anywhere: the barrier certifies each step as it is produced.
     Result runFiltered(const Problem &problem, const Barrier &audited, const Filter &filter,
                        double stepSize, double range, double timeLimit, double maxStepScale,
-                       double shortcutDelta, bool safeHops,
+                       double shortcutDelta, bool safeHops, unsigned int picardIterations,
+                       unsigned int picardWindow, unsigned int picardWorkers,
+                       unsigned int trajectoryPrefixes, unsigned int rolloutCallBudget,
                        std::vector<UR5::Configuration> *record)
     {
         auto space = std::make_shared<Space>(filter, stepSize, UR5::velocityLimits());
@@ -576,7 +592,28 @@ namespace
         space->setSafeHops(safeHops);
         Space::EarlyTermination earlyTermination;
         earlyTermination.enabled = true;
+        earlyTermination.maxFilterCalls = rolloutCallBudget;
         space->setEarlyTermination(earlyTermination);
+
+        std::unique_ptr<ompl::cbf::ParallelPicardRollout> picard;
+        if (picardIterations > 0)
+        {
+            ompl::cbf::ParallelPicardRollout::Parameters picardParameters;
+            picardParameters.maxIterations = picardIterations;
+            picardParameters.windowSteps = picardWindow;
+            picardParameters.workers = picardWorkers;
+            picard = std::make_unique<ompl::cbf::ParallelPicardRollout>(filter,
+                                                                        picardParameters);
+            space->setRolloutPlanner(
+                [&picard, space](const UR5::Configuration &from,
+                                 const UR5::Configuration &to, double fraction,
+                                 Space::Rollout &rollout)
+                {
+                    return picard->plan(from, to, fraction, space->stepSize(),
+                                        space->maxSpeed(), space->maxStepScale(),
+                                        space->reachTolerance(), rollout);
+                });
+        }
 
         auto si = std::make_shared<ob::SpaceInformation>(space);
         si->setStateValidityChecker(std::make_shared<ob::AllValidStateValidityChecker>(si));
@@ -594,18 +631,39 @@ namespace
         // goal gets a tolerance. Kept small enough that "solved" still means solved.
         pdef->setStartAndGoalStates(start, goal, 0.1);
 
-        auto planner = std::make_shared<og::RRTConnect>(si);
+        Result result;
+        auto planner = std::make_shared<og::RRTConnect>(si, trajectoryPrefixes > 0);
         planner->setRange(range);
         planner->setRetainPartialSteering(true);
+        if (trajectoryPrefixes > 0)
+        {
+            planner->setMaxIntermediateStates(trajectoryPrefixes);
+            planner->setIntermediateStatesCallback(
+                [space](const std::vector<ob::State *> &states)
+                {
+                    space->recordSubdivisions(states);
+                });
+        }
+        planner->setSampleExtensionCallback(
+            [&result](const ob::State *, const ob::State *, bool, bool productive, bool, bool)
+            {
+                ++result.primarySamples;
+                result.productiveSamples += productive ? 1u : 0u;
+            });
         planner->setProblemDefinition(pdef);
         planner->setup();
 
-        Result result;
         const ompl::time::point begin = ompl::time::now();
         const ob::PlannerStatus status = planner->solve(ob::timedPlannerTerminationCondition(timeLimit));
         result.seconds = ompl::time::seconds(ompl::time::now() - begin);
         result.solved = (status == ob::PlannerStatus::EXACT_SOLUTION);
         result.evaluations = space->statistics().steps;
+        if (picard)
+        {
+            result.picardAttempts = picard->statistics().attempts;
+            result.picardAccepted = picard->statistics().accepted;
+            result.picardFallbacks = picard->statistics().fallbacks;
+        }
         if (space->statistics().steps > 0)
         {
             const double calls = static_cast<double>(space->statistics().steps);
@@ -655,6 +713,9 @@ namespace
         std::vector<double> seconds[rows];
         std::vector<double> evaluations[rows];
         std::vector<double> vertices[rows];
+        std::vector<double> primarySamples[rows];
+        std::vector<double> productiveSamples[rows];
+        std::vector<double> verticesPerSample[rows];
         std::vector<double> pathLength[rows];
         std::vector<double> radPerCall[rows];
         std::vector<double> coarse[rows];
@@ -675,6 +736,12 @@ namespace
             seconds[row].push_back(result.seconds);
             evaluations[row].push_back(static_cast<double>(result.evaluations));
             vertices[row].push_back(static_cast<double>(result.vertices));
+            primarySamples[row].push_back(static_cast<double>(result.primarySamples));
+            productiveSamples[row].push_back(static_cast<double>(result.productiveSamples));
+            verticesPerSample[row].push_back(
+                result.primarySamples > 0
+                    ? static_cast<double>(result.vertices) / result.primarySamples
+                    : 0.0);
             if (result.solved)
                 pathLength[row].push_back(result.pathLength);
             radPerCall[row].push_back(result.radPerCall);
@@ -755,6 +822,11 @@ namespace
                         tally.worstSelf[row], tally.selfColliding[row]);
         else
             std::printf(" %10s %14s %6s %10s %7s\n", "-", "-", "-", "-", "-");
+        const double primary = median(tally.primarySamples[row]);
+        const double productive = median(tally.productiveSamples[row]);
+        std::printf("      primary samples %.0f, productive %.0f (%.1f%%), vertices/sample %.3f\n",
+                    primary, productive, primary > 0.0 ? 1e2 * productive / primary : 0.0,
+                    median(tally.verticesPerSample[row]));
     }
 
     void writeCsvRow(std::ofstream &out, unsigned long seed, const Problem &problem,
@@ -767,7 +839,13 @@ namespace
             << result.evaluations << ',' << result.vertices << ',' << result.pathLength << ','
             << result.waypoints << ',' << result.auditedStates << ',' << result.unsafeStates << ','
             << result.minClearance << ',' << result.minSelfOverlap << ',' << result.selfColliding << ','
-            << result.misses << ',' << result.radPerCall << ',' << result.coarse << '\n';
+            << result.misses << ',' << result.radPerCall << ',' << result.coarse << ','
+            << result.primarySamples << ',' << result.productiveSamples << ','
+            << (result.primarySamples > 0
+                    ? static_cast<double>(result.vertices) / result.primarySamples
+                    : 0.0)
+            << ',' << result.picardAttempts << ',' << result.picardAccepted << ','
+            << result.picardFallbacks << '\n';
     }
 }  // namespace
 
@@ -777,7 +855,9 @@ int main(int argc, char **argv)
     {
         std::printf("usage: %s scenes.txt [perScene] [seconds] [voxel] [stepSize] [range]\n"
                     "       [margin] [buffer] [segmentFraction] [kappa] [maxStepScale]\n"
-                    "       [selfMargin] [pathPrefix] [shortcutDelta] [seed] [csvPath]\n\n"
+                    "       [selfMargin] [pathPrefix] [shortcutDelta] [seed] [csvPath] [safeHops]\n"
+                    "       [picardIterations] [picardWindow] [picardWorkers]"
+                    " [trajectoryPrefixes] [rolloutCallBudget]\n\n"
                     "Generate scenes.txt with scripts/mbm_to_scenes.py.\n",
                     argv[0]);
         return 1;
@@ -833,6 +913,16 @@ int main(int argc, char **argv)
     // On by default, matching `FilteredStateSpace`; zero recovers the behaviour every
     // run before the certified region had.
     const bool safeHops = argc > 17 ? std::atoi(argv[17]) != 0 : true;
+    const unsigned int picardIterations =
+        argc > 18 ? static_cast<unsigned int>(std::max(0, std::atoi(argv[18]))) : 0u;
+    const unsigned int picardWindow =
+        argc > 19 ? static_cast<unsigned int>(std::max(1, std::atoi(argv[19]))) : 4u;
+    const unsigned int picardWorkers =
+        argc > 20 ? static_cast<unsigned int>(std::max(0, std::atoi(argv[20]))) : 0u;
+    const unsigned int trajectoryPrefixes =
+        argc > 21 ? static_cast<unsigned int>(std::max(0, std::atoi(argv[21]))) : 0u;
+    const unsigned int rolloutCallBudget =
+        argc > 22 ? static_cast<unsigned int>(std::max(0, std::atoi(argv[22]))) : 40u;
 
     // Tie the baseline's edge-checking spacing to the rollout's step unless told otherwise,
     // so neither row is scored at a resolution the other never saw. The rollout advances
@@ -867,6 +957,13 @@ int main(int argc, char **argv)
                              : buffer,
                 stepSize, range, timeLimit);
     std::printf("hop certificate: %s\n", safeHops ? "safe (region)" : "no-op (default)");
+    if (picardIterations > 0)
+        std::printf("Picard: %u maps, %u-step windows, %u workers; ", picardIterations,
+                    picardWindow, picardWorkers);
+    else
+        std::printf("Picard: off; ");
+    std::printf("trajectory prefixes: %u; sequential rollout budget: %u calls\n",
+                trajectoryPrefixes, rolloutCallBudget);
     std::printf("kappa %.2f /s, certified step %s, self-collision margin %.4f m over %d pairs%s\n",
                 kappa, maxStepScale > 0.0 ? "capped" : "uncapped", selfMargin,
                 static_cast<int>(UR5::nSelfPairs), selfMargin < 0.0 ? " (rows disabled)" : "");
@@ -894,7 +991,9 @@ int main(int argc, char **argv)
             throw ompl::Exception("cannot write " + csvPath);
         csvOut << "seed,scene,problem,method,eligible,solved,seconds,samples,vertices,path_length,"
                   "waypoints,audited_states,unsafe_states,min_clearance,min_self_overlap,"
-                  "self_colliding,misses,rad_per_call,coarse_fraction\n";
+                  "self_colliding,misses,rad_per_call,coarse_fraction,primary_samples,"
+                  "productive_samples,vertices_per_sample,picard_attempts,picard_accepted,"
+                  "picard_fallbacks\n";
     }
 
     std::ofstream baselineOut, filteredOut, vampOut;
@@ -986,6 +1085,8 @@ int main(int argc, char **argv)
                                                    pathPrefix.empty() ? nullptr : &checkedPath);
         const Result rolled = runFiltered(problem, audited, filter, stepSize, range, timeLimit,
                                           maxStepScale, shortcutDelta, safeHops,
+                                          picardIterations, picardWindow, picardWorkers,
+                                          trajectoryPrefixes, rolloutCallBudget,
                                           pathPrefix.empty() ? nullptr : &rolledPath);
 #ifdef OMPL_MBM_HAVE_VAMP
         std::vector<UR5::Configuration> vampPath;

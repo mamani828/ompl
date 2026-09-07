@@ -564,6 +564,57 @@ namespace ompl::cbf
             evictToCapacity();
         }
 
+        /// Split an already-recorded edge at the same uniformly parameterized states
+        /// inserted by a planner. Each resulting tree edge retains the exact portion
+        /// of the certified polyline, rather than replacing a curved portion by its
+        /// straight chord.
+        void recordSubdivisions(const std::vector<base::State *> &states) const
+        {
+            if (states.size() < 3)
+                return;
+
+            const Configuration from = configurationOf(states.front());
+            const Configuration to = configurationOf(states.back());
+            const EdgeRecord existing = recordedEdge(from, to);
+            if (!existing || existing.size() < 2)
+                return;
+
+            // record() may rehash the ledger, so detach from EdgeRecord before adding
+            // any subedges.
+            std::vector<Configuration> whole;
+            whole.reserve(existing.size());
+            for (std::size_t i = 0; i < existing.size(); ++i)
+                whole.push_back(existing[i]);
+
+            const std::size_t subdivisions = states.size() - 1;
+            const std::size_t sourceSegments = whole.size() - 1;
+            for (std::size_t part = 0; part < subdivisions; ++part)
+            {
+                const double lo = static_cast<double>(part) /
+                                  static_cast<double>(subdivisions);
+                const double hi = static_cast<double>(part + 1) /
+                                  static_cast<double>(subdivisions);
+                std::vector<Configuration> piece;
+                piece.push_back(configurationOf(states[part]));
+
+                for (std::size_t waypoint = 1; waypoint < sourceSegments; ++waypoint)
+                {
+                    const double t = static_cast<double>(waypoint) /
+                                     static_cast<double>(sourceSegments);
+                    if (t > lo && t < hi &&
+                        !bitwiseEqual(piece.back(), whole[waypoint]))
+                        piece.push_back(whole[waypoint]);
+                }
+
+                const Configuration end = configurationOf(states[part + 1]);
+                if (!bitwiseEqual(piece.back(), end))
+                    piece.push_back(end);
+                const Configuration pieceFrom = piece.front();
+                const Configuration pieceTo = piece.back();
+                record(pieceFrom, pieceTo, std::move(piece));
+            }
+        }
+
         /// Does the pending rollout describe the edge \p from -> \p to, either way round?
         ///
         /// `interpolate()` leaves its rollout here rather than in the ledger, because at
