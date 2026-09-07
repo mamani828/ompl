@@ -247,3 +247,70 @@ BOOST_AUTO_TEST_CASE(LeverArmBoundsAreZeroForDownstreamJoints)
             BOOST_CHECK_EQUAL(bounds(static_cast<Eigen::Index>(i), static_cast<Eigen::Index>(k)),
                               0.0);
 }
+
+BOOST_AUTO_TEST_CASE(SweptBoundsImproveArmLengthAndBoundSelfPairGradients)
+{
+    const auto &tight = UR5::leverArmBounds();
+    const auto &old = UR5::armLengthBounds();
+    BOOST_CHECK((tight.array() <= old.array()).all());
+    BOOST_CHECK_LT(tight.sum(), 0.95 * old.sum());
+    const UR5 robot;
+    ompl::RNG rng;
+    rng.setLocalSeed(1701);
+    for (int sample = 0; sample < 3000; ++sample)
+    {
+        UR5::Configuration q;
+        for (std::size_t k = 0; k < UR5::nJoints; ++k)
+            q[k] = rng.uniformReal(-3.141592653589793, 3.141592653589793);
+        const auto kin = robot.kinematics(q);
+        UR5::SphereCenters centers;
+        UR5::sphereCenters(kin, centers);
+        for (std::size_t p = 0; p < UR5::nSelfPairs; ++p)
+        {
+            const auto gradient = UR5::selfPairGradient(kin, centers, p);
+            for (std::size_t k = 0; k < UR5::nJoints; ++k)
+                BOOST_REQUIRE_LE(std::abs(gradient[k]), UR5::selfPairLeverArms()(p, k) + 1e-10);
+        }
+    }
+    BOOST_TEST_MESSAGE("lever-arm sum: " << old.sum() << " -> " << tight.sum());
+}
+
+BOOST_AUTO_TEST_CASE(SweptEnclosuresContainTiltedCylinderAndBallSamples)
+{
+    ompl::RNG rng;
+    rng.setLocalSeed(901);
+    const Eigen::Vector3d target = Eigen::Vector3d::UnitZ();
+    for (int trial = 0; trial < 100; ++trial)
+    {
+        Eigen::Vector3d axis(rng.uniformReal(-1, 1), rng.uniformReal(-1, 1), rng.uniformReal(-1, 1));
+        axis.normalize();
+        const Eigen::Vector3d center(rng.uniformReal(-1, 1), rng.uniformReal(-1, 1), rng.uniformReal(-1, 1));
+        const double radius = rng.uniformReal(0, 1), height = rng.uniformReal(0, 1);
+        for (bool cylinder : {false, true})
+        {
+            const ompl::robots::detail::SweepBound input{center, axis, radius, height, cylinder};
+            const auto enclosures = ompl::robots::detail::sweepBounds(
+                {input}, Eigen::Matrix3d::Identity(), Eigen::Vector3d::Zero(), target);
+            for (int sample = 0; sample < 100; ++sample)
+            {
+                const double angle = rng.uniformReal(-3.141592653589793, 3.141592653589793);
+                const Eigen::Vector3d rim = Eigen::AngleAxisd(angle, axis) * axis.unitOrthogonal();
+                const double z = rng.uniformReal(-1, 1);
+                const Eigen::Vector3d point = cylinder ?
+                    (center + radius * rim + height * z * axis).eval() :
+                    (center + radius * (std::sqrt(1 - z * z) * rim + z * axis)).eval();
+                for (const auto &bound : enclosures)
+                {
+                    const Eigen::Vector3d delta = point - bound.center;
+                    if (bound.cylinder)
+                    {
+                        BOOST_REQUIRE_LE(ompl::robots::detail::perpendicular(delta, target), bound.radius + 1e-10);
+                        BOOST_REQUIRE_LE(std::abs(delta.dot(target)), bound.halfHeight + 1e-10);
+                    }
+                    else
+                        BOOST_REQUIRE_LE(delta.norm(), bound.radius + 1e-10);
+                }
+            }
+        }
+    }
+}

@@ -518,7 +518,7 @@ BOOST_AUTO_TEST_CASE(RequiredGainIsTheReciprocalOfTheSafeSpan)
 
 // Screening drops *rows*; the region reads values and boundaries, which are filled for
 // every constraint either way. So the gain a screened solve reports is the gain a full
-// solve reports, bit for bit -- which is the reason to read it off the region at all.
+// solve reports, up to solver roundoff when the active-set path changes.
 BOOST_AUTO_TEST_CASE(RequiredGainIsUnaffectedByScreening)
 {
     const UR5 robot;
@@ -552,7 +552,12 @@ BOOST_AUTO_TEST_CASE(RequiredGainIsUnaffectedByScreening)
         full.filter(q, nominal, duration, fullControl, fullDiagnostics);
         ++steps;
 
-        BOOST_REQUIRE_EQUAL(screenedDiagnostics.requiredGain, fullDiagnostics.requiredGain);
+        BOOST_REQUIRE_SMALL((screenedControl - fullControl).norm(), 1e-10);
+        if (std::isfinite(screenedDiagnostics.requiredGain) && std::isfinite(fullDiagnostics.requiredGain))
+            BOOST_REQUIRE_LE(std::abs(screenedDiagnostics.requiredGain - fullDiagnostics.requiredGain),
+                             1e-12 * std::max(1.0, std::abs(fullDiagnostics.requiredGain)));
+        else
+            BOOST_REQUIRE_EQUAL(screenedDiagnostics.requiredGain, fullDiagnostics.requiredGain);
     }
     BOOST_REQUIRE_GT(steps, 100);
 }
