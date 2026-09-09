@@ -42,6 +42,8 @@ struct ompl::cbf::CBFControlFilter::Solver
     /// ClearanceBarrier::decreaseRates(). Constant, so computed once.
     ClearanceBarrier::Values decreaseRates;
     ClearanceBarrier::Values threshold;
+    /// Self-collision pairs carried across a rollout; see Parameters::activePairs.
+    ClearanceBarrier::ActiveSet activePairs;
     /// The horizon `threshold` was last scaled by. A rollout asks about the same step
     /// over and over, so rebuilding 343 scaled rows every call is pure repetition; the
     /// profile put it at 10% of a call. NaN forces the first build.
@@ -70,6 +72,8 @@ void ompl::cbf::CBFControlFilter::setParameters(const Parameters &parameters)
     solver_->backendParameters.hessian_type_ = qpmad::SolverParameters::HESSIAN_INVERTED_CHOLESKY_FACTOR;
     solver_->decreaseRates = barrier_.decreaseRates(parameters_.maxSpeed);
     solver_->thresholdHorizon = std::numeric_limits<double>::quiet_NaN();
+    solver_->activePairs.relevance = parameters_.pairRelevance;
+    solver_->activePairs.invalidate();
 }
 
 ompl::cbf::CBFControlFilter::~CBFControlFilter() = default;
@@ -165,8 +169,10 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
             solver.threshold = solver.decreaseRates * scale;
             solver.thresholdHorizon = scale;
         }
+        solver.activePairs.scale = scale;
         ScopedTimer timer("evaluate_screened");
-        barrier_.evaluateScreened(q, solver.threshold, evaluation);
+        barrier_.evaluateScreened(q, solver.threshold,
+                                  parameters_.activePairs ? &solver.activePairs : nullptr, evaluation);
     }
     else
     {
@@ -174,11 +180,13 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
         barrier_.evaluate(q, evaluation);
     }
 
-    // Free: the region reads the values and boundaries this evaluation already
-    // produced, and no gradient. Computed before the early returns below so a Blocked
-    // call still reports where it may safely move, which is the one thing a caller
-    // that has just been refused actually wants to know.
-    diagnostics.region = barrier_.certifiedRegion(evaluation);
+    // Opt-in: it needs no gradient, but it does write a slack per constraint and sweep
+    // them again to clamp, which no caller on the rollout path ever reads. See
+    // `Diagnostics::wantRegion`. Computed before the early returns below so a Blocked
+    // call that asked for it still reports where it may safely move, which is the one
+    // thing a caller that has just been refused actually wants to know.
+    if (diagnostics.wantRegion)
+        diagnostics.region = barrier_.certifiedRegion(evaluation);
     diagnostics.worstValue = evaluation.values[static_cast<Eigen::Index>(evaluation.worst)];
     diagnostics.worstSphere = evaluation.worst;
     diagnostics.worstSelfValue =
@@ -293,9 +301,10 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     // shortens a step without any barrier having asked for a faster decay, and charging
     // the gain for it would report an allowance the rows never wanted.
     //
-    // Identical to `ClearanceBarrier::requiredGain(diagnostics.region, filtered)`, which
-    // is where the derivation lives; spelled as the reciprocal here to avoid repeating
-    // that function's matvec on a number already in hand.
+    // Identical to `ClearanceBarrier::requiredGain(region, filtered)`, which is where the
+    // derivation lives; spelled as the reciprocal here to avoid repeating that function's
+    // matvec on a number already in hand -- and, since it needs no region, to leave the
+    // gain reportable on a call that did not ask for one.
     if (parameters_.certificates)
         diagnostics.requiredGain = diagnostics.safeDuration > 0.0
                                        ? 1.0 / diagnostics.safeDuration

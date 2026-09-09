@@ -258,6 +258,41 @@ namespace ompl::cbf
             return (filtered - nominal).norm() <= 1e-12 ? Status::Unchanged : Status::Filtered;
         }
 
+        /// As above, additionally reporting the *safety* certificate. Without this
+        /// override the base class reports `safe == certified`, which left every hop on
+        /// the shorter no-op span and made `FilteredStateSpace::setSafeHops()` a no-op
+        /// for this filter.
+        Status filter(const Configuration &q, const Configuration &nominal, double dt, Configuration &filtered,
+                      double &certified, double &safe) const override
+        {
+            const Status status = filter(q, nominal, dt, filtered, certified);
+            safe = certified;
+            if (status == Status::Blocked)
+                return status;
+
+            // `filter()` left `evaluation_` at `q`, and a region reads only the values
+            // and boundaries it filled for *every* constraint -- so the safety
+            // certificate costs one matvec per family on top of the no-op one, with no
+            // second barrier evaluation. `certified` is the stronger claim of the two and
+            // so is also a safe span; taking the larger keeps this monotone in the
+            // integration buffer, which `certified` pays for and `safe` does not.
+            safe = std::max(certified, barrier_.safeDuration(barrier_.certifiedRegion(evaluation_), filtered));
+
+            // The same joint-box clamp `certified` gets: a hop that runs past a position
+            // limit is not safe however clear of the world it is.
+            for (int j = 0; j < nJoints; ++j)
+            {
+                if constexpr (nBaseJoints >= 3)
+                    if (j == 2)
+                        continue;
+                if (filtered[j] == 0.0)
+                    continue;
+                const double room = (filtered[j] > 0.0 ? upperPosition_[j] : lowerPosition_[j]) - q[j];
+                safe = std::min(safe, std::max(room / filtered[j], 0.0));
+            }
+            return status;
+        }
+
         const char *name() const override
         {
             return "robot-cbf-qp";

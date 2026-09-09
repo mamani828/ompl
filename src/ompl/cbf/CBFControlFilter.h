@@ -159,6 +159,21 @@ namespace ompl::cbf
             /// screening are unchanged, but both reported durations remain zero and
             /// the duration matvec is skipped.
             bool certificates{true};
+            /// Visit only the self-collision pairs that can matter, carrying the rest
+            /// across the calls of one rollout. See `ClearanceBarrier::ActiveSet`: the
+            /// barrier otherwise sweeps all 343 constraints three times per call, and the
+            /// traversal rather than the arithmetic is what that costs.
+            /// **Off by default.** Skipping a pair means bounding what it could have
+            /// contributed, and `durations()` takes a minimum over rows, so the certificate
+            /// is capped at `pairRelevance * max(dt, 1/kappa)`. That is a real change to
+            /// the reported span -- `RequiredGainIsUnaffectedByScreening` catches it -- and
+            /// it lands on exactly the long certificates the coarse hops are made of. Turn
+            /// it on to trade certificate length for traversal.
+            bool activePairs{false};
+            /// How many screening horizons of clearance an excluded pair must prove.
+            /// Also caps the certificate at `relevance * max(dt, 1/kappa)`, which is why
+            /// it is not 1. See `ClearanceBarrier::ActiveSet::relevance`.
+            double pairRelevance{4.0};
         };
 
         /// Optional per-call detail, for diagnostics and benchmarking.
@@ -195,11 +210,28 @@ namespace ompl::cbf
             /// against; that is the region being honest about what *it* can prove, not a
             /// violation of the row the filter enforced.
             double requiredGain{std::numeric_limits<double>::infinity()};
-            /// The certified region at the configuration this call evaluated, which
-            /// falls out of that evaluation for free -- it reads the values and
-            /// boundaries already in hand and needs no gradient. A caller wanting the
-            /// longer, weaker span asks it for `ClearanceBarrier::safeDuration()`; see
-            /// there for what separates the two.
+            /// Set this before the call to have `region` filled. Off by default, and the
+            /// default is the point.
+            ///
+            /// The region needs no gradient -- it reads the values and boundaries the
+            /// evaluation already produced -- but "no gradient" is not "free". It writes
+            /// a slack per constraint, 343 of them on the UR5, and sweeps them twice
+            /// more to clamp: 0.092 us and 2.7 KB of stack traffic per filter call,
+            /// against 1.77 us for the screened evaluation itself, evicting the cache
+            /// lines the QP is about to want. No caller on the rollout path reads it --
+            /// the spans come from `ClearanceBarrier::durations()`, which takes its
+            /// minima off the evaluation directly and never materialises a region -- so
+            /// paying for it on every call bought nothing.
+            ///
+            /// It cannot be gated on `Parameters::certificates` instead, because that is
+            /// on wherever the certificates are actually used, which is exactly the hot
+            /// path.
+            bool wantRegion{false};
+            /// The certified region at the configuration this call evaluated, filled only
+            /// when `wantRegion` was set. Otherwise left invalid, so a caller that forgot
+            /// the flag reads a region certifying nothing rather than a stale one. A
+            /// caller wanting the longer, weaker span asks it for
+            /// `ClearanceBarrier::safeDuration()`; see there for what separates the two.
             ClearanceBarrier::CertifiedRegion region;
         };
 

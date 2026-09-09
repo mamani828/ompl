@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <limits>
 
@@ -167,6 +168,66 @@ namespace ompl::cbf
             std::size_t worst{0};
             std::size_t worstPair{0};     ///< pair index of the smallest h_ab, separately
             bool inBounds{true};          ///< were all centers inside the SDF's box?
+            /// The self-collision pairs this evaluation actually visited, when it was
+            /// given an `ActiveSet`; `values` is meaningful for these and stale for the
+            /// rest. Empty `nearPairs` with `nearPairCount < 0` means "no active set was
+            /// used, every pair is present", which is what keeps the old path unchanged.
+            std::array<int, nSelfPairs> nearPairs{};
+            int nearPairCount{-1};
+            /// A duration every *excluded* pair provably exceeds, so a consumer that
+            /// skips them can still bound the minimum over all of them. Infinite when no
+            /// pair was excluded. See `ActiveSet`.
+            double pairFloor{std::numeric_limits<double>::infinity()};
+        };
+
+        /// Persistent per-pair state that lets consecutive evaluations along one rollout
+        /// visit only the self-collision pairs that can matter.
+        ///
+        /// ### What it is for, and what the earlier attempt got wrong
+        ///
+        /// The barrier sweeps all 343 constraints unconditionally, three times per filter
+        /// call -- the evaluation, `durations()`, and `certifiedRegion()`. A first attempt
+        /// cached each pair's distance and skipped recomputing it, which skipped 95.3% of
+        /// the square roots and bought 4%: the loop still ran 303 times, still gathered
+        /// each pair's endpoints and radii, and still wrote 303 values. Truncating the
+        /// loop instead -- same arithmetic per visited row, fewer rows -- moved
+        /// `self_collision` from 0.400 us to 0.080 us and the filter call by ~20%. The
+        /// cost is the traversal, not the work, so this removes the traversal.
+        ///
+        /// ### Why excluding a pair is sound
+        ///
+        /// `budget` is `h_p` less `relevance` screening thresholds, decremented by each
+        /// step's travel and refreshed with an exact distance when it runs out. A pair
+        /// with `budget > 0` therefore satisfies `h_p > relevance * rate_p * scale`, so
+        ///
+        /// - it cannot be screened *in*, since that needs `h_p <= rate_p * scale`, and so
+        ///   cannot contribute a row to the QP; and
+        /// - its own certificate `h_p / rate_p` exceeds `relevance * scale`, which is
+        ///   `pairFloor`, so a caller taking a minimum over rows can skip it and clamp.
+        ///
+        /// Neither claim depends on the pair's exact value, which is what makes it safe
+        /// never to compute it. `relevance` at 1 would cap every certificate at one
+        /// screening horizon and cost the coarse hops; at 4 the cap is four horizons and
+        /// the skip rate is essentially unchanged.
+        struct ActiveSet
+        {
+            Eigen::Matrix<double, nSelfPairs, 1> budget;
+            Configuration previous;
+            double threshold{-1.0};
+            double relevance{4.0};
+            /// The `max(dt, 1/kappa)` the thresholds were scaled by. Needed because the
+            /// duration an excluded pair guarantees is `relevance * scale`, and the
+            /// per-pair rate cancels out of that product but the scale does not.
+            double scale{0.0};
+            /// A step larger than this is a new edge rather than a rollout step, and
+            /// nothing carries over.
+            double resetRadius{0.5};
+            bool valid{false};
+
+            void invalidate()
+            {
+                valid = false;
+            }
         };
 
         /// How fast each sphere's barrier can possibly fall, per unit time, given a
@@ -219,6 +280,15 @@ namespace ompl::cbf
         /// caller is about to integrate, which needs `h_i > rate_i dt` — and taking the
         /// larger of the two horizons buys both at once.
         void evaluateScreened(const Configuration &q, const Values &threshold, Evaluation &out) const
+        {
+            evaluateScreened(q, threshold, nullptr, out);
+        }
+
+        /// `evaluateScreened()` visiting only the self-collision pairs \p active cannot
+        /// rule out. Pass null for the exhaustive form, which is what every existing
+        /// caller gets. See `ActiveSet` for the bound and what it costs.
+        void evaluateScreened(const Configuration &q, const Values &threshold, ActiveSet *active,
+                              Evaluation &out) const
         {
             const Robot::Kinematics kin = robot_.kinematics(q);
 
@@ -280,26 +350,7 @@ namespace ompl::cbf
             double smallestPair = std::numeric_limits<double>::infinity();
             {
                 ScopedTimer selfTimer("self_collision");
-                // Hoisted out of the loop: each of these is a function call returning a
-                // static table, and there are 303 pairs, every filter call.
-                const auto &pairs = Robot::selfPairs();
-                const auto &radii = Robot::selfPairRadii();
-                const auto &margins = Robot::selfPairMargins();
-                for (std::size_t p = 0; p < Robot::nSelfPairs; ++p)
-                {
-                    const Eigen::Index pairIndex = static_cast<Eigen::Index>(p);
-                    const Eigen::Index index = nSpheres + pairIndex;
-                    const double h = (centers.col(static_cast<Eigen::Index>(pairs[p].a)) -
-                                      centers.col(static_cast<Eigen::Index>(pairs[p].b)))
-                                         .norm() -
-                                     radii[pairIndex] - margins[pairIndex] - selfMargin_;
-                    out.values[index] = h;
-                    if (h < smallestPair)
-                    {
-                        smallestPair = h;
-                        out.worstPair = p;
-                    }
-                }
+                smallestPair = evaluateSelfPairs(q, centers, threshold, active, out);
             }
 
             // One screening pass over both families: they are the same question asked of
@@ -308,23 +359,33 @@ namespace ompl::cbf
             Eigen::Matrix<Eigen::Index, nSpheres, 1> activeWorldRows;
             Eigen::Index activeWorldCount = 0;
 
-            for (Eigen::Index i = 0; i < nConstraints; ++i)
+            for (Eigen::Index i = 0; i < nSpheres; ++i)
             {
                 if (out.values[i] > threshold[i])
                     continue;
-
                 const Eigen::Index row = out.active++;
                 out.constraint[row] = static_cast<int>(i);
-                if (i < nSpheres)
-                {
-                    activeWorld[activeWorldCount] = i;
-                    activeWorldRows[activeWorldCount] = row;
-                    ++activeWorldCount;
-                }
-                else
-                    out.rows.row(row) =
-                        Robot::selfPairGradient(kin, centers, static_cast<std::size_t>(i - nSpheres))
-                            .transpose();
+                activeWorld[activeWorldCount] = i;
+                activeWorldRows[activeWorldCount] = row;
+                ++activeWorldCount;
+            }
+
+            // Only the pairs the evaluation visited. An excluded pair provably has
+            // `h > relevance * threshold >= threshold`, so it would have been skipped
+            // here anyway -- the saving is not testing it.
+            const int visited = out.nearPairCount;
+            const int pairLimit = visited < 0 ? nSelfPairs : visited;
+            for (int k = 0; k < pairLimit; ++k)
+            {
+                const Eigen::Index pair = visited < 0 ? static_cast<Eigen::Index>(k)
+                                                      : static_cast<Eigen::Index>(out.nearPairs[k]);
+                const Eigen::Index i = nSpheres + pair;
+                if (out.values[i] > threshold[i])
+                    continue;
+                const Eigen::Index row = out.active++;
+                out.constraint[row] = static_cast<int>(i);
+                out.rows.row(row) =
+                    Robot::selfPairGradient(kin, centers, static_cast<std::size_t>(pair)).transpose();
             }
 
             if (activeWorldCount > 0)
@@ -336,6 +397,132 @@ namespace ompl::cbf
                         Robot::barrierGradient(kin, sphere, gradients.col(sphere)).transpose();
                 }
             }
+        }
+
+        /// `(b, f, g)` per pair: the later sphere and the half-open joint span over which
+        /// it alone moves relative to the earlier one. `Robot::selfPairLeverArms()` bakes
+        /// the same three numbers into a 303 x 6 table; as indices they let a pair's
+        /// travel come off a per-sphere prefix sum in one subtraction.
+        struct PairSpan
+        {
+            int sphere;
+            int first;
+            int last;
+        };
+
+        static const std::array<PairSpan, nSelfPairs> &pairSpans()
+        {
+            static const std::array<PairSpan, nSelfPairs> table = []
+            {
+                std::array<PairSpan, nSelfPairs> spans{};
+                for (std::size_t p = 0; p < Robot::nSelfPairs; ++p)
+                {
+                    const auto &pair = Robot::selfPairs()[p];
+                    spans[p] = PairSpan{static_cast<int>(pair.b),
+                                        static_cast<int>(Robot::spheres()[pair.a].frame),
+                                        static_cast<int>(Robot::spheres()[pair.b].frame)};
+                }
+                return spans;
+            }();
+            return table;
+        }
+
+        /// Self-collision values. Exhaustive when \p active is null; otherwise only the
+        /// pairs it cannot rule out, recording them in `out.nearPairs`.
+        double evaluateSelfPairs(const Configuration &q, const Robot::SphereCenters &centers,
+                                 const Values &threshold, ActiveSet *active, Evaluation &out) const
+        {
+            // Hoisted: each is a function call returning a static table, and there are
+            // 303 pairs every filter call.
+            const auto &pairs = Robot::selfPairs();
+            const auto &radii = Robot::selfPairRadii();
+            const auto &margins = Robot::selfPairMargins();
+            const auto exact = [&](std::size_t p)
+            {
+                const Eigen::Index i = static_cast<Eigen::Index>(p);
+                return (centers.col(static_cast<Eigen::Index>(pairs[p].a)) -
+                        centers.col(static_cast<Eigen::Index>(pairs[p].b)))
+                           .norm() -
+                       radii[i] - margins[i] - selfMargin_;
+            };
+
+            double smallest = std::numeric_limits<double>::infinity();
+            const auto visit = [&](std::size_t p)
+            {
+                const double h = exact(p);
+                out.values[nSpheres + static_cast<Eigen::Index>(p)] = h;
+                if (h < smallest)
+                {
+                    smallest = h;
+                    out.worstPair = p;
+                }
+                return h;
+            };
+
+            if (active == nullptr)
+            {
+                out.nearPairCount = -1;
+                out.pairFloor = std::numeric_limits<double>::infinity();
+                // Scalar on purpose. Rewritten structure-of-arrays -- gather the endpoints
+                // into per-axis vectors so the square roots vectorise -- it measured
+                // *slower*, 1273 ns against 1032 ns for the whole evaluation: the gather
+                // is the cost, and the array form pays it anyway plus 7 KB of
+                // intermediates this version keeps in registers.
+                for (std::size_t p = 0; p < Robot::nSelfPairs; ++p)
+                    visit(p);
+                return smallest;
+            }
+
+            // The threshold is uniform over the pair rows -- it is `decreaseRates()`
+            // scaled -- so one scalar identifies the horizon the budgets were taken at.
+            const double pairThreshold = threshold[nSpheres];
+            const bool reuse = active->valid && active->threshold == pairThreshold &&
+                               (q - active->previous).cwiseAbs().maxCoeff() <= active->resetRadius;
+            const double floor = active->relevance * pairThreshold;
+
+            out.nearPairCount = 0;
+            if (!reuse)
+            {
+                for (std::size_t p = 0; p < Robot::nSelfPairs; ++p)
+                {
+                    const double h = visit(p);
+                    active->budget[static_cast<Eigen::Index>(p)] = h - floor;
+                    if (h <= floor)
+                        out.nearPairs[out.nearPairCount++] = static_cast<int>(p);
+                }
+                active->previous = q;
+                active->threshold = pairThreshold;
+                active->valid = true;
+                out.pairFloor = out.nearPairCount == nSelfPairs
+                                    ? std::numeric_limits<double>::infinity()
+                                    : active->relevance * active->scale;
+                return smallest;
+            }
+
+            // One prefix pass turns the step's joint travel into every pair's workspace
+            // travel: a pair's coefficients are the later sphere's, restricted to the
+            // joints between the two frames, so each pair is one subtraction.
+            const Configuration step = (q - active->previous).cwiseAbs();
+            Eigen::Matrix<double, nSpheres, nJoints + 1> travel;
+            travel.col(0).setZero();
+            for (Eigen::Index k = 0; k < nJoints; ++k)
+                travel.col(k + 1) = travel.col(k) + Robot::leverArmBounds().col(k) * step[k];
+
+            const auto &spans = pairSpans();
+            for (Eigen::Index p = 0; p < nSelfPairs; ++p)
+            {
+                const PairSpan &span = spans[static_cast<std::size_t>(p)];
+                active->budget[p] -= travel(span.sphere, span.last) - travel(span.sphere, span.first);
+                if (active->budget[p] > 0.0)
+                    continue;  // provably above the relevance floor: not visited at all
+                const double h = visit(static_cast<std::size_t>(p));
+                active->budget[p] = h - floor;
+                out.nearPairs[out.nearPairCount++] = static_cast<int>(p);
+            }
+            active->previous = q;
+            out.pairFloor = out.nearPairCount == nSelfPairs ? std::numeric_limits<double>::infinity()
+                                                            : active->relevance * active->scale;
+            return smallest;
         }
 
         /// The same bound read backwards: how long the constant control \p u may be
@@ -625,12 +812,48 @@ namespace ompl::cbf
         {
             if (!region.valid)
                 return 0.0;
-            const auto travel = (leverArms() * u.cwiseAbs()).eval();
+            return safeScale(region, travelBound(u));
+        }
 
+        /// `leverArms() * |delta|`: how far each constraint's geometry can travel under
+        /// the joint-space displacement \p delta, or -- read as a velocity -- under the
+        /// control \p delta per unit time. The same quantity every ray query here takes
+        /// a minimum against.
+        ///
+        /// Exposed because it is *most* of the cost of a ray query: measured on the UR5
+        /// it is 0.196 us of `safeDuration()`'s 0.391 us, the 343 x 6 contraction and its
+        /// 2.7 KB result. A caller walking one straight segment needs it once rather than
+        /// once per query, because the remaining displacement along a segment stays a
+        /// positive multiple of the direction and so its travel bound is that multiple of
+        /// this one. `safeScale()` is the half of `safeDuration()` that remains once the
+        /// product is taken apart this way; `CertifiedRegionRollout` is built on it.
+        static Values travelBound(const Configuration &delta)
+        {
+            return leverArms() * delta.cwiseAbs();
+        }
+
+        /// `safeDuration()` with the travel bound already in hand: the largest `t` for
+        /// which `t` times the displacement behind \p travel stays inside \p region.
+        static double safeScale(const CertifiedRegion &region, const Values &travel)
+        {
+            if (!region.valid)
+                return 0.0;
+
+            // A minimum of ratios does not need a ratio per row. `slack_i / travel_i` can
+            // only lower the running best when `slack_i < travel_i * best`, which is a
+            // multiply and a compare, so a division is paid only where the bound actually
+            // improves -- a handful of times over 343 rows rather than 343 times. The
+            // result is identical, not approximate; this is `durations()`' trick, and it
+            // is worth 0.391 -> 0.290 us on its own.
             double duration = std::numeric_limits<double>::infinity();
             for (Eigen::Index i = 0; i < nConstraints; ++i)
-                if (travel[i] > 0.0)  // no joint that moves this constraint is moving
-                    duration = std::min(duration, region.slack[i] / travel[i]);
+            {
+                const double rate = travel[i];
+                if (rate <= 0.0)  // no joint that moves this constraint is moving
+                    continue;
+                if (region.slack[i] < rate * duration)
+                    duration = region.slack[i] / rate;
+            }
             return duration;
         }
 
@@ -804,8 +1027,12 @@ namespace ompl::cbf
                     noOpBest = noOpRoom / rate;
             }
 
-            for (Eigen::Index p = 0; p < nSelfPairs; ++p)
+            const int visited = evaluation.nearPairCount;
+            const Eigen::Index pairLimit = visited < 0 ? nSelfPairs : static_cast<Eigen::Index>(visited);
+            for (Eigen::Index k = 0; k < pairLimit; ++k)
             {
+                const Eigen::Index p =
+                    visited < 0 ? k : static_cast<Eigen::Index>(evaluation.nearPairs[k]);
                 const Eigen::Index index = nSpheres + p;
                 const double rate = travel[index];
                 // Zero is common rather than exceptional here: only the joints strictly
@@ -821,6 +1048,12 @@ namespace ompl::cbf
                 if (clearance < rate * (noOpBest + horizon))
                     noOpBest = clearance / rate - horizon;
             }
+
+            // Pairs the evaluation ruled out were never read, so their certificates are
+            // unknown -- but each provably exceeds `pairFloor`, which is what makes
+            // skipping them sound rather than optimistic. Infinite when none was skipped.
+            safeBest = std::min(safeBest, evaluation.pairFloor);
+            noOpBest = std::min(noOpBest, evaluation.pairFloor);
 
             safe = std::max(safeBest, 0.0);
             noOp = std::max(noOpBest, 0.0);

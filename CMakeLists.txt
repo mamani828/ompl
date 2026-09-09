@@ -69,6 +69,16 @@ add_definitions(-DBOOST_TEST_DYN_LINK)
 # Avoid valgrind error due to overflow error, cf. https://github.com/ompl/ompl/issues/664
 add_definitions(-DBOOST_MATH_NO_LONG_DOUBLE_MATH_FUNCTIONS)
 
+# Eigen refuses to *declare* a fixed-size type larger than this, which is a guard
+# against putting one on the stack by accident rather than a measurement of the real
+# stack (8 MB by default here). A dual-arm robot's barrier needs more than the 128 kB
+# default: `RobotClearanceBarrier<Baxter>` carries one row per constraint, and 75
+# spheres plus 1845 self-collision pairs at 14 joints is 215 kB in `Evaluation::rows`
+# alone. Reachy2 needs 145 kB for the same reason, which is why its two test targets
+# did not build before this. 1 MB clears both with room, and still refuses the kind of
+# accident the guard exists for.
+add_definitions(-DEIGEN_STACK_ALLOCATION_LIMIT=1048576)
+
 add_subdirectory(src)
 
 # VAMP submodule integration

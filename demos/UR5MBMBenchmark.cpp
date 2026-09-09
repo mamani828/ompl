@@ -80,6 +80,7 @@
 #include <ompl/base/StateValidityChecker.h>
 #include <ompl/base/spaces/RealVectorStateSpace.h>
 #include <ompl/cbf/CBFControlFilter.h>
+#include <ompl/cbf/CertifiedRegionRollout.h>
 #include <ompl/cbf/ExecutedPath.h>
 #include <ompl/cbf/FilteredMotionValidator.h>
 #include <ompl/cbf/FilteredStateSpace.h>
@@ -94,6 +95,7 @@
 
 #include "UR5SelfCollisionAudit.h"
 #include "UR5QPFreeGate.h"
+#include "HoldTimeRegionRollout.h"
 
 #ifdef OMPL_MBM_HAVE_VAMP
 #include <ompl/vamp/Utils.h>
@@ -117,9 +119,10 @@ namespace
     constexpr int checkedRow = 0;
     constexpr int qpFixedRow = 1;
     constexpr int qpLipschitzRow = 2;
-    constexpr int qpFreeRow = 3;
-    constexpr int vampRow = 4;
-    constexpr int comparisonRows = 5;
+    constexpr int qpSafeRow = 3;
+    constexpr int qpFreeRow = 4;
+    constexpr int vampRow = 5;
+    constexpr int comparisonRows = 6;
 
     /// Joint-space spacing all rows are audited at, in radians. Finer than the rollout
     /// step so the audit is not merely re-reading the filter's own decisions.
@@ -618,7 +621,8 @@ namespace
                        unsigned int picardWindow, unsigned int picardWorkers,
                        unsigned int trajectoryPrefixes, unsigned int rolloutCallBudget,
                        std::uint_fast32_t sampleSeed,
-                       std::vector<UR5::Configuration> *record)
+                       std::vector<UR5::Configuration> *record,
+                       const Space::RolloutPlanner *customRollout = nullptr)
     {
         auto space = std::make_shared<Space>(filter, stepSize, UR5::velocityLimits());
         space->setBounds(jointBounds());
@@ -639,7 +643,9 @@ namespace
         space->setEarlyTermination(earlyTermination);
 
         std::unique_ptr<ompl::cbf::ParallelPicardRollout> picard;
-        if (picardIterations > 0)
+        if (customRollout != nullptr)
+            space->setRolloutPlanner(*customRollout);
+        else if (picardIterations > 0)
         {
             const auto *qpFilter = dynamic_cast<const Filter *>(&filter);
             if (qpFilter == nullptr)
@@ -961,6 +967,7 @@ int main(int argc, char **argv)
     // On by default, matching `FilteredStateSpace`; zero recovers the behaviour every
     // run before the certified region had.
     const bool safeHops = argc > 17 ? std::atoi(argv[17]) != 0 : true;
+    (void)safeHops;  // retained for command-line compatibility; the A/B runs both modes
     const unsigned int picardIterations =
         argc > 18 ? static_cast<unsigned int>(std::max(0, std::atoi(argv[18]))) : 0u;
     const unsigned int picardWindow =
@@ -993,6 +1000,13 @@ int main(int argc, char **argv)
     parameters.kappa = kappa;
     parameters.maxSpeed = UR5::velocityLimits();
     parameters.respectJointLimits = true;
+    // Process-isolated ablation switch for the active-set pair traversal, in the style
+    // of OMPL_UR5_LEVER_BOUNDS. See ClearanceBarrier::ActiveSet.
+    if (const char *v = std::getenv("OMPL_CBF_ACTIVE_PAIRS"))
+        parameters.activePairs = std::atoi(v) != 0;
+    if (const char *v = std::getenv("OMPL_CBF_PAIR_RELEVANCE"))
+        parameters.pairRelevance = std::atof(v);
+
     Filter::Parameters fixedParameters = parameters;
     fixedParameters.certificates = false;
 
@@ -1006,7 +1020,7 @@ int main(int argc, char **argv)
                                                 UR5::reachableBounds(), voxel))
                              : buffer,
                 stepSize, range, timeLimit);
-    std::printf("hop certificate: %s\n", safeHops ? "safe (region)" : "no-op (default)");
+    std::printf("hop certificates: old L1 Lipschitz region and new hold-time bound\n");
     if (picardIterations > 0)
         std::printf("Picard: %u maps, %u-step windows, %u workers; ", picardIterations,
                     picardWindow, picardWorkers);
@@ -1092,6 +1106,10 @@ int main(int argc, char **argv)
         const Filter fixedFilter(guard, fixedParameters);
         const Filter lipschitzFilter(guard, parameters);
         const ompl::demo::UR5QPFreeGate qpFreeGate(guard, parameters);
+        const ompl::cbf::CertifiedRegionRollout oldCertificate(guard);
+        const HoldTimeRegionRollout newCertificate(guard, robot, true);
+        const Space::RolloutPlanner oldCertificatePlanner = oldCertificate.planner();
+        const Space::RolloutPlanner newCertificatePlanner = newCertificate.planner();
 
         Tally &tally = tallies[problem.scene];
         ++tally.attempted;
@@ -1109,8 +1127,19 @@ int main(int argc, char **argv)
         // meshes MotionBenchMaker checked, and the margin sits on top of that. Split by
         // which barrier rejected the endpoint -- world clearance and self-collision are
         // different failure modes with different fixes, see Tally::skippedClearance.
-        const Barrier worldOnly(robot, field, margin, -1e6);
-        const Barrier selfOnly(robot, field, -1e6, selfMargin);
+        //
+        // Tested against the barrier the *filter* enforces, not the one the audit uses.
+        // Those differ by the interpolation buffer, and the difference is not academic:
+        // a MotionBenchMaker goal is a grasp pose about 8 mm off the shelf, the buffer at
+        // a 30 mm voxel is 30 mm, and `RRTConnect` roots its second tree at the goal. A
+        // CBF gives forward invariance of {h >= 0} starting *from* {h >= 0}; rooted at
+        // h < 0 it guarantees nothing, and every rollout grown from that tree inherits
+        // the violation. Screening endpoints at the audited margin instead let those
+        // problems through and is what put real penetration in the CBF rows while the
+        // skip count read zero.
+        const double guardBuffer = buffer < 0.0 ? Barrier::interpolationBuffer(field) : buffer;
+        const Barrier worldOnly(robot, field, margin + guardBuffer, -1e6);
+        const Barrier selfOnly(robot, field, -1e6, selfMargin + Barrier::defaultSelfBuffer);
         const bool worldUnsafe = !worldOnly.isSafe(problem.start) || !worldOnly.isSafe(problem.goal);
         const bool selfUnsafe = !selfOnly.isSafe(problem.start) || !selfOnly.isSafe(problem.goal);
         if (worldUnsafe || selfUnsafe)
@@ -1130,7 +1159,8 @@ int main(int argc, char **argv)
             const Result skipped;
             writeCsvRow(csvOut, seed, problem, "isSafe", false, skipped);
             writeCsvRow(csvOut, seed, problem, "qpFixed", false, skipped);
-            writeCsvRow(csvOut, seed, problem, "bubbleCBF", false, skipped);
+            writeCsvRow(csvOut, seed, problem, "l1Old", false, skipped);
+            writeCsvRow(csvOut, seed, problem, "holdNew", false, skipped);
             writeCsvRow(csvOut, seed, problem, "qpFreeGate", false, skipped);
 #ifdef OMPL_MBM_HAVE_VAMP
             writeCsvRow(csvOut, seed, problem, "VAMP", false, skipped);
@@ -1138,7 +1168,7 @@ int main(int argc, char **argv)
             continue;
         }
 
-        std::vector<UR5::Configuration> checkedPath, fixedPath, rolledPath, gatePath;
+        std::vector<UR5::Configuration> checkedPath, fixedPath, lipschitzPath, rolledPath, gatePath;
         const Result checked = runCollisionChecked(problem, audited, range, timeLimit,
                                                    segmentFraction, shortcutDelta, sampleSeed,
                                                    pathPrefix.empty() ? nullptr : &checkedPath);
@@ -1147,11 +1177,18 @@ int main(int argc, char **argv)
                                          picardIterations, picardWindow, picardWorkers,
                                          trajectoryPrefixes, rolloutCallBudget, sampleSeed,
                                          pathPrefix.empty() ? nullptr : &fixedPath);
-        const Result rolled = runFiltered(problem, audited, lipschitzFilter, stepSize, range,
-                                          timeLimit, maxStepScale, shortcutDelta, safeHops,
+        const Result oldLipschitz = runFiltered(problem, audited, lipschitzFilter, stepSize, range,
+                                          timeLimit, maxStepScale, shortcutDelta, false,
                                           picardIterations, picardWindow, picardWorkers,
                                           trajectoryPrefixes, rolloutCallBudget, sampleSeed,
-                                          pathPrefix.empty() ? nullptr : &rolledPath);
+                                          pathPrefix.empty() ? nullptr : &lipschitzPath,
+                                          &oldCertificatePlanner);
+        const Result rolled = runFiltered(problem, audited, lipschitzFilter, stepSize, range,
+                                          timeLimit, maxStepScale, shortcutDelta, true,
+                                          picardIterations, picardWindow, picardWorkers,
+                                          trajectoryPrefixes, rolloutCallBudget, sampleSeed,
+                                          pathPrefix.empty() ? nullptr : &rolledPath,
+                                          &newCertificatePlanner);
         const Result gated = runFiltered(problem, audited, qpFreeGate, stepSize, range,
                                          timeLimit, 1.0, shortcutDelta, false,
                                          0, picardWindow, picardWorkers, trajectoryPrefixes,
@@ -1168,15 +1205,18 @@ int main(int argc, char **argv)
         writeMotion(gateOut, problem, gatePath);
         tally.add(checkedRow, checked);
         tally.add(qpFixedRow, fixed);
-        tally.add(qpLipschitzRow, rolled);
+        tally.add(qpLipschitzRow, oldLipschitz);
+        tally.add(qpSafeRow, rolled);
         tally.add(qpFreeRow, gated);
         overall.add(checkedRow, checked);
         overall.add(qpFixedRow, fixed);
-        overall.add(qpLipschitzRow, rolled);
+        overall.add(qpLipschitzRow, oldLipschitz);
+        overall.add(qpSafeRow, rolled);
         overall.add(qpFreeRow, gated);
         writeCsvRow(csvOut, seed, problem, "isSafe", true, checked);
         writeCsvRow(csvOut, seed, problem, "qpFixed", true, fixed);
-        writeCsvRow(csvOut, seed, problem, "bubbleCBF", true, rolled);
+        writeCsvRow(csvOut, seed, problem, "l1Old", true, oldLipschitz);
+        writeCsvRow(csvOut, seed, problem, "holdNew", true, rolled);
         writeCsvRow(csvOut, seed, problem, "qpFreeGate", true, gated);
 #ifdef OMPL_MBM_HAVE_VAMP
         tally.add(vampRow, vamp);
@@ -1205,7 +1245,8 @@ int main(int argc, char **argv)
                     tally.skippedSelfCollision);
         reportRow("rrtconnect", tally, checkedRow);
         reportRow("qp-fixed", tally, qpFixedRow);
-        reportRow("qp-lipsch", tally, qpLipschitzRow);
+        reportRow("l1-old", tally, qpLipschitzRow);
+        reportRow("hold-new", tally, qpSafeRow);
         reportRow("qp-free", tally, qpFreeRow);
 #ifdef OMPL_MBM_HAVE_VAMP
         reportRow("vamp-rrtc", tally, vampRow);
@@ -1241,7 +1282,8 @@ int main(int argc, char **argv)
                 overall.skippedSelfCollision);
     reportRow("rrtconnect", overall, checkedRow);
     reportRow("qp-fixed", overall, qpFixedRow);
-    reportRow("qp-lipsch", overall, qpLipschitzRow);
+    reportRow("l1-old", overall, qpLipschitzRow);
+    reportRow("hold-new", overall, qpSafeRow);
     reportRow("qp-free", overall, qpFreeRow);
 #ifdef OMPL_MBM_HAVE_VAMP
     reportRow("vamp-rrtc", overall, vampRow);

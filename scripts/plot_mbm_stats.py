@@ -33,8 +33,15 @@ PLANNER_COLOR = {
     "qp-free": "#d43f70",
     "vamp-rrtc": "#1baf7a",
     "hybrid-rrtc": "#008300",
+    # Baxter's one filtered rollout plays qp-fixed's role, so it keeps that colour;
+    # no run emits both, so the two never share a legend.
+    "cbf-rrtc": "#8c62aa",
+    # The same rollout with the hop certificate off -- a muted version of its colour,
+    # since the pair is meant to be read against each other.
+    "cbf-nocert": "#b9a3cc",
 }
-PLANNERS = ["rrtconnect", "qp-fixed", "qp-lipsch", "qp-free", "vamp-rrtc", "hybrid-rrtc"]
+PLANNERS = ["rrtconnect", "qp-fixed", "qp-lipsch", "qp-free", "cbf-rrtc", "cbf-nocert",
+            "vamp-rrtc", "hybrid-rrtc"]
 
 # One CSV column, three meanings -- collision checks for the checked baseline, filter
 # calls for each CBF rollout, and SIMD configuration lanes for VAMP. They measure
@@ -134,6 +141,10 @@ METHOD_NAMES = {
     "qpFreeGate": "qp-free",
     "VAMP": "vamp-rrtc",
     "vamp": "vamp-rrtc",
+    # The Baxter harness runs a single filtered rollout rather than the UR5's three
+    # barrier variants, and labels it `cbfRRTC`; it prints as `cbf-rrtc`.
+    "cbfRRTC": "cbf-rrtc",
+    "cbfNoCert": "cbf-nocert",
 }
 COLUMN_NAMES = {"samples": "evaluations", "problem": "index", "method": "planner"}
 

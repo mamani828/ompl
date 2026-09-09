@@ -482,6 +482,8 @@ BOOST_AUTO_TEST_CASE(RequiredGainSatisfiesEveryRowItReports)
 
         UR5::Configuration filtered;
         Filter::Diagnostics diagnostics;
+        // This test reads `diagnostics.region`, which the filter fills only on request.
+        diagnostics.wantRegion = true;
         if (filter.filter(q, nominal, duration, filtered, diagnostics) == ControlFilter::Status::Blocked)
             continue;
 
@@ -532,6 +534,8 @@ BOOST_AUTO_TEST_CASE(RequiredGainIsTheReciprocalOfTheSafeSpan)
     {
         UR5::Configuration filtered;
         Filter::Diagnostics diagnostics;
+        // This test reads `diagnostics.region`, which the filter fills only on request.
+        diagnostics.wantRegion = true;
         BOOST_REQUIRE(filter.filter(q, towardWorstSphere(barrier, q, speed), duration, filtered,
                                     diagnostics) != ControlFilter::Status::Blocked);
 
@@ -646,6 +650,8 @@ BOOST_AUTO_TEST_CASE(RequiredGainUpperBoundsTheGradientAnswer)
 
         UR5::Configuration filtered;
         Filter::Diagnostics diagnostics;
+        // This test reads `diagnostics.region`, which the filter fills only on request.
+        diagnostics.wantRegion = true;
         if (filter.filter(q, nominal, duration, filtered, diagnostics) == ControlFilter::Status::Blocked)
             continue;
         const Barrier::Evaluation full = barrier.evaluate(q);

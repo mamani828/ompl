@@ -132,11 +132,11 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(ValuesMatchTheAnalyticField, Robot, RobotTypes)
         for (std::size_t i = 0; i < Robot::nSpheres; ++i)
         {
             const Eigen::Vector3d p = Robot::sphereCenter(kin, i);
-            // worldMargin is a compile-time constant on this barrier (unlike UR5's
+            // The barrier under test is built with the default margin (unlike UR5's
             // ClearanceBarrier, which the equivalent test constructs with margin=0),
             // so it has to be part of the expected value here.
             const double exact =
-                (p - obstacleCenter).norm() - obstacleRadius - Robot::spheres()[i].radius - Barrier<Robot>::worldMargin;
+                (p - obstacleCenter).norm() - obstacleRadius - Robot::spheres()[i].radius - Barrier<Robot>::defaultWorldMargin;
             BOOST_CHECK_LE(std::abs(evaluation.values[static_cast<Eigen::Index>(i)] - exact), valueTolerance);
         }
     }
@@ -458,6 +458,102 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(ScreeningIsSelfConsistentAcrossThresholds, Robot, 
                                           << barrier.constraintCount());
 }
 
+// The swept-enclosure tightening in `tightenLeverBounds()` is a *soundness*
+// claim, not an optimization: every certificate and every screening decision
+// divides by these numbers, so a bound that is too small silently lets a hop run
+// into an obstacle. Check it the only way that matters -- against the true
+// Jacobian column at many configurations -- and report by how much it improved
+// on the triangle-inequality bound it replaced, computed here independently.
+BOOST_AUTO_TEST_CASE_TEMPLATE(TightenedLeverBoundsStillBoundEveryJacobianColumn, Robot, RobotTypes)
+{
+    using B = Barrier<Robot>;
+    const Robot robot;
+    const B barrier(robot, obstacleField(), midConfiguration<Robot>());
+
+    // `decreaseRates()` is `maxGradientNorm * leverBounds * |speed|` on the world block,
+    // so a unit basis speed reads one column of the table back out without widening the
+    // class's interface for a test.
+    const double lipschitz = obstacleField().maxGradientNorm();
+    BOOST_REQUIRE_GT(lipschitz, 0.0);
+    Eigen::Matrix<double, Robot::nSpheres, B::nJoints> lever;
+    for (int j = 0; j < B::nJoints; ++j)
+    {
+        typename Robot::Configuration speed = Robot::Configuration::Zero();
+        speed[j] = 1.0;
+        typename B::Values rates;
+        barrier.decreaseRates(speed, rates);
+        lever.col(j) = rates.template head<Robot::nSpheres>() / lipschitz;
+    }
+
+    // The bound `buildLeverBounds()` produces before tightening: the sphere's own offset
+    // plus every fixed link offset between it and the joint.
+    Eigen::Matrix<double, Robot::nSpheres, B::nJoints> armLength;
+    armLength.setZero();
+    const auto &steps = Robot::steps();
+    for (std::size_t i = 0; i < Robot::nSpheres; ++i)
+    {
+        const Eigen::Index row = static_cast<Eigen::Index>(i);
+        int link = Robot::spheres()[i].link;
+        double reach = Eigen::Vector3d(Robot::spheres()[i].center.data()).norm();
+        while (link > 0)
+        {
+            const auto &step = steps[static_cast<std::size_t>(link - 1)];
+            if (step.active >= 0)
+                armLength(row, B::nBaseJoints + step.active) = reach;
+            reach += Eigen::Vector3d(step.xyz.data()).norm();
+            link = step.parent;
+        }
+    }
+
+    ompl::RNG rng;
+    double worstSlack = std::numeric_limits<double>::infinity();
+    for (int sample = 0; sample < 150; ++sample)
+    {
+        const auto q = randomConfiguration<Robot>(rng);
+        const auto kin = robot.kinematics(q);
+        for (std::size_t i = 0; i < Robot::nSpheres; ++i)
+        {
+            const auto jacobian = Robot::sphereJacobian(kin, i);
+            const Eigen::Index row = static_cast<Eigen::Index>(i);
+            // Arm columns only: the base columns are exact by construction (unit rate for
+            // a rigid translation) and are not what the tightening touches.
+            for (int j = B::nBaseJoints; j < B::nJoints; ++j)
+            {
+                const double actual = jacobian.col(j).norm();
+                const double bound = lever(row, j);
+                BOOST_REQUIRE_MESSAGE(actual <= bound + 1e-9,
+                                      "sphere " << i << " joint " << j << ": |J| " << actual
+                                                << " exceeds lever bound " << bound);
+                worstSlack = std::min(worstSlack, bound - actual);
+            }
+        }
+    }
+    BOOST_CHECK_GE(worstSlack, -1e-9);
+
+    // And it must never be *worse* than what it replaced, on any entry.
+    double improved = 0.0;
+    double entries = 0.0;
+    double bestRatio = 1.0;
+    for (std::size_t i = 0; i < Robot::nSpheres; ++i)
+        for (int j = B::nBaseJoints; j < B::nJoints; ++j)
+        {
+            const Eigen::Index row = static_cast<Eigen::Index>(i);
+            const double loose = armLength(row, j);
+            const double tight = lever(row, j);
+            BOOST_REQUIRE_LE(tight, loose + 1e-9);
+            if (loose > 0.0)
+            {
+                ++entries;
+                improved += tight / loose;
+                bestRatio = std::min(bestRatio, tight / loose);
+            }
+        }
+    BOOST_REQUIRE_GT(entries, 0.0);
+    BOOST_TEST_MESSAGE("tight/arm_length lever arms: mean " << improved / entries << ", best "
+                                                            << bestRatio << " over " << entries
+                                                            << " nonzero entries");
+}
+
 // The certificate has to hold *along* the span, not merely at its end: sample
 // the straight motion it certifies and require the CBF condition every
 // constraint would have been held to at every point of it. Run with both a
@@ -511,6 +607,151 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(NothingCanBindWithinTheCertifiedDuration, Robot, R
         }
         BOOST_REQUIRE_GT(certified, 20);
     }
+}
+
+// `safeDuration()` claims less than `certifiedDuration()` and so must claim it
+// over a longer span: every barrier merely stays non-negative, rather than
+// staying inside the CBF's exponential envelope. Sample the straight motion and
+// require exactly that weaker property -- at every point, not just at the end.
+BOOST_AUTO_TEST_CASE_TEMPLATE(EveryBarrierStaysNonNegativeWithinTheSafeDuration, Robot, RobotTypes)
+{
+    const Robot robot;
+    const Barrier<Robot> barrier(robot, obstacleField(), midConfiguration<Robot>());
+    const auto maxSpeed = clampedSpeed<Robot>();
+
+    ompl::RNG rng;
+    int certified = 0;
+    for (int sample = 0; sample < 200; ++sample)
+    {
+        const auto q = randomConfiguration<Robot>(rng);
+        typename Barrier<Robot>::Evaluation evaluation;
+        fullEvaluate(barrier, q, evaluation);
+        if (!evaluation.inBounds || evaluation.values.minCoeff() <= 0.0)
+            continue;
+
+        typename Robot::Configuration u;
+        for (int j = 0; j < Barrier<Robot>::nJoints; ++j)
+            u[j] = maxSpeed[j] * (rng.uniform01() < 0.5 ? -1.0 : 1.0);
+
+        const double duration = barrier.safeDuration(barrier.certifiedRegion(evaluation), u);
+        if (!(duration > 0.0) || std::isinf(duration))
+            continue;
+        ++certified;
+
+        constexpr int samples = 15;
+        for (int step = 1; step <= samples; ++step)
+        {
+            const double t = duration * step / samples;
+            typename Barrier<Robot>::Evaluation along;
+            fullEvaluate(barrier, (q + u * t).eval(), along);
+            for (Eigen::Index i = 0; i < static_cast<Eigen::Index>(barrier.constraintCount()); ++i)
+                BOOST_REQUIRE_GE(along.values[i], -1e-9);
+        }
+    }
+    BOOST_REQUIRE_GT(certified, 20);
+}
+
+// The whole point of the safety certificate: it is the longer of the two, on
+// every sample. `RobotCBFControlFilter` relies on this to hand a hop a longer
+// span without ever handing it a shorter one than it had before.
+BOOST_AUTO_TEST_CASE_TEMPLATE(TheSafeDurationIsNeverShorterThanTheNoOpOne, Robot, RobotTypes)
+{
+    const Robot robot;
+    const Barrier<Robot> barrier(robot, obstacleField(), midConfiguration<Robot>());
+    const auto maxSpeed = clampedSpeed<Robot>();
+    constexpr double kappa = 30.0;  // 1/s, as RobotCBFControlFilter runs it
+
+    ompl::RNG rng;
+    int compared = 0;
+    double worstRatio = std::numeric_limits<double>::infinity();
+    for (int sample = 0; sample < 200; ++sample)
+    {
+        const auto q = randomConfiguration<Robot>(rng);
+        typename Barrier<Robot>::Evaluation evaluation;
+        fullEvaluate(barrier, q, evaluation);
+        if (!evaluation.inBounds || evaluation.values.minCoeff() <= 0.0)
+            continue;
+
+        typename Robot::Configuration u;
+        for (int j = 0; j < Barrier<Robot>::nJoints; ++j)
+            u[j] = maxSpeed[j] * (rng.uniform01() < 0.5 ? -1.0 : 1.0);
+
+        const double noOp = barrier.certifiedDuration(evaluation, u, kappa);
+        const double safe = barrier.safeDuration(barrier.certifiedRegion(evaluation), u);
+        BOOST_REQUIRE_GE(safe, noOp - 1e-12);
+        if (noOp > 0.0 && !std::isinf(safe))
+        {
+            worstRatio = std::min(worstRatio, safe / noOp);
+            ++compared;
+        }
+    }
+    BOOST_REQUIRE_GT(compared, 20);
+    BOOST_TEST_MESSAGE("smallest safe/no-op duration ratio: " << worstRatio);
+}
+
+// `contains()` is the polytope test the ray certificate is a slice of, so it has
+// to certify the whole straight segment to `q + delta` and not merely its end.
+BOOST_AUTO_TEST_CASE_TEMPLATE(TheCertifiedRegionCertifiesTheWholeSegment, Robot, RobotTypes)
+{
+    const Robot robot;
+    const Barrier<Robot> barrier(robot, obstacleField(), midConfiguration<Robot>());
+
+    ompl::RNG rng;
+    int inside = 0;
+    for (int sample = 0; sample < 200; ++sample)
+    {
+        const auto q = randomConfiguration<Robot>(rng);
+        typename Barrier<Robot>::Evaluation evaluation;
+        fullEvaluate(barrier, q, evaluation);
+        if (!evaluation.inBounds || evaluation.values.minCoeff() <= 0.0)
+            continue;
+
+        const auto region = barrier.certifiedRegion(evaluation);
+        // Aim along a random direction and shrink until the region accepts it, so the
+        // accepted displacement is near the polytope's boundary rather than tiny.
+        typename Robot::Configuration direction;
+        for (int j = 0; j < Barrier<Robot>::nJoints; ++j)
+            direction[j] = rng.gaussian01();
+        if (direction.norm() <= 0.0)
+            continue;
+        direction.normalize();
+
+        double scale = 1.0;
+        while (scale > 1e-6 && !barrier.contains(region, (scale * direction).eval()))
+            scale *= 0.5;
+        if (!(scale > 1e-6))
+            continue;
+        ++inside;
+
+        constexpr int samples = 12;
+        for (int step = 1; step <= samples; ++step)
+        {
+            const typename Robot::Configuration delta = (scale * step / samples) * direction;
+            BOOST_REQUIRE(barrier.contains(region, delta));
+            typename Barrier<Robot>::Evaluation along;
+            fullEvaluate(barrier, (q + delta).eval(), along);
+            for (Eigen::Index i = 0; i < static_cast<Eigen::Index>(barrier.constraintCount()); ++i)
+                BOOST_REQUIRE_GE(along.values[i], -1e-9);
+        }
+    }
+    BOOST_REQUIRE_GT(inside, 20);
+}
+
+// Outside the baked box every barrier value is a clamped over-report, so the
+// region must certify nothing at all rather than certify it optimistically.
+BOOST_AUTO_TEST_CASE_TEMPLATE(AnOutOfBoundsEvaluationCertifiesNothing, Robot, RobotTypes)
+{
+    const Robot robot;
+    const Barrier<Robot> barrier(robot, obstacleField(), midConfiguration<Robot>());
+
+    typename Barrier<Robot>::Evaluation evaluation;
+    fullEvaluate(barrier, midConfiguration<Robot>(), evaluation);
+    evaluation.inBounds = false;
+
+    const auto region = barrier.certifiedRegion(evaluation);
+    BOOST_CHECK(!region.valid);
+    BOOST_CHECK(!barrier.contains(region, typename Robot::Configuration(Robot::Configuration::Zero())));
+    BOOST_CHECK_EQUAL(barrier.safeDuration(region, clampedSpeed<Robot>()), 0.0);
 }
 
 // The box the field was baked over is not an obstacle, so no barrier value
