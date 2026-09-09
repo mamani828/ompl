@@ -118,11 +118,12 @@ namespace
     constexpr int dimension = 6;
     constexpr int checkedRow = 0;
     constexpr int qpFixedRow = 1;
-    constexpr int qpLipschitzRow = 2;
-    constexpr int qpSafeRow = 3;
-    constexpr int qpFreeRow = 4;
-    constexpr int vampRow = 5;
-    constexpr int comparisonRows = 6;
+    constexpr int qpAdaptiveRow = 2;
+    constexpr int qpLipschitzRow = 3;
+    constexpr int qpSafeRow = 4;
+    constexpr int qpFreeRow = 5;
+    constexpr int vampRow = 6;
+    constexpr int comparisonRows = 7;
 
     /// Joint-space spacing all rows are audited at, in radians. Finer than the rollout
     /// step so the audit is not merely re-reading the filter's own decisions.
@@ -1159,6 +1160,7 @@ int main(int argc, char **argv)
             const Result skipped;
             writeCsvRow(csvOut, seed, problem, "isSafe", false, skipped);
             writeCsvRow(csvOut, seed, problem, "qpFixed", false, skipped);
+            writeCsvRow(csvOut, seed, problem, "qpAdaptive", false, skipped);
             writeCsvRow(csvOut, seed, problem, "l1Old", false, skipped);
             writeCsvRow(csvOut, seed, problem, "holdNew", false, skipped);
             writeCsvRow(csvOut, seed, problem, "qpFreeGate", false, skipped);
@@ -1177,6 +1179,12 @@ int main(int argc, char **argv)
                                          picardIterations, picardWindow, picardWorkers,
                                          trajectoryPrefixes, rolloutCallBudget, sampleSeed,
                                          pathPrefix.empty() ? nullptr : &fixedPath);
+        // Same QP controller as qpFixed, but allow the filter's certified duration
+        // to hold the solved control beyond one integration step.
+        const Result qpAdaptive = runFiltered(
+            problem, audited, lipschitzFilter, stepSize, range, timeLimit, maxStepScale,
+            shortcutDelta, true, picardIterations, picardWindow, picardWorkers,
+            trajectoryPrefixes, rolloutCallBudget, sampleSeed, nullptr);
         const Result oldLipschitz = runFiltered(problem, audited, lipschitzFilter, stepSize, range,
                                           timeLimit, maxStepScale, shortcutDelta, false,
                                           picardIterations, picardWindow, picardWorkers,
@@ -1205,16 +1213,19 @@ int main(int argc, char **argv)
         writeMotion(gateOut, problem, gatePath);
         tally.add(checkedRow, checked);
         tally.add(qpFixedRow, fixed);
+        tally.add(qpAdaptiveRow, qpAdaptive);
         tally.add(qpLipschitzRow, oldLipschitz);
         tally.add(qpSafeRow, rolled);
         tally.add(qpFreeRow, gated);
         overall.add(checkedRow, checked);
         overall.add(qpFixedRow, fixed);
+        overall.add(qpAdaptiveRow, qpAdaptive);
         overall.add(qpLipschitzRow, oldLipschitz);
         overall.add(qpSafeRow, rolled);
         overall.add(qpFreeRow, gated);
         writeCsvRow(csvOut, seed, problem, "isSafe", true, checked);
         writeCsvRow(csvOut, seed, problem, "qpFixed", true, fixed);
+        writeCsvRow(csvOut, seed, problem, "qpAdaptive", true, qpAdaptive);
         writeCsvRow(csvOut, seed, problem, "l1Old", true, oldLipschitz);
         writeCsvRow(csvOut, seed, problem, "holdNew", true, rolled);
         writeCsvRow(csvOut, seed, problem, "qpFreeGate", true, gated);
@@ -1245,6 +1256,7 @@ int main(int argc, char **argv)
                     tally.skippedSelfCollision);
         reportRow("rrtconnect", tally, checkedRow);
         reportRow("qp-fixed", tally, qpFixedRow);
+        reportRow("qp-adapt", tally, qpAdaptiveRow);
         reportRow("l1-old", tally, qpLipschitzRow);
         reportRow("hold-new", tally, qpSafeRow);
         reportRow("qp-free", tally, qpFreeRow);
@@ -1282,6 +1294,7 @@ int main(int argc, char **argv)
                 overall.skippedSelfCollision);
     reportRow("rrtconnect", overall, checkedRow);
     reportRow("qp-fixed", overall, qpFixedRow);
+    reportRow("qp-adapt", overall, qpAdaptiveRow);
     reportRow("l1-old", overall, qpLipschitzRow);
     reportRow("hold-new", overall, qpSafeRow);
     reportRow("qp-free", overall, qpFreeRow);
