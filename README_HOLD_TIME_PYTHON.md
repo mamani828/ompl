@@ -23,6 +23,16 @@ The unit tests include dense forward-kinematics trajectories. These are
 regression checks; the certificate follows from the analytic bounds implemented
 by the module.
 
+Generate a two-joint slice comparing exact collision geometry with the
+self-collision certificates:
+
+```bash
+python3 scripts/visualize_hold_time_region.py
+```
+
+The default output is `results/hold_time_region.png`. Use `--output PATH`
+to choose another destination.
+
 ## Geometry convention
 
 For a point with `n` upstream revolute joints, construct `Geometry` with:
