@@ -232,6 +232,7 @@ namespace ompl::cbf
             // Forward kinematics is not worth repeating.
             Robot::SphereCenters centers;
             Eigen::Matrix<double, nSpheres, 1> distances;
+            Eigen::Matrix<double, 3, nSpheres> gradients;
 
             for (std::size_t i = 0; i < Robot::nSpheres; ++i)
             {
@@ -244,7 +245,13 @@ namespace ompl::cbf
 
             {
                 ScopedTimer timer("sdf_query");
-                field_.distanceBatch(centers, distances);
+                for (std::size_t i = 0; i < Robot::nSpheres; ++i)
+                {
+                    const auto query = field_.screenedValueGradient(centers.col(i), Robot::spheres()[i].radius,
+                                                                   margin_, threshold[i]);
+                    distances[i] = query.value;
+                    gradients.col(i) = query.gradient;
+                }
             }
 
             double smallest = std::numeric_limits<double>::infinity();
@@ -322,31 +329,11 @@ namespace ompl::cbf
 
             if (activeWorldCount > 0)
             {
-                // Fixed capacity (nSpheres is the worst case, every sphere active), so
-                // this is stack space, not a heap allocation -- unlike Matrix3Xd/VectorXd,
-                // which are Dynamic-sized and would malloc here on every filter call.
-                Eigen::Matrix<double, 3, nSpheres> activeCentersBuf;
-                Eigen::Matrix<double, nSpheres, 1> activeDistancesBuf;
-                Eigen::Matrix<double, 3, nSpheres> activeGradientsBuf;
-
-                auto activeCenters = activeCentersBuf.leftCols(activeWorldCount);
-                auto activeDistances = activeDistancesBuf.head(activeWorldCount);
-                auto activeGradients = activeGradientsBuf.leftCols(activeWorldCount);
-
-                for (Eigen::Index k = 0; k < activeWorldCount; ++k)
-                    activeCenters.col(k) = centers.col(activeWorld[k]);
-
-                {
-                    ScopedTimer timer("sdf_query");
-                    field_.valueGradientBatch(activeCenters, activeDistances, activeGradients);
-                }
-                (void)activeDistances;
-
                 for (Eigen::Index k = 0; k < activeWorldCount; ++k)
                 {
                     const std::size_t sphere = static_cast<std::size_t>(activeWorld[k]);
                     out.rows.row(activeWorldRows[k]) =
-                        Robot::barrierGradient(kin, sphere, activeGradients.col(k)).transpose();
+                        Robot::barrierGradient(kin, sphere, gradients.col(sphere)).transpose();
                 }
             }
         }

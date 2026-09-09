@@ -554,12 +554,14 @@ namespace ompl::cbf
                 return;
 
             const Edge key{from, to};
-            if (ledger_.find(key) != ledger_.end())
+            // One lookup; try_emplace preserves the existing trajectory and
+            // does not move waypoints when the key is already present.
+            const auto [entry, inserted] = ledger_.try_emplace(key, std::move(waypoints));
+            if (!inserted)
                 return;
 
-            ledgerWaypoints_ += waypoints.size();
+            ledgerWaypoints_ += entry->second.size();
             order_.push_back(key);
-            ledger_.emplace(key, std::move(waypoints));
             ++statistics_.recorded;
             evictToCapacity();
         }

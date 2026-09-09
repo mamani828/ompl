@@ -122,6 +122,13 @@ namespace ompl::cbf
             barrier_.decreaseRates(maxSpeed(), decreaseRates_);
             const Configuration speed = maxSpeed();
             inverseSquaredSpeed_ = speed.cwiseInverse().cwiseProduct(speed.cwiseInverse());
+            // H = diag(1 / speed^2), so its inverse Cholesky factor is
+            // diag(speed). It is constant for the lifetime of this filter. qpmad
+            // accepts that factor directly, avoiding a matrix rebuild, LLT, and
+            // triangular inversion on every solve. For unit speed this is exactly I.
+            hessian_.setIdentity();
+            hessian_.diagonal() = speed;
+            solverParameters_.hessian_type_ = qpmad::SolverParameters::HESSIAN_INVERTED_CHOLESKY_FACTOR;
         }
 
         /// Legacy safety clamp for robots (`Reachy2`) whose own `velocityLimits()`
@@ -154,8 +161,13 @@ namespace ompl::cbf
             // rate * max(dt, 1/kappa): the first horizon keeps a skipped row non-negative
             // across the step, the second makes it provably non-binding in the QP. See
             // ClearanceBarrier::evaluateScreened().
-            threshold_ = decreaseRates_ * std::max(dt, 1.0 / kappa);
-            threshold_.array() += integrationBuffer_;  // a no-op when integrationBuffer_ == 0
+            const double horizon = std::max(dt, 1.0 / kappa);
+            if (horizon != thresholdHorizon_)
+            {
+                threshold_ = decreaseRates_ * horizon;
+                threshold_.array() += integrationBuffer_;
+                thresholdHorizon_ = horizon;
+            }
             barrier_.evaluateScreened(q, threshold_, evaluation_);
             activeRows_ += static_cast<std::size_t>(evaluation_.active);
             if (!evaluation_.inBounds)
@@ -178,13 +190,38 @@ namespace ompl::cbf
             }
 
             const Eigen::Index active = evaluation_.active;
-            if (active == 0)
-                filtered = nominal.cwiseMax(lower).cwiseMin(upper);
-            else
+            filtered = nominal.cwiseMax(lower).cwiseMin(upper);
+            bool feasible = true;
+            for (Eigen::Index row = 0; row < active; ++row)
+            {
+                rowLower_[row] = -kappa * (evaluation_.values[evaluation_.constraint[row]] - integrationBuffer_);
+                feasible = feasible && evaluation_.rows.row(row).dot(filtered) >= rowLower_[row];
+            }
+            // The box projection is the minimizer of the diagonal QP whenever
+            // it satisfies the remaining rows. This test is exact, including
+            // cases where the nominal input lies outside the velocity box.
+            if (!feasible && active == 1)
+            {
+                // Weighted projection onto one halfspace. If it also satisfies
+                // the box it solves the full QP; otherwise defer to qpmad.
+                const Configuration direction = evaluation_.rows.row(0).transpose().cwiseQuotient(inverseSquaredSpeed_);
+                const double denominator = evaluation_.rows.row(0).dot(direction);
+                if (denominator > 0.0)
+                {
+                    const double multiplier = std::max(0.0, (rowLower_[0] - evaluation_.rows.row(0).dot(nominal)) / denominator);
+                    const Configuration candidate = nominal + multiplier * direction;
+                    if (candidate.allFinite() && (candidate.array() >= lower.array()).all() &&
+                        (candidate.array() <= upper.array()).all() &&
+                        evaluation_.rows.row(0).dot(candidate) >= rowLower_[0] - 1e-12)
+                    {
+                        filtered = candidate;
+                        feasible = true;
+                    }
+                }
+            }
+            if (!feasible)
             {
                 ++qpCalls_;
-                hessian_.setZero();
-                hessian_.diagonal() = inverseSquaredSpeed_;
                 objective_ = -inverseSquaredSpeed_.cwiseProduct(nominal);
                 for (Eigen::Index row = 0; row < active; ++row)
                     rowLower_[row] =
@@ -193,7 +230,7 @@ namespace ompl::cbf
                 {
                     const auto status = solver_.solve(filtered, hessian_, objective_, lower, upper,
                                                        evaluation_.rows.topRows(active), rowLower_.head(active),
-                                                       rowUpper_.head(active));
+                                                       rowUpper_.head(active), solverParameters_);
                     if (status != Solver::OK)
                     {
                         filtered.setZero();
@@ -249,9 +286,11 @@ namespace ompl::cbf
         double integrationBuffer_;
         mutable Solver solver_;
         mutable Eigen::Matrix<double, nJoints, nJoints> hessian_;
+        qpmad::SolverParameters solverParameters_;
         Configuration inverseSquaredSpeed_;
         mutable Configuration objective_;
         mutable typename Barrier::Values rowLower_, rowUpper_, threshold_;
+        mutable double thresholdHorizon_{std::numeric_limits<double>::quiet_NaN()};
         typename Barrier::Values decreaseRates_;
         mutable typename Barrier::Evaluation evaluation_;
         mutable std::size_t calls_{0};

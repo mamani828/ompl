@@ -1,3 +1,4 @@
+// Constant diagonal Hessian and exact projection shortcuts.
 #include "ompl/cbf/CBFControlFilter.h"
 
 #include <algorithm>
@@ -27,7 +28,9 @@ struct ompl::cbf::CBFControlFilter::Solver
     using Backend = qpmad::SolverTemplate<double, nJoints, 1, nConstraints>;
 
     Backend backend;
-    // qpmad factorizes the Hessian in place, so it gets a scratch copy each solve.
+    qpmad::SolverParameters backendParameters;
+    Eigen::Matrix<double, nJoints, 1> inverseWeights;
+    // Cached inverse Cholesky factor; rebuilt when weights change.
     Eigen::Matrix<double, nJoints, nJoints> hessian{Eigen::Matrix<double, nJoints, nJoints>::Zero()};
     Eigen::Matrix<double, nJoints, 1> objective;
     Eigen::Matrix<double, nConstraints, 1> rowLower;
@@ -53,8 +56,20 @@ ompl::cbf::CBFControlFilter::CBFControlFilter(const ClearanceBarrier &barrier)
 ompl::cbf::CBFControlFilter::CBFControlFilter(const ClearanceBarrier &barrier, const Parameters &parameters)
   : barrier_(barrier), parameters_(parameters), solver_(std::make_unique<Solver>())
 {
-    // Per unit time; scaled by the actual step in filter(), which is where dt is known.
+    setParameters(parameters);
+}
+
+void ompl::cbf::CBFControlFilter::setParameters(const Parameters &parameters)
+{
+    if (!parameters.weights.allFinite() || (parameters.weights.array() <= 0.0).any())
+        throw std::invalid_argument("CBF weights must be finite and positive");
+    parameters_ = parameters;
+    solver_->inverseWeights = parameters_.weights.cwiseInverse();
+    solver_->hessian.setZero();
+    solver_->hessian.diagonal() = parameters_.weights.cwiseSqrt().cwiseInverse();
+    solver_->backendParameters.hessian_type_ = qpmad::SolverParameters::HESSIAN_INVERTED_CHOLESKY_FACTOR;
     solver_->decreaseRates = barrier_.decreaseRates(parameters_.maxSpeed);
+    solver_->thresholdHorizon = std::numeric_limits<double>::quiet_NaN();
 }
 
 ompl::cbf::CBFControlFilter::~CBFControlFilter() = default;
@@ -201,17 +216,30 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     for (Eigen::Index r = 0; r < active; ++r)
         solver.rowLower[r] = evaluation.values[evaluation.constraint[r]] * -parameters_.kappa;
 
-    if (active == 0)
+    filtered = nominal.cwiseMax(lower).cwiseMin(upper);
+    bool feasible = true;
+    for (Eigen::Index r = 0; r < active; ++r)
+        feasible = feasible && evaluation.rows.row(r).dot(filtered) >= solver.rowLower[r];
+    if (!feasible && active == 1)
     {
-        // Screening has proved that no barrier can bind during this step. What remains
-        // is a diagonal box QP, whose exact solution is the component-wise clamp of the
-        // nominal control. Avoid entering qpmad for this common open-space case.
-        filtered = nominal.cwiseMax(lower).cwiseMin(upper);
+        const Control direction = evaluation.rows.row(0).transpose().cwiseProduct(solver.inverseWeights);
+        const double denominator = evaluation.rows.row(0).dot(direction);
+        if (denominator > 0.0)
+        {
+            const double multiplier = std::max(0.0, (solver.rowLower[0] - evaluation.rows.row(0).dot(nominal)) / denominator);
+            const Control candidate = nominal + multiplier * direction;
+            if (candidate.allFinite() && (candidate.array() >= lower.array()).all() &&
+                (candidate.array() <= upper.array()).all() &&
+                evaluation.rows.row(0).dot(candidate) >= solver.rowLower[0] - 1e-12)
+            {
+                filtered = candidate;
+                feasible = true;
+            }
+        }
     }
-    else
+    if (!feasible)
     {
         // minimize 0.5 u^T W u - (W uNom)^T u, i.e. H = W and objective = -W uNom.
-        solver.hessian.diagonal() = parameters_.weights;
         solver.objective = -parameters_.weights.cwiseProduct(nominal);
 
         try
@@ -223,7 +251,7 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
             const auto status = solver.backend.solve(filtered, solver.hessian, solver.objective, lower, upper,
                                                      evaluation.rows.topRows(active),
                                                      solver.rowLower.head(active),
-                                                     solver.rowUpper.head(active));
+                                                     solver.rowUpper.head(active), solver.backendParameters);
             diagnostics.solverIterations = solver.backend.getNumberOfInequalityIterations();
             if (status != Solver::Backend::OK)
             {

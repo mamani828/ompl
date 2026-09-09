@@ -236,10 +236,7 @@ namespace ompl::cbf
             return parameters_;
         }
 
-        void setParameters(const Parameters &parameters)
-        {
-            parameters_ = parameters;
-        }
+        void setParameters(const Parameters &parameters);
 
         const ClearanceBarrier &barrier() const
         {

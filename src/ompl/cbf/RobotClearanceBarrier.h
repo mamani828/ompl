@@ -203,6 +203,7 @@ namespace ompl::cbf
         {
             const auto kin = robot_.kinematics(q);
             Centers centers;
+            Centers gradients;
             out.active = 0;
             out.inBounds = true;
             for (std::size_t i = 0; i < Robot::nSpheres; ++i)
@@ -210,8 +211,10 @@ namespace ompl::cbf
                 centers.col(static_cast<Eigen::Index>(i)) = Robot::sphereCenter(kin, i);
                 out.inBounds = out.inBounds && field_.inBounds(centers.col(static_cast<Eigen::Index>(i)));
                 out.boundary[static_cast<Eigen::Index>(i)] = boundaryClearance(centers.col(static_cast<Eigen::Index>(i)));
-                out.values[static_cast<Eigen::Index>(i)] =
-                    field_.distance(centers.col(static_cast<Eigen::Index>(i))) - Robot::spheres()[i].radius - worldMargin;
+                const auto query = field_.screenedValueGradient(centers.col(static_cast<Eigen::Index>(i)),
+                    Robot::spheres()[i].radius, worldMargin, threshold[static_cast<Eigen::Index>(i)]);
+                out.values[static_cast<Eigen::Index>(i)] = query.value - Robot::spheres()[i].radius - worldMargin;
+                gradients.col(static_cast<Eigen::Index>(i)) = query.gradient;
             }
             for (std::size_t p = 0; p < selfPairs_.size(); ++p)
             {
@@ -229,7 +232,7 @@ namespace ompl::cbf
                 const Eigen::Index row = out.active++;
                 out.constraint[row] = static_cast<int>(flat);
                 if (flat < static_cast<std::size_t>(nSpheres))
-                    out.rows.row(row) = field_.gradient(centers.col(index)).transpose() * Robot::sphereJacobian(kin, flat);
+                    out.rows.row(row) = gradients.col(index).transpose() * Robot::sphereJacobian(kin, flat);
                 else
                     out.rows.row(row) = pairGradient(kin, centers, flat - static_cast<std::size_t>(nSpheres)).transpose();
             }

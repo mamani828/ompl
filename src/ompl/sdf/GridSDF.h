@@ -7,6 +7,7 @@
 #include <cstring>
 #include <fstream>
 #include <functional>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -84,6 +85,14 @@ namespace ompl::sdf
         auto valueAndGradient(const Eigen::Vector3d &p) const -> ValueGradient
         {
             return interpolate(p);
+        }
+
+        /// Compute the gradient only for barriers surviving screening; share
+        /// the voxel lookup and preserve subtraction order at threshold ties.
+        auto screenedValueGradient(const Eigen::Vector3d &p, double radius,
+                                   double margin, double threshold) const -> ValueGradient
+        {
+            return interpolate(p, radius, margin, threshold);
         }
 
         /// Batched distance query for column-wise points (3 x N).
@@ -477,7 +486,8 @@ namespace ompl::sdf
 
         /// Trilinear interpolation of value and gradient. Points outside the grid
         /// are clamped to the boundary (nearest-node extrapolation).
-        auto interpolate(const Eigen::Vector3d &p) const -> ValueGradient
+        auto interpolate(const Eigen::Vector3d &p, double radius = 0.0, double margin = 0.0,
+                         double threshold = std::numeric_limits<double>::infinity()) const -> ValueGradient
         {
             const Cell cell = locate<true>(p);
             const Corners v = corners(cell.base);
@@ -494,6 +504,8 @@ namespace ompl::sdf
 
             ValueGradient out;
             out.value = lerp(y0, y1, z);
+            if (out.value - radius - margin > threshold)
+                return out;
 
             if (cell.derivativeActive[0])
             {
