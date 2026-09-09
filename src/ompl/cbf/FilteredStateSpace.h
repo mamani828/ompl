@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <unordered_map>
@@ -57,9 +58,11 @@ namespace ompl::cbf
     /// ### Straight where it can be, filtered where it must be
     ///
     /// A rollout does not step at a fixed rate. Each filter call also hands back how
-    /// long the control it returned stays certified -- the span over which nothing the
-    /// filter enforces can bind -- and the rollout runs that control for exactly that
-    /// long before asking again. Where there is room, one call certifies the whole
+    /// long the control it returned stays certified -- by default the span over which no
+    /// barrier can reach zero, and with `setSafeHops(false)` the shorter span over which
+    /// nothing the filter enforces can bind -- and the rollout runs that control for
+    /// exactly that long before asking again. `setSafeHops()` documents what separates
+    /// the two and what the longer one costs. Where there is room, one call certifies the whole
     /// extension and the edge is a single straight line, produced without checking
     /// anything along it, because there is nothing along it left to find out. Where
     /// there is not, the certificate is short, the step falls back to `stepSize`, and
@@ -127,7 +130,36 @@ namespace ompl::cbf
             double travel{0.0};                    ///< joint-space radians covered
             double fraction{0.0};                  ///< share of the full horizon it got through
             bool reachedTarget{false};             ///< did it finish within reachTolerance of `to`?
+            bool callBudgetReached{false};         ///< stopped after the configured filter-call budget
+            bool stalled{false};                   ///< consecutive steps made negligible target progress
+            bool tinyControl{false};               ///< stopped on a numerically negligible applied control
         };
+
+        /// Optional sequential-rollout work limits. Disabled by default because `roll()`
+        /// is also a public integration primitive; planners opt in when a useful partial
+        /// edge is preferable to spending an unbounded number of calls on one target.
+        struct EarlyTermination
+        {
+            bool enabled{false};
+            /// Zero leaves the number of filter calls unbounded.
+            /// Forty is deliberately above a typical useful extension: shorter caps
+            /// fragmented RRTConnect's greedy connect chain and increased total work.
+            unsigned int maxFilterCalls{40};
+            /// Stop after this many consecutive low-progress steps; zero disables it.
+            unsigned int stalledSteps{3};
+            /// A step is stalled when target-distance reduction is at most this share
+            /// of the nominal step's travel.
+            double minProjectedProgressFraction{0.01};
+            /// Applied max joint-speed fraction below which the control is treated as zero.
+            double minControlFraction{1e-4};
+        };
+
+        /// Optional speculative steering implementation. Returning false asks the space
+        /// to run its ordinary sequential rollout, so experiments can be installed
+        /// without weakening the production fallback. A rejected proposal may return
+        /// filter-work counters in its Rollout; they are charged but its motion is not.
+        using RolloutPlanner =
+            std::function<bool(const Configuration &, const Configuration &, double, Rollout &)>;
 
         /// Aggregate counters, so a planner run can be costed without instrumenting
         /// the planner. Mutable because `interpolate()` is const.
@@ -144,6 +176,12 @@ namespace ompl::cbf
             std::size_t served{0};     ///< queries answered from the ledger, at no filter cost
             std::size_t recorded{0};   ///< edges committed to the ledger
             std::size_t evicted{0};    ///< edges dropped for capacity; should stay zero
+            std::size_t proposalAttempts{0};
+            std::size_t proposalAccepted{0};
+            std::size_t proposalFallbacks{0};
+            std::size_t callBudgetTerminations{0};
+            std::size_t stallTerminations{0};
+            std::size_t tinyControlTerminations{0};
         };
 
         /// \p filter is not copied and must outlive this space. \p stepSize is the
@@ -244,6 +282,7 @@ namespace ompl::cbf
             Control nominal;
             Control applied;
             double elapsed = 0.0;
+            unsigned int consecutiveStalls = 0;
             while (budget - elapsed > negligibleTime)
             {
                 // Time left in the *full* horizon, so a truncated rollout follows the
@@ -254,9 +293,12 @@ namespace ompl::cbf
                     nominal[j] = std::clamp(nominal[j], -maxSpeed_[j], maxSpeed_[j]);
 
                 double certified = 0.0;
+                double safe = 0.0;
                 const typename Filter::Status status =
-                    filter_.filter(out.end, nominal, stepSize_, applied, certified);
-                ++statistics_.steps;
+                    filter_.filter(out.end, nominal, stepSize_, applied, certified, safe);
+                // Which of the two certificates the hop is allowed to spend. See
+                // `setSafeHops()` for what the longer one gives up.
+                const double reach = safeHops_ ? safe : certified;
                 if (status == Filter::Status::Blocked)
                 {
                     // Nothing safe to do. Stop rather than sit still burning steps --
@@ -267,15 +309,47 @@ namespace ompl::cbf
                 if (status == Filter::Status::Filtered)
                     ++out.filtered;
 
+                ++out.steps;
+
                 // How far to run what the filter just handed back. The floor is the step
                 // it was asked about, which it answered for; above that the filter has
                 // certified itself a no-op, so running on is not an extrapolation but a
                 // saving of calls whose outcome is already known.
                 const double span =
-                    std::min(std::max(stepSize_, std::min(certified, maxStepScale_ * stepSize_)),
+                    std::min(std::max(stepSize_, std::min(reach, maxStepScale_ * stepSize_)),
                              budget - elapsed);
 
-                Configuration landing = Operations::integrate(out.end, applied, span);
+                // A QP can return a nonzero control whose motion is numerically useless.
+                // Treat it as zero before integrating a long chain of microscopic states.
+                //
+                // Guarded by what is left *after* this step, exactly as the stall and
+                // call-budget tests below are, and for a reason those two do not have to
+                // spell out. A short extension has a small nominal control by
+                // construction -- it is `(to - from) / horizon`, so it shrinks with the
+                // request, not with how cornered the robot is -- and testing the
+                // control's size alone therefore refused every extension shorter than
+                // `minControlFraction * stepSize * maxSpeed`, arriving ones included.
+                // That put a floor under how short an extension the planner could make,
+                // which is precisely what the probabilistic-completeness argument needs
+                // absent: it covers a solution path in balls and asks for the tree to be
+                // extendable to a sample anywhere inside one, however close that sample
+                // lands to the vertex it grew from. There is no long chain to guard
+                // against when the step ends the rollout, so there is nothing to trade.
+                if (earlyTermination_.enabled && earlyTermination_.minControlFraction > 0.0 &&
+                    budget - elapsed - span > negligibleTime)
+                {
+                    const double appliedFraction =
+                        applied.cwiseAbs().cwiseQuotient(maxSpeed_).maxCoeff();
+                    if (appliedFraction <= earlyTermination_.minControlFraction)
+                    {
+                        out.tinyControl = true;
+                        break;
+                    }
+                }
+
+                const Configuration previous = out.end;
+                const double previousGap = Operations::distance(previous, to, maxSpeed_);
+                Configuration landing = Operations::integrate(previous, applied, span);
                 // A hop that runs the horizon out was aimed to finish on `to`, and with
                 // nothing in the way it does -- to the last bit. Recognising that lets an
                 // unobstructed edge end on the state that was asked for rather than one
@@ -284,19 +358,49 @@ namespace ompl::cbf
                     landing = Operations::normalize(to);
 
                 elapsed += span;
-                ++out.steps;
-                // A cornered-but-feasible QP answers with a zero control, which is
-                // certified for as long as you like and goes nowhere. Charge the call and
-                // run the clock out, but keep it out of the record: a repeated waypoint
-                // is not a motion.
-                if (bitwiseEqual(landing, out.end))
-                    continue;
+                // With early termination disabled, a cornered-but-feasible zero control
+                // runs the clock out without adding repeated waypoints. The enabled path
+                // catches exact and numerical zero controls above before integration.
+                const bool moved = !bitwiseEqual(landing, previous);
 
-                out.travel += Operations::distance(out.end, landing, maxSpeed_);
-                out.end = landing;
-                out.waypoints.push_back(out.end);
-                if (span > stepSize_)
-                    ++out.coarse;
+                if (moved)
+                {
+                    out.travel += Operations::distance(previous, landing, maxSpeed_);
+                    out.end = landing;
+                    out.waypoints.push_back(out.end);
+                    if (span > stepSize_)
+                        ++out.coarse;
+                }
+
+                if (earlyTermination_.enabled && earlyTermination_.stalledSteps > 0)
+                {
+                    const Configuration nominalLanding =
+                        Operations::integrate(previous, nominal, span);
+                    const double nominalTravel =
+                        Operations::distance(previous, nominalLanding, maxSpeed_);
+                    const double progress =
+                        previousGap - Operations::distance(out.end, to, maxSpeed_);
+                    if (nominalTravel > negligibleAngle &&
+                        progress <= earlyTermination_.minProjectedProgressFraction * nominalTravel)
+                        ++consecutiveStalls;
+                    else
+                        consecutiveStalls = 0;
+
+                    if (consecutiveStalls >= earlyTermination_.stalledSteps &&
+                        budget - elapsed > negligibleTime)
+                    {
+                        out.stalled = true;
+                        break;
+                    }
+                }
+
+                if (earlyTermination_.enabled && earlyTermination_.maxFilterCalls > 0 &&
+                    out.steps >= earlyTermination_.maxFilterCalls &&
+                    budget - elapsed > negligibleTime)
+                {
+                    out.callBudgetReached = true;
+                    break;
+                }
             }
 
             if (terminal)
@@ -306,17 +410,48 @@ namespace ompl::cbf
                 budget - elapsed <= negligibleTime &&
                 Operations::distance(out.end, to, maxSpeed_) <= reachTolerance();
 
-            statistics_.rollouts += 1;
-            statistics_.filtered += out.filtered;
-            statistics_.blocked += out.blocked;
-            statistics_.coarse += out.coarse;
-            statistics_.travel += out.travel;
+            account(out);
             return out;
         }
 
         Rollout roll(const base::State *from, const base::State *to, double fraction) const
         {
             return roll(configurationOf(from), configurationOf(to), fraction);
+        }
+
+        /// Use the installed speculative planner when it can certify a proposal, and
+        /// otherwise preserve the exact direct-rollout behavior.
+        Rollout steer(const Configuration &from, const Configuration &to, double fraction) const
+        {
+            if (rolloutPlanner_)
+            {
+                ++statistics_.proposalAttempts;
+                Rollout proposal;
+                if (rolloutPlanner_(from, to, fraction, proposal))
+                {
+                    ++statistics_.proposalAccepted;
+                    account(proposal);
+                    return proposal;
+                }
+                ++statistics_.proposalFallbacks;
+                accountRejectedWork(proposal);
+            }
+            return roll(from, to, fraction);
+        }
+
+        Rollout steer(const base::State *from, const base::State *to, double fraction) const
+        {
+            return steer(configurationOf(from), configurationOf(to), fraction);
+        }
+
+        void setRolloutPlanner(RolloutPlanner planner)
+        {
+            rolloutPlanner_ = std::move(planner);
+        }
+
+        void clearRolloutPlanner()
+        {
+            rolloutPlanner_ = RolloutPlanner();
         }
 
         /// A recorded edge, oriented the way it was asked for.
@@ -419,14 +554,67 @@ namespace ompl::cbf
                 return;
 
             const Edge key{from, to};
-            if (ledger_.find(key) != ledger_.end())
+            // One lookup; try_emplace preserves the existing trajectory and
+            // does not move waypoints when the key is already present.
+            const auto [entry, inserted] = ledger_.try_emplace(key, std::move(waypoints));
+            if (!inserted)
                 return;
 
-            ledgerWaypoints_ += waypoints.size();
+            ledgerWaypoints_ += entry->second.size();
             order_.push_back(key);
-            ledger_.emplace(key, std::move(waypoints));
             ++statistics_.recorded;
             evictToCapacity();
+        }
+
+        /// Split an already-recorded edge at the same uniformly parameterized states
+        /// inserted by a planner. Each resulting tree edge retains the exact portion
+        /// of the certified polyline, rather than replacing a curved portion by its
+        /// straight chord.
+        void recordSubdivisions(const std::vector<base::State *> &states) const
+        {
+            if (states.size() < 3)
+                return;
+
+            const Configuration from = configurationOf(states.front());
+            const Configuration to = configurationOf(states.back());
+            const EdgeRecord existing = recordedEdge(from, to);
+            if (!existing || existing.size() < 2)
+                return;
+
+            // record() may rehash the ledger, so detach from EdgeRecord before adding
+            // any subedges.
+            std::vector<Configuration> whole;
+            whole.reserve(existing.size());
+            for (std::size_t i = 0; i < existing.size(); ++i)
+                whole.push_back(existing[i]);
+
+            const std::size_t subdivisions = states.size() - 1;
+            const std::size_t sourceSegments = whole.size() - 1;
+            for (std::size_t part = 0; part < subdivisions; ++part)
+            {
+                const double lo = static_cast<double>(part) /
+                                  static_cast<double>(subdivisions);
+                const double hi = static_cast<double>(part + 1) /
+                                  static_cast<double>(subdivisions);
+                std::vector<Configuration> piece;
+                piece.push_back(configurationOf(states[part]));
+
+                for (std::size_t waypoint = 1; waypoint < sourceSegments; ++waypoint)
+                {
+                    const double t = static_cast<double>(waypoint) /
+                                     static_cast<double>(sourceSegments);
+                    if (t > lo && t < hi &&
+                        !bitwiseEqual(piece.back(), whole[waypoint]))
+                        piece.push_back(whole[waypoint]);
+                }
+
+                const Configuration end = configurationOf(states[part + 1]);
+                if (!bitwiseEqual(piece.back(), end))
+                    piece.push_back(end);
+                const Configuration pieceFrom = piece.front();
+                const Configuration pieceTo = piece.back();
+                record(pieceFrom, pieceTo, std::move(piece));
+            }
         }
 
         /// Does the pending rollout describe the edge \p from -> \p to, either way round?
@@ -509,11 +697,62 @@ namespace ompl::cbf
             return maxStepScale_;
         }
 
+        /// Whether a hop may spend the *safety* certificate rather than the no-op one.
+        ///
+        /// On by default. A hop then runs until a barrier could reach zero rather than
+        /// until a constraint row could bind -- longer by `1/kappa` on every row, and
+        /// longer again because the certified region's slack is the whole clearance
+        /// rather than the clearance less that lookahead.
+        ///
+        /// What that buys is filter calls, which are most of the rollout's cost. On the
+        /// MotionBenchMaker set it is 5-21% fewer barrier evaluations and 9-21% less
+        /// planning time, the gain growing as `kappa` falls because that is what widens
+        /// the gap between the two certificates.
+        ///
+        /// What it gives up is that an edge is no longer *the* filtered edge. It is
+        /// collision-free, and the safe set is still forward invariant -- a hop ends with
+        /// `h >= 0`, the filter resumes, and a zero control is always admissible for a
+        /// single integrator, so no hop can strand the arm -- but inside a hop `h` may
+        /// decay faster than the CBF's exponential envelope allows.
+        ///
+        /// Turn it off to recover the previous behaviour, where every edge is exactly the
+        /// motion repeated filtering would have produced. That is what a caller wants if
+        /// it intends to reproduce the trajectory a continuously-filtered execution would
+        /// follow, rather than merely to plan a valid one.
+        ///
+        /// See `ClearanceBarrier::safeDuration()` against `certifiedDuration()`, and
+        /// `ClearanceBarrier::noOpTraversalTime()` for the third option: keeping the
+        /// envelope by slowing the traversal down instead of shortening the hop.
+        bool safeHops() const
+        {
+            return safeHops_;
+        }
+
+        void setSafeHops(bool enabled)
+        {
+            safeHops_ = enabled;
+        }
+
         void setMaxStepScale(double scale)
         {
             if (scale < 1.0)
                 throw Exception("FilteredStateSpace: maxStepScale must be at least 1");
             maxStepScale_ = scale;
+        }
+
+        const EarlyTermination &earlyTermination() const
+        {
+            return earlyTermination_;
+        }
+
+        void setEarlyTermination(const EarlyTermination &parameters)
+        {
+            if (parameters.minProjectedProgressFraction < 0.0 ||
+                parameters.minProjectedProgressFraction > 1.0)
+                throw Exception("FilteredStateSpace: min projected progress must be in [0, 1]");
+            if (parameters.minControlFraction < 0.0 || parameters.minControlFraction > 1.0)
+                throw Exception("FilteredStateSpace: min control fraction must be in [0, 1]");
+            earlyTermination_ = parameters;
         }
 
         /// Minimum share of the free-space progress an extension must actually achieve
@@ -544,7 +783,7 @@ namespace ompl::cbf
                 return;
             }
 
-            Rollout rollout = roll(a, b, t);
+            Rollout rollout = steer(a, b, t);
             staged_.waypoints.clear();
             staged_.valid = false;
 
@@ -715,12 +954,37 @@ namespace ompl::cbf
             }
         }
 
+        void account(const Rollout &rollout) const
+        {
+            ++statistics_.rollouts;
+            // A terminal blocked call consumes filter work but integrates no step, so
+            // Rollout::steps excludes it while the aggregate work counter includes it.
+            statistics_.steps += rollout.steps + rollout.blocked;
+            statistics_.filtered += rollout.filtered;
+            statistics_.blocked += rollout.blocked;
+            statistics_.coarse += rollout.coarse;
+            statistics_.travel += rollout.travel;
+            statistics_.callBudgetTerminations += rollout.callBudgetReached ? 1u : 0u;
+            statistics_.stallTerminations += rollout.stalled ? 1u : 0u;
+            statistics_.tinyControlTerminations += rollout.tinyControl ? 1u : 0u;
+        }
+
+        void accountRejectedWork(const Rollout &rollout) const
+        {
+            statistics_.steps += rollout.steps + rollout.blocked;
+            statistics_.filtered += rollout.filtered;
+            statistics_.blocked += rollout.blocked;
+        }
+
         const Filter &filter_;
         double stepSize_;
         Control maxSpeed_;
         double reachTolerance_{-1.0};
         double maxStepScale_{std::numeric_limits<double>::infinity()};
+        bool safeHops_{true};
         double minProgressFraction_{0.25};
+        EarlyTermination earlyTermination_;
+        RolloutPlanner rolloutPlanner_;
         std::size_t ledgerCapacity_{1u << 20};
         mutable Statistics statistics_;
         mutable Staged staged_;

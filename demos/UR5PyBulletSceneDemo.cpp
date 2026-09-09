@@ -9,7 +9,8 @@
 //
 //     ./build/demos/demo_UR5PyBulletScene <scene.problem> [seconds] [out.path]
 //         [trials] [maxStepScale] [checkResolution] [baselineAudit] [selfMargin]
-//         [shortcutDelta]
+//         [shortcutDelta] [guardBuffer] [range] [minProgressFraction] [kappa]
+//         [trialSeedOffset] [picardIterations] [picardWindow] [picardWorkers]
 //     ./build/demos/demo_UR5PyBulletScene <scene.problem> --probe   < points.txt
 //
 // `--probe` reads "x y z" triples on stdin and prints the field value and
@@ -26,6 +27,7 @@
 // violate the barrier to arrive.
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -48,6 +50,8 @@
 #include <ompl/cbf/ExecutedPath.h>
 #include <ompl/cbf/FilteredMotionValidator.h>
 #include <ompl/cbf/FilteredStateSpace.h>
+#include <ompl/cbf/ParallelPicardRollout.h>
+#include <ompl/cbf/Profiler.h>
 #include <ompl/cbf/RopeShortcut.h>
 #include <ompl/geometric/PathGeometric.h>
 #include <ompl/geometric/PathSimplifier.h>
@@ -99,6 +103,18 @@ namespace
         UR5::Configuration lower{UR5::Configuration::Zero()};
         UR5::Configuration upper{UR5::Configuration::Zero()};
         std::vector<Goal> goals;
+    };
+
+    /// Ordinary uniform sampling with a per-run seed, so the two planner rows start from
+    /// the same random sequence without pre-validating or rejection-sampling targets.
+    class SeededStateSampler : public ob::RealVectorStateSampler
+    {
+    public:
+        SeededStateSampler(const ob::StateSpace *space, std::uint_fast32_t seed)
+          : ob::RealVectorStateSampler(space)
+        {
+            rng_.setLocalSeed(seed);
+        }
     };
 
     std::string directoryOf(const std::string &path)
@@ -195,15 +211,31 @@ namespace
     double selfMargin = Barrier::defaultSelfMargin;
 
     /// Anchor spacing for the rope shortcut, in radians, applied to both rows after they
-    /// solve. Non-positive disables it, which is the A/B: until this existed neither row
-    /// was shortcut at all, so the length comparison between them was between two
-    /// unsimplified paths and said as much about RRTConnect's zigzag as about the filter.
-    double shortcutDelta = -1.0;
+    /// solve. Non-positive disables it for an A/B. The 0.65 default is the coarse setting
+    /// that retained the path-quality gain without the quadratic cost of dense anchors.
+    double shortcutDelta = 0.65;
 
     /// World-clearance buffer enforced by the filter above the audited margin.
     /// Negative selects ClearanceBarrier::interpolationBuffer(field); zero is an
     /// intentionally unsafe experimental A/B that exposes interpolation violations.
     double guardBuffer = -1.0;
+
+    /// Minimum fraction of straight-line progress needed to retain a deflected extension.
+    /// The clutter benchmark uses 0.10 to keep over 90% of uniform samples productive.
+    double minProgressFraction = 0.10;
+
+    /// Negative keeps CBFControlFilter's default; exposed for benchmark A/B runs.
+    /// CBF decay rate in 1/s (`dh/dt >= -kappa h`); negative leaves the filter default.
+    double filterKappa = -1.0;
+
+    std::uint_fast32_t trialSeedOffset = 0;
+    unsigned int picardIterations = 0;
+    unsigned int picardWindow = 8;
+    unsigned int picardWorkers = 0;
+    bool retainPartialSteering = true;
+    bool rolloutEarlyTermination = true;
+    unsigned int rolloutCallBudget = 40;
+    unsigned int rolloutStalledSteps = 3;
 
     struct Result
     {
@@ -223,6 +255,25 @@ namespace
         std::size_t coarse{0};  ///< steps the filter certified past `stepSize`
         double travel{0.0};     ///< joint-space radians rolled, so `travel / steps` is the
                                 ///< distance one filter call bought
+        std::size_t rollouts{0};   ///< planner rollout attempts, before shortcutting
+        std::size_t recorded{0};   ///< planner edges retained from those rollouts
+        std::size_t abandoned{0};  ///< rollout extensions suppressed for insufficient progress
+        std::size_t served{0};     ///< motion queries answered from staged/recorded rollouts
+        std::size_t primarySamples{0};   ///< primary RRTConnect sample extensions observed
+        std::size_t productiveSamples{0};  ///< primary samples that added at least one node
+        std::size_t proposalAttempts{0};
+        std::size_t proposalAccepted{0};
+        std::size_t proposalFallbacks{0};
+        std::size_t callBudgetTerminations{0};
+        std::size_t stallTerminations{0};
+        std::size_t tinyControlTerminations{0};
+        std::size_t picardWindows{0};
+        std::size_t picardConvergedWindows{0};
+        std::size_t picardMapCertifiedWindows{0};
+        std::size_t picardMapCalls{0};
+        std::size_t picardVerificationCalls{0};
+        std::size_t picardVerificationFailures{0};
+        double picardSeconds{0.0};
         std::size_t misses{0};   ///< solution edges re-derived rather than replayed
         std::size_t evicted{0};  ///< ledger edges dropped for capacity; must stay zero
 
@@ -249,12 +300,11 @@ namespace
     /// way round -- every state it emits was certified as it was produced.
     Result planCollisionChecked(const Scene &scene, const sdf::GridSDF &field, const Goal &goal,
                                 double timeLimit, double range, double checkResolution,
-                                double auditSpacing,
+                                double auditSpacing, std::uint_fast32_t samplerSeed,
                                 std::vector<UR5::Configuration> *path = nullptr)
     {
         const UR5 robot;
         const Barrier audit(robot, field, scene.margin, selfMargin);
-
         auto space = std::make_shared<ob::RealVectorStateSpace>(dimension);
         ob::RealVectorBounds bounds(dimension);
         for (int j = 0; j < dimension; ++j)
@@ -263,6 +313,11 @@ namespace
             bounds.setHigh(j, scene.upper[j]);
         }
         space->setBounds(bounds);
+        space->setStateSamplerAllocator(
+            [samplerSeed](const ob::StateSpace *stateSpace)
+            {
+                return std::make_shared<SeededStateSampler>(stateSpace, samplerSeed);
+            });
         // Straight-line edges are only ever *sampled* for validity, and OMPL's default
         // samples them 15x coarser than this row is audited at -- which is a discount on
         // the checking, not a faster planner. Matching the two is what makes the timing
@@ -291,8 +346,17 @@ namespace
         auto pdef = std::make_shared<ob::ProblemDefinition>(si);
         pdef->setStartAndGoalStates(start, target, 0.35);
 
+        std::size_t primarySamples = 0;
+        std::size_t productiveSamples = 0;
         auto planner = std::make_shared<og::RRTConnect>(si);
         planner->setRange(range);
+        planner->setSampleExtensionCallback(
+            [&primarySamples, &productiveSamples](const ob::State *, const ob::State *, bool,
+                                                  bool productive, bool, bool)
+            {
+                ++primarySamples;
+                productiveSamples += productive ? 1u : 0u;
+            });
         planner->setProblemDefinition(pdef);
         planner->setup();
 
@@ -303,6 +367,8 @@ namespace
         result.seconds = ompl::time::seconds(ompl::time::now() - begin);
         result.solved = (status == ob::PlannerStatus::EXACT_SOLUTION);
         result.steps = checks;
+        result.primarySamples = primarySamples;
+        result.productiveSamples = productiveSamples;
 
         ob::PlannerData data(si);
         planner->getPlannerData(data);
@@ -364,7 +430,7 @@ namespace
     }
 
     Result plan(const Scene &scene, const sdf::GridSDF &field, const Goal &goal, double timeLimit,
-                double stepSize, double range, double maxStepScale,
+                double stepSize, double range, double maxStepScale, std::uint_fast32_t samplerSeed,
                 std::vector<UR5::Configuration> *path)
     {
         const UR5 robot;
@@ -375,6 +441,8 @@ namespace
         const Barrier guard = Barrier::guarding(robot, field, scene.margin, guardBuffer, selfMargin);
 
         Filter::Parameters parameters;
+        if (filterKappa > 0.0)
+            parameters.kappa = filterKappa;
         const Filter filter(guard, parameters);
 
         auto space = std::make_shared<ompl::cbf::FilteredStateSpace>(filter, stepSize,
@@ -386,11 +454,42 @@ namespace
             bounds.setHigh(j, scene.upper[j]);
         }
         space->setBounds(bounds);
+        space->setStateSamplerAllocator(
+            [samplerSeed](const ob::StateSpace *stateSpace)
+            {
+                return std::make_shared<SeededStateSampler>(stateSpace, samplerSeed);
+            });
         // Above 1 the rollout runs each control as far as the filter certifies it, which
         // in open space is the whole extension; at 1 it steps at `stepSize` regardless.
         if (maxStepScale > 0.0)
             space->setMaxStepScale(maxStepScale);
+        if (minProgressFraction >= 0.0)
+            space->setMinProgressFraction(minProgressFraction);
+        ompl::cbf::FilteredStateSpace::EarlyTermination earlyTermination;
+        earlyTermination.enabled = rolloutEarlyTermination;
+        earlyTermination.maxFilterCalls = rolloutCallBudget;
+        earlyTermination.stalledSteps = rolloutStalledSteps;
+        space->setEarlyTermination(earlyTermination);
 
+        std::unique_ptr<ompl::cbf::ParallelPicardRollout> picard;
+        if (picardIterations > 0)
+        {
+            ompl::cbf::ParallelPicardRollout::Parameters picardParameters;
+            picardParameters.maxIterations = picardIterations;
+            picardParameters.windowSteps = picardWindow;
+            picardParameters.workers = picardWorkers;
+            picard = std::make_unique<ompl::cbf::ParallelPicardRollout>(filter,
+                                                                        picardParameters);
+            space->setRolloutPlanner(
+                [&picard, space](const UR5::Configuration &from,
+                                 const UR5::Configuration &to, double fraction,
+                                 ompl::cbf::FilteredStateSpace::Rollout &rollout)
+                {
+                    return picard->plan(from, to, fraction, space->stepSize(),
+                                        space->maxSpeed(), space->maxStepScale(),
+                                        space->reachTolerance(), rollout);
+                });
+        }
         auto si = std::make_shared<ob::SpaceInformation>(space);
         // The rollout certifies every step it emits, so there is nothing left for a
         // validity checker to do -- see README_CBF_USAGE.md on removing it.
@@ -413,8 +512,24 @@ namespace
 
         auto planner = std::make_shared<og::RRTConnect>(si);
         planner->setRange(range);
+        planner->setRetainPartialSteering(retainPartialSteering);
+        std::size_t primarySamples = 0;
+        std::size_t productiveSamples = 0;
+        planner->setSampleExtensionCallback(
+            [&primarySamples, &productiveSamples](const ob::State *, const ob::State *, bool,
+                                                  bool productive, bool, bool)
+            {
+                ++primarySamples;
+                productiveSamples += productive ? 1u : 0u;
+            });
         planner->setProblemDefinition(pdef);
         planner->setup();
+
+        // Exclude state-space setup/sanity work from planner statistics.
+        space->resetStatistics();
+        space->clearLedger();
+        if (picard)
+            picard->resetStatistics();
 
         const ompl::time::point begin = ompl::time::now();
         const ob::PlannerStatus status = planner->solve(ob::timedPlannerTerminationCondition(timeLimit));
@@ -429,6 +544,29 @@ namespace
         result.blocked = stats.blocked;
         result.coarse = stats.coarse;
         result.travel = stats.travel;
+        result.rollouts = stats.rollouts;
+        result.recorded = stats.recorded;
+        result.abandoned = stats.abandoned;
+        result.served = stats.served;
+        result.proposalAttempts = stats.proposalAttempts;
+        result.proposalAccepted = stats.proposalAccepted;
+        result.proposalFallbacks = stats.proposalFallbacks;
+        result.callBudgetTerminations = stats.callBudgetTerminations;
+        result.stallTerminations = stats.stallTerminations;
+        result.tinyControlTerminations = stats.tinyControlTerminations;
+        result.primarySamples = primarySamples;
+        result.productiveSamples = productiveSamples;
+        if (picard)
+        {
+            const auto &picardStats = picard->statistics();
+            result.picardWindows = picardStats.windows;
+            result.picardConvergedWindows = picardStats.convergedWindows;
+            result.picardMapCertifiedWindows = picardStats.mapCertifiedWindows;
+            result.picardMapCalls = picardStats.mapFilterCalls;
+            result.picardVerificationCalls = picardStats.verificationFilterCalls;
+            result.picardVerificationFailures = picardStats.verificationFailures;
+            result.picardSeconds = picardStats.seconds;
+        }
 
         ob::PlannerData data(si);
         planner->getPlannerData(data);
@@ -514,7 +652,11 @@ int main(int argc, char **argv)
     {
         std::printf("usage: %s <scene.problem> [seconds] [out.path] [trials] [maxStepScale]"
                     " [baselineCheckRadians] [baselineAuditRadians] [selfMargin]"
-                    " [shortcutRadians] [guardBufferMeters]\n",
+                    " [shortcutRadians] [guardBufferMeters] [rangeRadians]"
+                    " [minProgressFraction] [kappa] [trialSeedOffset]"
+                    " [picardIterations] [picardWindow] [picardWorkers]"
+                    " [retainPartialSteering] [earlyTermination] [rolloutCallBudget]"
+                    " [rolloutStalledSteps]\n",
                     argv[0]);
         std::printf("       %s <scene.problem> --probe   < points.txt\n", argv[0]);
         return 1;
@@ -545,13 +687,32 @@ int main(int argc, char **argv)
     const double baselineAudit = (argc > 7 && !probeMode) ? std::atof(argv[7]) : -1.0;
     if (argc > 8 && !probeMode)
         selfMargin = std::atof(argv[8]);
-    // Rope anchor spacing, in radians. Non-positive leaves both rows unsimplified, which
-    // is what they were before this existed. The default is off so every command line
-    // already in the README keeps reporting the numbers it used to.
+    // Rope anchor spacing, in radians. Non-positive leaves both rows unsimplified.
     if (argc > 9 && !probeMode)
         shortcutDelta = std::atof(argv[9]);
     if (argc > 10 && !probeMode)
         guardBuffer = std::atof(argv[10]);
+    const double range = (argc > 11 && !probeMode) ? std::atof(argv[11]) : 1.5;
+    if (argc > 12 && !probeMode)
+        minProgressFraction = std::atof(argv[12]);
+    if (argc > 13 && !probeMode)
+        filterKappa = std::atof(argv[13]);
+    if (argc > 14 && !probeMode)
+        trialSeedOffset = static_cast<std::uint_fast32_t>(std::max(0, std::atoi(argv[14])));
+    if (argc > 15 && !probeMode)
+        picardIterations = static_cast<unsigned int>(std::max(0, std::atoi(argv[15])));
+    if (argc > 16 && !probeMode)
+        picardWindow = static_cast<unsigned int>(std::max(1, std::atoi(argv[16])));
+    if (argc > 17 && !probeMode)
+        picardWorkers = static_cast<unsigned int>(std::max(0, std::atoi(argv[17])));
+    if (argc > 18 && !probeMode)
+        retainPartialSteering = std::atoi(argv[18]) != 0;
+    if (argc > 19 && !probeMode)
+        rolloutEarlyTermination = std::atoi(argv[19]) != 0;
+    if (argc > 20 && !probeMode)
+        rolloutCallBudget = static_cast<unsigned int>(std::max(0, std::atoi(argv[20])));
+    if (argc > 21 && !probeMode)
+        rolloutStalledSteps = static_cast<unsigned int>(std::max(0, std::atoi(argv[21])));
 
     const Scene scene = readScene(problemPath);
     const sdf::GridSDF field = sdf::GridSDF::load(scene.gridPath);
@@ -564,7 +725,6 @@ int main(int argc, char **argv)
     if (guardBuffer < 0.0)
         guardBuffer = Barrier::interpolationBuffer(field);
     const double stepSize = 0.05;
-    const double range = 1.5;
     // What the CBF row's rollout emits, and so the finest spacing at which its executed
     // motion exists. The baseline is audited here too unless asked for something finer.
     const double auditSpacing = UR5::velocityLimits().maxCoeff() * stepSize;
@@ -577,7 +737,20 @@ int main(int argc, char **argv)
                 dims[2], scene.voxel, field.maxGradientNorm());
     std::printf("margin %.4f, interpolation buffer %.4f, guarded margin %.4f\n", scene.margin,
                 guardBuffer, scene.margin + guardBuffer);
-
+    std::printf("CBF kappa %.3f /s, RRTConnect range %.3f rad, min progress %.2f\n",
+                filterKappa > 0.0 ? filterKappa : Filter::Parameters().kappa, range,
+                minProgressFraction >= 0.0 ? minProgressFraction : 0.25);
+    std::printf("retain partial CBF steering: %s\n", retainPartialSteering ? "on" : "off");
+    std::printf("rollout early termination: %s, %u-call budget, %u stalled steps\n",
+                rolloutEarlyTermination ? "on" : "off", rolloutCallBudget,
+                rolloutStalledSteps);
+    if (picardIterations > 0)
+    {
+        const std::string workers =
+            picardWorkers == 0 ? "automatic" : std::to_string(picardWorkers);
+        std::printf("parallel Picard on: %u iterations, %u-step windows, %s workers\n",
+                    picardIterations, picardWindow, workers.c_str());
+    }
     // Confirm the two sides agree about the start before planning: a mismatch here
     // means the grid and the sphere model disagree about where the world is, and
     // every number after it would be measuring the wrong thing.
@@ -624,16 +797,35 @@ int main(int argc, char **argv)
 
         std::vector<double> cbfRun, baseRun;
         Result r, base;
+        Result diagnostics;
+        std::size_t baselinePrimarySamples = 0;
+        std::size_t baselineProductiveSamples = 0;
         for (int trial = 0; trial < trials; ++trial)
         {
             path.clear();
             basePath.clear();
-            r = plan(scene, field, goal, timeLimit, stepSize, range, maxStepScale, &path);
+            const std::uint_fast32_t samplerSeed =
+                0xcbf000u + trialSeedOffset +
+                static_cast<std::uint_fast32_t>(goal.index * 10000 + trial);
+            r = plan(scene, field, goal, timeLimit, stepSize, range, maxStepScale, samplerSeed,
+                     &path);
             base = planCollisionChecked(scene, field, goal, timeLimit, range, checkResolution,
-                                        baselineAudit > 0.0 ? baselineAudit : auditSpacing,
+                                        baselineAudit > 0.0 ? baselineAudit : auditSpacing, samplerSeed,
                                         &basePath);
             cbfRun.push_back(r.seconds);
             baseRun.push_back(base.seconds);
+            diagnostics.steps += r.steps;
+            diagnostics.rollouts += r.rollouts;
+            diagnostics.recorded += r.recorded;
+            diagnostics.abandoned += r.abandoned;
+            diagnostics.served += r.served;
+            diagnostics.callBudgetTerminations += r.callBudgetTerminations;
+            diagnostics.stallTerminations += r.stallTerminations;
+            diagnostics.tinyControlTerminations += r.tinyControlTerminations;
+            diagnostics.primarySamples += r.primarySamples;
+            diagnostics.productiveSamples += r.productiveSamples;
+            baselinePrimarySamples += base.primarySamples;
+            baselineProductiveSamples += base.productiveSamples;
         }
         const double cbfMedian = median(cbfRun);
         const double baseMedian = median(baseRun);
@@ -674,6 +866,37 @@ int main(int argc, char **argv)
                     r.steps > 0 ? 1e2 * r.coarse / r.steps : 0.0, r.selfColliding,
                     r.solved ? r.minSelfOverlap : 0.0, r.lengthBefore, r.lengthAfter, cutPercent(r),
                     1e3 * r.shortcutSeconds);
+        std::printf("    cbf planner: %zu recorded / %zu rollouts (%.1f%%), %zu abandoned, "
+                    "%zu ledger-served, %zu filter calls\n",
+                    diagnostics.recorded, diagnostics.rollouts,
+                    diagnostics.rollouts > 0
+                        ? 1e2 * static_cast<double>(diagnostics.recorded) / diagnostics.rollouts
+                        : 0.0,
+                    diagnostics.abandoned, diagnostics.served, diagnostics.steps);
+        std::printf("    rollout early stops: %zu budget, %zu stalled, %zu tiny-control\n",
+                    diagnostics.callBudgetTerminations, diagnostics.stallTerminations,
+                    diagnostics.tinyControlTerminations);
+        if (picardIterations > 0)
+            std::printf("    parallel Picard: %zu/%zu proposals accepted, %zu fallbacks; "
+                        "%zu/%zu windows converged (%zu map-certified), "
+                        "%zu map + %zu verify filters, "
+                        "%zu verification failures, %.3f ms total\n",
+                        r.proposalAccepted, r.proposalAttempts, r.proposalFallbacks,
+                        r.picardConvergedWindows, r.picardWindows,
+                        r.picardMapCertifiedWindows, r.picardMapCalls,
+                        r.picardVerificationCalls, r.picardVerificationFailures,
+                        1e3 * r.picardSeconds);
+        std::printf("    productive samples: rrtc %zu/%zu (%.1f%%), cbf %zu/%zu (%.1f%%)\n",
+                    baselineProductiveSamples, baselinePrimarySamples,
+                    baselinePrimarySamples > 0
+                        ? 1e2 * static_cast<double>(baselineProductiveSamples) /
+                              baselinePrimarySamples
+                        : 0.0,
+                    diagnostics.productiveSamples, diagnostics.primarySamples,
+                    diagnostics.primarySamples > 0
+                        ? 1e2 * static_cast<double>(diagnostics.productiveSamples) /
+                              diagnostics.primarySamples
+                        : 0.0);
         if (shortcutDelta > 0.0 && r.solved)
             std::printf("    cbf shortcut: %zu accepted from %zu rollouts, %zu pairs screened out, "
                         "max arrival gap %.4f rad\n",
@@ -765,6 +988,11 @@ int main(int argc, char **argv)
             std::printf("wrote %s (%zu configurations)\n", basePathFile.c_str(),
                         baseCombined.size());
         }
+    }
+    if (ompl::cbf::profilingEnabled())
+    {
+        ompl::cbf::Profiler::instance().report(stdout);
+        ompl::cbf::FilterStats::instance().report(stdout);
     }
     return solvedCount == scene.goals.size() ? 0 : 3;
 }

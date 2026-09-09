@@ -2,9 +2,12 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdlib>
+#include <string>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
+#include <ompl/robots/RevoluteBounds.h>
 
 namespace ompl::robots
 {
@@ -304,13 +307,10 @@ namespace ompl::robots
         /// those are exactly the terms in the sum. Zero for k >= f_i, since a downstream
         /// joint cannot move the sphere.
         ///
-        /// It is sound but not tight: bounding the distance-to-axis by the full distance
-        /// discards the component along the axis, and the straight-chain sum overshoots
-        /// what the joint limits actually reach. For sphere-on-frame-6 versus joint 0 it
-        /// gives ~1.16 m against a true horizontal reach nearer 0.85 m. Tightening it
-        /// makes every user of it strictly better, so it is worth doing eventually --
-        /// per-joint-limit interval arithmetic over the intervening joints would.
-        static const Eigen::Matrix<double, nSpheres, nJoints> &leverArmBounds()
+        /// Retained as the ablation baseline and an upper cap for leverArmBounds().
+        /// Bounding distance-to-axis by full distance discards the axial component;
+        /// the swept-enclosure construction below retains more of that geometry.
+        static const Eigen::Matrix<double, nSpheres, nJoints> &armLengthBounds()
         {
             static const Eigen::Matrix<double, nSpheres, nJoints> table = []
             {
@@ -328,6 +328,46 @@ namespace ompl::robots
                         if (k + 1 < frame)
                             reach += jointOrigins()[k + 1].translation.norm();
                         bounds(static_cast<Eigen::Index>(i), static_cast<Eigen::Index>(k)) = reach;
+                    }
+                }
+                return bounds;
+            }();
+            return table;
+        }
+
+        /// Tighter all-configuration bounds from a complete search over cylinder,
+        /// axial-ball and origin-ball swept enclosures. Computed once; runtime
+        /// screening and certificates still use the same fixed-size table.
+        /// This construction is for this robot's revolute joints only.
+        /// For process-isolated ablations, OMPL_UR5_LEVER_BOUNDS=arm_length
+        /// selects the previous table. Read once, before any bounds are cached.
+        static const Eigen::Matrix<double, nSpheres, nJoints> &leverArmBounds()
+        {
+            static const Eigen::Matrix<double, nSpheres, nJoints> table = []
+            {
+                Eigen::Matrix<double, nSpheres, nJoints> bounds = armLengthBounds();
+                const char *mode = std::getenv("OMPL_UR5_LEVER_BOUNDS");
+                if (mode && std::string(mode) == "arm_length")
+                    return bounds;
+                for (std::size_t i = 0; i < nSpheres; ++i)
+                {
+                    const auto &sphere = spheres()[i];
+                    if (sphere.frame == 0)
+                        continue;
+                    std::size_t k = sphere.frame - 1;
+                    const Eigen::Vector3d axis = jointOrigins()[k].axis.normalized();
+                    const Eigen::Vector3d center = sphere.center.dot(axis) * axis;
+                    const double radius = (sphere.center - center).norm();
+                    std::vector<detail::SweepBound> states{{center, axis, radius + 1e-12, 0.0, true}};
+                    bounds(i, k) = std::min(bounds(i, k), radius + 1e-12);
+                    while (k > 0)
+                    {
+                        const auto &origin = jointOrigins()[k];
+                        --k;
+                        states = detail::sweepBounds(states, origin.rotation, origin.translation,
+                                                    jointOrigins()[k].axis.normalized());
+                        for (const auto &state : states)
+                            bounds(i, k) = std::min(bounds(i, k), state.radius);
                     }
                 }
                 return bounds;

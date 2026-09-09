@@ -200,19 +200,24 @@ namespace ompl::cbf
         }
 
         /// Barrier values for every sphere, but constraint rows only for the spheres whose
-        /// clearance is at or below \p threshold — normally `decreaseRates(maxSpeed) * dt`.
+        /// clearance is at or below \p threshold — normally
+        /// `decreaseRates(maxSpeed) * max(dt, 1/kappa)`.
         ///
         /// The saving is the point: a skipped sphere costs one interpolated *value*, while
         /// an included one costs an interpolated gradient and a Jacobian contraction on
         /// top, and then a row in the QP. In open space almost every sphere is skipped and
         /// this collapses to the cost of a collision check.
         ///
-        /// What a caller gives up, and it is a real change rather than an optimisation:
-        /// the discrete CBF condition `h(q + u dt) >= (1 - gamma) h(q)` is enforced only
-        /// for the spheres that were included. Skipped spheres are guaranteed to stay
-        /// **safe** (`h_i > 0`) by the Lipschitz argument above, but not to decay at the
-        /// prescribed rate. Safety is the invariant that matters; the decay rate is a
-        /// smoothness preference. Audit rather than assume — see `guarding()`.
+        /// Under the continuous-time condition `dh_i/dq u >= -kappa h_i` the threshold
+        /// buys back what the discrete-time version had to give up. A row is satisfied by
+        /// *every* admissible control once `rate_i <= kappa h_i`, because `rate_i` bounds
+        /// `|dh_i/dq u|` over the whole control box; such a row cannot change the feasible
+        /// set, so dropping it leaves the QP's solution bit-for-bit identical rather than
+        /// merely safe. Screening at `rate_i / kappa` is therefore an optimisation and
+        /// nothing more. The `dt` half of the maximum is a separate guarantee for a
+        /// separate question — a dropped row must also stay non-negative for the span the
+        /// caller is about to integrate, which needs `h_i > rate_i dt` — and taking the
+        /// larger of the two horizons buys both at once.
         void evaluateScreened(const Configuration &q, const Values &threshold, Evaluation &out) const
         {
             const Robot::Kinematics kin = robot_.kinematics(q);
@@ -227,6 +232,7 @@ namespace ompl::cbf
             // Forward kinematics is not worth repeating.
             Robot::SphereCenters centers;
             Eigen::Matrix<double, nSpheres, 1> distances;
+            Eigen::Matrix<double, 3, nSpheres> gradients;
 
             for (std::size_t i = 0; i < Robot::nSpheres; ++i)
             {
@@ -239,7 +245,13 @@ namespace ompl::cbf
 
             {
                 ScopedTimer timer("sdf_query");
-                field_.distanceBatch(centers, distances);
+                for (std::size_t i = 0; i < Robot::nSpheres; ++i)
+                {
+                    const auto query = field_.screenedValueGradient(centers.col(i), Robot::spheres()[i].radius,
+                                                                   margin_, threshold[i]);
+                    distances[i] = query.value;
+                    gradients.col(i) = query.gradient;
+                }
             }
 
             double smallest = std::numeric_limits<double>::infinity();
@@ -258,6 +270,13 @@ namespace ompl::cbf
 
             // The values-only pass is even cheaper here than for the world: a subtraction
             // and a norm off centres already in hand, with no field query at all.
+            //
+            // This loop is scalar on purpose. Rewritten structure-of-arrays -- gather the
+            // pair endpoints into contiguous per-axis vectors and let the square roots
+            // vectorise -- it was measurably *slower*, 1273 ns against 1032 ns for the
+            // whole evaluation. The square root is not what costs; the gather is, and the
+            // array form pays it anyway and then spends 7 KB of intermediates that this
+            // version keeps in registers.
             double smallestPair = std::numeric_limits<double>::infinity();
             {
                 ScopedTimer selfTimer("self_collision");
@@ -310,31 +329,11 @@ namespace ompl::cbf
 
             if (activeWorldCount > 0)
             {
-                // Fixed capacity (nSpheres is the worst case, every sphere active), so
-                // this is stack space, not a heap allocation -- unlike Matrix3Xd/VectorXd,
-                // which are Dynamic-sized and would malloc here on every filter call.
-                Eigen::Matrix<double, 3, nSpheres> activeCentersBuf;
-                Eigen::Matrix<double, nSpheres, 1> activeDistancesBuf;
-                Eigen::Matrix<double, 3, nSpheres> activeGradientsBuf;
-
-                auto activeCenters = activeCentersBuf.leftCols(activeWorldCount);
-                auto activeDistances = activeDistancesBuf.head(activeWorldCount);
-                auto activeGradients = activeGradientsBuf.leftCols(activeWorldCount);
-
-                for (Eigen::Index k = 0; k < activeWorldCount; ++k)
-                    activeCenters.col(k) = centers.col(activeWorld[k]);
-
-                {
-                    ScopedTimer timer("sdf_query");
-                    field_.valueGradientBatch(activeCenters, activeDistances, activeGradients);
-                }
-                (void)activeDistances;
-
                 for (Eigen::Index k = 0; k < activeWorldCount; ++k)
                 {
                     const std::size_t sphere = static_cast<std::size_t>(activeWorld[k]);
                     out.rows.row(activeWorldRows[k]) =
-                        Robot::barrierGradient(kin, sphere, activeGradients.col(k)).transpose();
+                        Robot::barrierGradient(kin, sphere, gradients.col(sphere)).transpose();
                 }
             }
         }
@@ -343,16 +342,31 @@ namespace ompl::cbf
         /// applied from the configuration \p evaluation was taken at before *any* row
         /// could bind. Zero when one already binds.
         ///
-        /// This is the screening argument turned into a step length. A row binds when
-        /// the discrete CBF condition `h_i(q + u t) >= (1 - gamma) h_i(q)` stops holding
-        /// with room to spare, and `h_i` cannot fall faster than `rate_i`, so the
-        /// condition survives for as long as `rate_i * t <= gamma * h_i` — and it
-        /// survives at every point of the interval, not merely at its end, because the
-        /// same inequality holds for every prefix. Taking the minimum over spheres gives
-        /// a duration over which the filter is *provably a no-op*: integrating \p u for
-        /// any shorter span yields exactly the motion the filter would have produced,
-        /// step by step, at no further cost. That is what makes skipping it sound rather
-        /// than merely optimistic.
+        /// This is the screening argument turned into a step length, and under the
+        /// continuous-time condition it is an interval statement in its own right rather
+        /// than a chain of per-step ones. Row i is satisfied by \p u at time s whenever
+        /// `L travel_i <= kappa h_i(s)`, and `h_i(s) >= h_i - L travel_i s`, so the row
+        /// cannot bind for as long as
+        ///
+        ///     t <= h_i / (L travel_i) - 1 / kappa
+        ///
+        /// where `travel_i` is the decrease rate of *this* control rather than of the
+        /// whole box. The bound holds at every point of the interval, not merely at its
+        /// end, because the right-hand side was derived from the worst case over the
+        /// prefix. Taking the minimum over rows gives a duration over which the filter is
+        /// *provably a no-op*: integrating \p u for any shorter span yields exactly the
+        /// motion the filter would have produced, step by step, at no further cost. That
+        /// is what makes skipping it sound rather than merely optimistic.
+        ///
+        /// The span also honours the decay the filter promises, which is the stronger
+        /// claim and the one worth checking. Over it, `h_i(t) >= h_i e^{-kappa t}`: at
+        /// `x = kappa h_i / (L travel_i) >= 1` the linear lower bound at the endpoint is
+        /// `L travel_i / kappa` against an exponential `(L travel_i / kappa) x e^{1-x}`,
+        /// and `x e^{1-x} <= 1` everywhere, with the interior covered because the gap
+        /// between the two rises and then falls and so is smallest at an endpoint.
+        ///
+        /// The `1 / kappa` subtraction is why a certificate shortens as the decay rate
+        /// falls: a slower promised decay binds sooner, not later.
         ///
         /// Two details keep it honest:
         ///
@@ -377,18 +391,24 @@ namespace ompl::cbf
         /// no Lipschitz constant, since a distance between two points has one exactly,
         /// and no boundary term, since a pair is not a query against the field.
         double certifiedDuration(const Evaluation &evaluation, const Configuration &u,
-                                 double gamma) const
+                                 double kappa) const
         {
             const Configuration speed = u.cwiseAbs();
             const auto travel = (Robot::leverArmBounds() * speed).eval();
             const double lipschitz = std::max(field_.maxGradientNorm(), 1.0);
+            // kappa == 0 is "never let clearance fall at all", which no motion towards an
+            // obstacle can certify; the reciprocal is infinite and every term goes to zero.
+            const double horizon = kappa > 0.0 ? 1.0 / kappa : std::numeric_limits<double>::infinity();
 
             double duration = std::numeric_limits<double>::infinity();
             for (Eigen::Index i = 0; i < nSpheres; ++i)
             {
                 if (travel[i] <= 0.0)  // no joint that moves this sphere is moving
                     continue;
-                const double allowance = std::min(gamma * evaluation.values[i] / lipschitz,
+                // h_i / (L travel_i) - 1/kappa, kept in the allowance/travel shape the
+                // boundary term wants: leaving the box is bounded by plain travel, with
+                // no field gradient and no decay rate in it.
+                const double allowance = std::min(evaluation.values[i] / lipschitz - travel[i] * horizon,
                                                   evaluation.boundary[i]);
                 duration = std::min(duration, allowance / travel[i]);
             }
@@ -400,9 +420,410 @@ namespace ompl::cbf
                 // between the two frames can change a pair's separation at all.
                 if (pairTravel[p] <= 0.0)
                     continue;
-                duration = std::min(duration, gamma * evaluation.values[nSpheres + p] / pairTravel[p]);
+                duration = std::min(duration,
+                                    evaluation.values[nSpheres + p] / pairTravel[p] - horizon);
             }
             return std::max(duration, 0.0);
+        }
+
+        /// The combined lever-arm table: row i bounds how far sphere i's centre moves
+        /// per radian of joint k, and row `nSpheres + p` bounds how fast pair p's
+        /// separation can change. Exactly the two tables `decreaseRates()` multiplies,
+        /// stacked under the same flat index everything else here uses, so a region test
+        /// is one matvec rather than two loops.
+        static const Eigen::Matrix<double, nConstraints, nJoints> &leverArms()
+        {
+            static const Eigen::Matrix<double, nConstraints, nJoints> table = []
+            {
+                Eigen::Matrix<double, nConstraints, nJoints> combined;
+                combined.topRows<nSpheres>() = Robot::leverArmBounds();
+                combined.bottomRows<nSelfPairs>() = Robot::selfPairLeverArms();
+                return combined;
+            }();
+            return table;
+        }
+
+        /// The set of joint displacements from the configuration an `Evaluation` was
+        /// taken at that are certified collision-free with no further evaluation.
+        ///
+        /// ### The same table, fed a displacement instead of a velocity
+        ///
+        /// `decreaseRates()` is named for how it is used, not for what it is. Take the
+        /// velocity out of it and what is left is a Lipschitz map from a joint-space
+        /// *displacement* to a bound on how far each barrier can fall:
+        ///
+        ///     h_i(q + dq)  >= h_i(q)  - L * sum_k Lever[i][k]     |dq_k|
+        ///     h_ab(q + dq) >= h_ab(q) -     sum_k PairLever[p][k] |dq_k|
+        ///
+        /// The sums bound how far the relevant centres can move -- each lever arm is a
+        /// sphere's greatest distance from that joint's axis, so turning the joint by
+        /// `dq_k` moves the centre by at most the product, and the chain composes
+        /// additively -- and the field is `L`-Lipschitz on top of that. Feed
+        /// `maxSpeed * dt` back in and `decreaseRates() * dt` comes out exactly. The
+        /// rate reading is the special case, not the general one, and it is the only
+        /// one the class used before this.
+        ///
+        /// ### What the displacement bound certifies
+        ///
+        /// Every barrier non-negative means the robot is clear, since `margin` has
+        /// already absorbed sphere under-coverage and the field's discretization. So the
+        /// displacements that keep all of them non-negative are the ones satisfying
+        ///
+        ///     sum_k Lever[i][k]     |dq_k| <= slack_i = min(h_i / L, boundary_i)
+        ///     sum_k PairLever[p][k] |dq_k| <= slack_p = h_ab
+        ///
+        /// an intersection of weighted L1 constraints, and therefore a centrally
+        /// symmetric convex polytope around q. `slack` is what this returns.
+        ///
+        /// `certifiedDuration()` is that polytope intersected with the ray `dq = u t`,
+        /// less the `1/kappa` its stronger no-op claim costs. Every evaluation has
+        /// always contained the region; the ray is what was being kept from it.
+        ///
+        /// ### Why the polytope rather than a ball
+        ///
+        /// `contains()` is one `nConstraints x nJoints` matvec against `|dq|`, which is
+        /// the same matvec `certifiedDuration()` already performs. The region therefore
+        /// costs no more to test than the ray does, and there is no reason to shrink it
+        /// to an inscribed ball first. `certifiedRadius()` does shrink it, for the
+        /// callers that need a scalar rather than a test.
+        ///
+        /// ### What it is conservative about
+        ///
+        /// The lever arms are maxima over the whole configuration space, so the polytope
+        /// is loose by however much the arm is folded away from its worst pose. How loose
+        /// is a question for measurement, not for this comment.
+        ///
+        /// `L` is `maxGradientNorm()` floored at one, matching `certifiedDuration()`.
+        /// True distance is exactly 1-Lipschitz and the interpolation error is already
+        /// inside `margin`, so `L = 1` is defensible and would widen every world
+        /// constraint by that factor -- but it spends margin budget nothing else here
+        /// spends, and wants auditing before it is taken.
+        ///
+        /// A region built from a screened evaluation is as good as one from a full
+        /// evaluation. Screening drops *rows*; this reads only values and boundaries,
+        /// which `evaluateScreened()` fills for every constraint.
+        struct CertifiedRegion
+        {
+            /// Per-constraint workspace budget, in metres. Floored at zero, so a
+            /// constraint that is already violated makes the region degenerate rather
+            /// than making it wrong.
+            Values slack;
+            /// False when the evaluation was out of the field's box, where no barrier
+            /// value can be trusted. `contains()` then certifies nothing.
+            bool valid{false};
+        };
+
+        /// The certified region around the configuration \p evaluation was taken at.
+        CertifiedRegion certifiedRegion(const Evaluation &evaluation) const
+        {
+            const double lipschitz = std::max(field_.maxGradientNorm(), 1.0);
+
+            CertifiedRegion region;
+            region.valid = evaluation.inBounds;
+            // Leaving the baked box is bounded by plain workspace travel, with no field
+            // gradient in it, exactly as in certifiedDuration() -- and for the same
+            // reason: a clamped query over-reports clearance, and no barrier value sees
+            // it coming.
+            region.slack.head<nSpheres>() =
+                (evaluation.values.head<nSpheres>() / lipschitz).cwiseMin(evaluation.boundary);
+            region.slack.tail<nSelfPairs>() = evaluation.values.tail<nSelfPairs>();
+            region.slack = region.slack.cwiseMax(0.0);
+            return region;
+        }
+
+        /// The certified region at \p q directly, without an `Evaluation`.
+        ///
+        /// This is the form a caller replacing filter calls actually wants, and it is
+        /// cheaper than either evaluation path. The region reads values, boundaries and
+        /// in-bounds-ness and nothing else, so there is no gradient query, no Jacobian
+        /// contraction and no constraint row -- which is where a barrier evaluation's
+        /// time goes, at roughly three times the QP it feeds. `evaluate()` would build
+        /// 343 rows this discards; `evaluateScreened()` would build the survivors.
+        ///
+        /// So the region is not merely longer-reaching than the duration certificate, it
+        /// is cheaper to obtain than the call that produces one.
+        CertifiedRegion certifiedRegion(const Configuration &q) const
+        {
+            const Robot::Kinematics kin = robot_.kinematics(q);
+
+            Robot::SphereCenters centers;
+            Eigen::Matrix<double, nSpheres, 1> distances;
+            Eigen::Matrix<double, nSpheres, 1> boundary;
+
+            CertifiedRegion region;
+            region.valid = true;
+            for (std::size_t i = 0; i < Robot::nSpheres; ++i)
+            {
+                const Eigen::Index index = static_cast<Eigen::Index>(i);
+                const Eigen::Vector3d center = Robot::sphereCenter(kin, i);
+                centers.col(index) = center;
+                region.valid = region.valid && field_.inBounds(center);
+                boundary[index] = boundaryClearance(center);
+            }
+
+            {
+                ScopedTimer timer("sdf_query");
+                field_.distanceBatch(centers, distances);
+            }
+
+            const double lipschitz = std::max(field_.maxGradientNorm(), 1.0);
+            const auto &allSpheres = Robot::spheres();
+            for (std::size_t i = 0; i < Robot::nSpheres; ++i)
+            {
+                const Eigen::Index index = static_cast<Eigen::Index>(i);
+                const double h = distances[index] - allSpheres[i].radius - margin_;
+                region.slack[index] = std::max(std::min(h / lipschitz, boundary[index]), 0.0);
+            }
+
+            {
+                ScopedTimer selfTimer("self_collision");
+                const auto &margins = Robot::selfPairMargins();
+                for (std::size_t p = 0; p < Robot::nSelfPairs; ++p)
+                {
+                    const Eigen::Index pair = static_cast<Eigen::Index>(p);
+                    region.slack[nSpheres + pair] =
+                        std::max(Robot::selfPairClearance(centers, p) - margins[pair] - selfMargin_,
+                                 0.0);
+                }
+            }
+            return region;
+        }
+
+        /// Is `q + delta` certified collision-free by \p region? One matvec, no
+        /// kinematics and no field query.
+        ///
+        /// The region is convex and centred on its own configuration, so a true answer
+        /// covers the whole straight segment to `q + delta` and not merely its endpoint.
+        static bool contains(const CertifiedRegion &region, const Configuration &delta)
+        {
+            if (!region.valid)
+                return false;
+            return ((leverArms() * delta.cwiseAbs()).array() <= region.slack.array()).all();
+        }
+
+        /// How long the constant control \p u may be run from \p region's configuration
+        /// before any barrier could reach zero. The safety certificate, against
+        /// `certifiedDuration()`'s no-op one.
+        ///
+        /// This is `certifiedRegion()` restricted to the ray `dq = u t`, and it is
+        /// exactly `certifiedDuration()` without the `1/kappa`. The two answer different
+        /// questions and a caller has to know which it is asking:
+        ///
+        /// - `certifiedDuration()`: over this span the filter is provably a *no-op*, so
+        ///   integrating \p u reproduces the filtered motion exactly.
+        /// - `safeDuration()`: over this span `h >= 0`, so integrating \p u is *safe*.
+        ///   It is longer -- by `1/kappa` on every row -- but the motion is no longer
+        ///   the one the filter would have produced, and `h` may decay faster inside it
+        ///   than the exponential envelope allows.
+        ///
+        /// Forward invariance survives either way: the span ends with `h >= 0`, the
+        /// filter resumes, and `u = 0` is always admissible for a single integrator, so
+        /// there is no state the longer span can strand the robot in. What is given up
+        /// is the envelope, not the safe set. See `noOpTraversalTime()` for the third
+        /// option, which keeps the envelope by slowing the traversal down instead.
+        static double safeDuration(const CertifiedRegion &region, const Configuration &u)
+        {
+            if (!region.valid)
+                return 0.0;
+            const auto travel = (leverArms() * u.cwiseAbs()).eval();
+
+            double duration = std::numeric_limits<double>::infinity();
+            for (Eigen::Index i = 0; i < nConstraints; ++i)
+                if (travel[i] > 0.0)  // no joint that moves this constraint is moving
+                    duration = std::min(duration, region.slack[i] / travel[i]);
+            return duration;
+        }
+
+        /// The smallest decay rate at which \p region certifies that \p u satisfies every
+        /// CBF row: the least `kappa` for which `(dh_i/dq) u >= -kappa h_i` provably holds
+        /// at the configuration \p region was taken at, for every constraint at once.
+        ///
+        /// ### Why the region can answer a question about gradients
+        ///
+        /// The row asks about `(dh_i/dq) u`, which is a gradient. The region never
+        /// computes one. It does not have to: the same lever-arm table that bounds how
+        /// fast a barrier can fall bounds the row's left-hand side from below,
+        ///
+        ///     (dh_i/dq)  u >= -L travel_i     for a world sphere,
+        ///     (dh_ab/dq) u >=   -travel_p     for a self-collision pair,
+        ///
+        /// with `travel = leverArms() * |u|` as everywhere else here. So row i holds at
+        /// any `kappa >= L travel_i / h_i`, and since `slack_i <= h_i / L` for a world row
+        /// and `slack_p = h_ab` for a pair, `kappa >= travel_i / slack_i` suffices for
+        /// both. The maximum over rows is what this returns, and it is exactly the
+        /// reciprocal of `safeDuration()`:
+        ///
+        ///     requiredGain(region, u) = max_i travel_i / slack_i = 1 / safeDuration(region, u)
+        ///
+        /// which is the reading worth keeping: **the gain a control needs is the
+        /// reciprocal of how long it could be run for.** A control with half a second of
+        /// clear road needs 2 /s; one with ten seconds needs 0.1 /s.
+        ///
+        /// ### What it is for
+        ///
+        /// It is the second stage of the lexicographic gain program. The first stage --
+        /// minimise the deviation from the nominal control -- is the ordinary CBF-QP run
+        /// at the *cap*, because for `h_i > 0` a control is feasible for some
+        /// `kappa <= kappaMax` exactly when it is feasible at `kappaMax`. That leaves the
+        /// gain itself to be read off after the fact rather than optimised, and this is
+        /// how it is read off. `CBFControlFilter::Diagnostics::requiredGain` is this
+        /// quantity for the control that filter returned.
+        ///
+        /// ### What it is conservative about
+        ///
+        /// Everything the region is, and one thing more. The lever arms are maxima over
+        /// the whole configuration space, so `travel_i` overstates the true directional
+        /// derivative by however much the arm is folded away from its worst pose; the
+        /// answer is therefore an upper bound on the gain the gradients would have
+        /// demanded, never an under-estimate, which is the safe direction for a number a
+        /// certificate is built on. In exchange it sees one thing the gradients cannot:
+        /// `slack_i` carries `Evaluation::boundary`, so a control that would walk a sphere
+        /// centre out of the baked field -- where clearance is clamped and over-reported,
+        /// and no barrier value sees it coming -- is charged for it here.
+        ///
+        /// Infinite when nothing certifies \p u: the region is invalid, or a row it must
+        /// clear has no slack left. Zero when \p u moves no constraint at all, which is
+        /// correct rather than degenerate -- a control that changes no clearance needs no
+        /// allowance to spend it.
+        static double requiredGain(const CertifiedRegion &region, const Configuration &u)
+        {
+            const double safe = safeDuration(region, u);
+            return safe > 0.0 ? 1.0 / safe : std::numeric_limits<double>::infinity();
+        }
+
+        /// The largest L-infinity ball inscribed in \p region: every configuration
+        /// within this many radians of the centre, on every joint at once, is certified.
+        ///
+        /// Strictly weaker than `contains()`, and offered only for callers that need a
+        /// single number -- a sampler's rejection radius, a nearest-neighbour cutoff.
+        static double certifiedRadius(const CertifiedRegion &region)
+        {
+            if (!region.valid)
+                return 0.0;
+            static const Values reach = leverArms().rowwise().sum();
+
+            double radius = std::numeric_limits<double>::infinity();
+            for (Eigen::Index i = 0; i < nConstraints; ++i)
+                if (reach[i] > 0.0)
+                    radius = std::min(radius, region.slack[i] / reach[i]);
+            return radius;
+        }
+
+        /// How slowly the straight segment \p delta must be traversed for a filter
+        /// enforcing `dh/dt >= -kappa h` to be a *no-op* along all of it. Infinite when
+        /// \p delta is not strictly inside \p region, where no traversal time suffices.
+        ///
+        /// This is the part of the story `certifiedDuration()` cannot tell, because it
+        /// is asked about a control and so has already had the speed decided for it.
+        /// Traverse `delta` over a duration T and the applied control is `delta / T`, so
+        /// row i's decrease rate is `travel_i / T` and it fails to bind anywhere on the
+        /// segment as long as
+        ///
+        ///     travel_i / T <= kappa (slack_i - travel_i)
+        ///
+        /// using `h_i` at its worst point on the segment, which the displacement bound
+        /// gives as `slack_i - travel_i`. Solving for T and taking the maximum over rows
+        /// gives this. As `T -> infinity` the condition degenerates to `travel_i <
+        /// slack_i`, which is exactly membership of the region.
+        ///
+        /// So `1/kappa` never restricts *where* a filtered edge may go, only how fast it
+        /// may be run: every edge strictly inside the region is a no-op edge at some
+        /// finite traversal time. That matters because `FilteredStateSpace` is a
+        /// geometric space, and a geometric planner does not choose execution speed --
+        /// which means the certificate `certifiedDuration()` reports is charging the
+        /// planner for a decision the planner never made.
+        static double noOpTraversalTime(const CertifiedRegion &region, const Configuration &delta,
+                                        double kappa)
+        {
+            constexpr double never = std::numeric_limits<double>::infinity();
+            // kappa == 0 forbids any decay at all, which no motion towards an obstacle
+            // can satisfy however slowly it is run.
+            if (!region.valid || !(kappa > 0.0))
+                return never;
+
+            const auto travel = (leverArms() * delta.cwiseAbs()).eval();
+            double time = 0.0;
+            for (Eigen::Index i = 0; i < nConstraints; ++i)
+            {
+                if (travel[i] <= 0.0)  // no joint that moves this constraint is moving
+                    continue;
+                const double room = region.slack[i] - travel[i];
+                if (room <= 0.0)
+                    return never;
+                time = std::max(time, travel[i] / (kappa * room));
+            }
+            return time;
+        }
+
+        /// Both duration certificates for the control \p u, in one pass.
+        ///
+        /// `certifiedDuration()` and `safeDuration()` ask the same question of the same
+        /// data and differ only in whether a row must stay *inactive* or merely
+        /// non-negative. Computing them separately costs two `nConstraints x nJoints`
+        /// matvecs and two passes over 343 rows, which the profile put at 45% of a filter
+        /// call -- more than the barrier evaluation that produces the numbers. This does
+        /// the matvec once and both minima in one sweep.
+        ///
+        /// The other half of the saving is not dividing. A minimum of ratios does not
+        /// need a ratio per row: `slack_i / travel_i` can only lower the running best
+        /// when `slack_i < travel_i * best`, which is a multiply and a compare, so a
+        /// division is paid only when the bound actually improves -- a handful of times
+        /// over 343 rows rather than 343 times. The result is identical, not approximate.
+        ///
+        /// \p safe is the longer, weaker span (`h >= 0`); \p noOp the shorter one over
+        /// which the filter provably would not have acted. `safe >= noOp` always, since
+        /// every row's `noOp` term is its `safe` term less the `1/kappa` lookahead.
+        void durations(const Evaluation &evaluation, const Configuration &u, double kappa,
+                       double &safe, double &noOp) const
+        {
+            const auto travel = (leverArms() * u.cwiseAbs()).eval();
+            const double lipschitz = std::max(field_.maxGradientNorm(), 1.0);
+            // kappa == 0 forbids any decay, which no motion towards an obstacle can
+            // certify as a no-op; the safety span is unaffected by it.
+            const double horizon = kappa > 0.0 ? 1.0 / kappa : std::numeric_limits<double>::infinity();
+
+            double safeBest = std::numeric_limits<double>::infinity();
+            double noOpBest = std::numeric_limits<double>::infinity();
+
+            for (Eigen::Index i = 0; i < nSpheres; ++i)
+            {
+                const double rate = travel[i];
+                if (rate <= 0.0)  // no joint that moves this sphere is moving
+                    continue;
+                const double clearance = evaluation.values[i] / lipschitz;
+                const double bound = evaluation.boundary[i];
+
+                // Leaving the baked box is bounded by plain travel, with no field
+                // gradient and no decay rate in it, so it enters both spans the same way.
+                const double safeRoom = std::min(clearance, bound);
+                if (safeRoom < rate * safeBest)
+                    safeBest = safeRoom / rate;
+
+                const double noOpRoom = std::min(clearance - rate * horizon, bound);
+                if (noOpRoom < rate * noOpBest)
+                    noOpBest = noOpRoom / rate;
+            }
+
+            for (Eigen::Index p = 0; p < nSelfPairs; ++p)
+            {
+                const Eigen::Index index = nSpheres + p;
+                const double rate = travel[index];
+                // Zero is common rather than exceptional here: only the joints strictly
+                // between two frames can change a pair's separation at all.
+                if (rate <= 0.0)
+                    continue;
+                const double clearance = evaluation.values[index];
+
+                if (clearance < rate * safeBest)
+                    safeBest = clearance / rate;
+                // The pair's no-op term is `clearance/rate - horizon`, and it improves on
+                // the running best exactly when `clearance < rate * (best + horizon)`.
+                if (clearance < rate * (noOpBest + horizon))
+                    noOpBest = clearance / rate - horizon;
+            }
+
+            safe = std::max(safeBest, 0.0);
+            noOp = std::max(noOpBest, 0.0);
         }
 
         /// Neither \p robot nor \p field is copied; both must outlive this object.
@@ -419,7 +840,7 @@ namespace ompl::cbf
         /// How much a *filter* must over-reserve so that the invariant it enforces
         /// still holds when checked afterwards.
         ///
-        /// A discrete CBF step certifies h(q + u dt) >= (1-gamma) h(q) using a
+        /// A CBF step certifies h(q + u dt) >= h(q) e^{-kappa dt} using a
         /// linear model built from `rows`. `GridSDF` now differentiates the same
         /// trilinear scalar field it evaluates, so value/gradient inconsistency is not
         /// the cause of the remaining error. The finite joint-space step still crosses
@@ -443,7 +864,7 @@ namespace ompl::cbf
         /// travel on arcs, and the row is a chord.
         ///
         /// That error is small and, unlike the field's, does shrink with the step.
-        /// Measured over 10k rollout waypoints at gamma up to 1.0 and steps up to
+        /// Measured over 10k rollout waypoints at decay rates up to 1/dt and steps up to
         /// 0.08 rad, the enforced self barrier never fell below its margin by more than
         /// rounding. A millimetre is therefore generous, and generosity is affordable
         /// here in a way it is not for the margin itself: the buffer comes out of the

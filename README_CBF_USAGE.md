@@ -572,6 +572,61 @@ these tables are **path length** (arc length ÷ 0.02 rad), not planner effort: o
 rollout's path is 34% shorter than RRTConnect's unsimplified zigzag, while on the small
 scenes, where a straight edge is already near-optimal, deflecting costs length.
 
+### The clutter result is sample efficiency, not exact-target efficiency
+
+`demo_UR5PyBulletScene` now measures the primary random-sample extension directly. Both
+rows use ordinary uniform sampling with the same per-run seed; there is no pre-validation
+or rejection-sampling pass. A sample is **productive** when its primary extension adds a
+safe state to the tree. Over 501 paired trials of the two clutter goals,
+with `range = 1.5`, `minProgressFraction = 0.10`, and `gamma = 0.99`:
+
+| goal | straight RRTConnect | CBF rollout |
+|---|---:|---:|
+| `high_forward` | 1187 / 4054 (**29.3%**) | 590 / 590 (**100.0%**) |
+| `behind` | 2251 / 11932 (**18.9%**) | 3877 / 4218 (**91.9%**) |
+| combined | 3438 / 15986 (**21.5%**) | 4467 / 4808 (**92.9%**) |
+
+That is the intended contribution: the CBF turns a sampled direction that straight steering
+would discard into retained safe progress. It is not a claim that one rollout reaches every
+raw sample exactly. RRTConnect deliberately truncates targets beyond `range`; even among
+within-range pairs whose straight segment is blocked, a reactive CBF can stall in a local
+minimum. CBF planners therefore enable RRTConnect's opt-in `retain_partial_steering` mode:
+within-range targets go through the state-space steer too, and a safe endpoint that makes
+enough progress is retained as `ADVANCED` instead of requiring exact arrival. The planner
+keeps useful partial progress and lets later samples grow the tree; it does not run a local
+beam planner inside `steer`.
+
+A bounded tangent/waypoint recovery experiment could reach about 92% of blocked exact
+targets, but raised the clutter median to 6.25 ms and added a second local
+planner inside every arrive-or-reject edge. It and its diagnostic replay pass were removed.
+The production path is one direct, certified CBF rollout per extension, whose actual endpoint
+is now retained. Across two disjoint paired 501-seed A/Bs on the two clutter goals, retaining
+partial steering reduced filter calls by **12.6%**, reduced primary samples needed to solve by
+**19.5%**, and raised recorded edges per rollout from 71.1% to 77.8%. The summed per-goal
+median fell by **8.1%** in the first batch (6.689 to 6.148 ms) and **15.9%** in the second
+(6.616 to 5.566 ms), with both goals solved and zero audited violations.
+
+### Stop spending calls on one rollout
+
+The sequential rollout also has opt-in early termination. CBF planning enables it with a
+40-call budget, a three-step low-progress detector, and a numerical zero-control threshold.
+Each stop returns the safe trajectory produced so far; `interpolate()` retains it only when
+it passes the same `minProgressFraction` test as every other partial extension. A stillborn
+rollout therefore remains a rejection rather than a duplicate node. `FilteredStateSpace`'s
+public `roll()` keeps early termination disabled by default, and callers can configure all
+four values through `EarlyTermination`.
+
+The budget is intentionally 40 rather than the initially tempting 8-16 calls. Without a
+bounded RRTConnect connect loop, a short cap fragments a useful extension and immediately
+continues it in another rollout: at 12 calls, filter work rose 0.5% and the median rose 0.7%.
+Across two disjoint paired 501-seed clutter A/Bs, the 40-call setting reduced filter calls by
+**2.9%** and filter calls per primary sample by **13.1%**. The summed per-goal median fell by
+**2.5%** in one batch (5.611 to 5.473 ms) and **7.0%** in the other (6.915 to 6.428 ms).
+It needed 11.7% more primary samples because capped motions become shorter tree edges, but
+the productive-sample rate changed by only 0.5 percentage points. Both goals still solved,
+with zero audited violations. This is the gain available from early termination alone; no
+CONNECT-loop policy change is included.
+
 That comparison is against an **unsimplified** baseline, and most of it does not survive
 shortcutting both rows. Passing `shortcutRadians` to `demo_UR5PyBulletScene` (ninth
 argument) or `demo_UR5CBFPlanning` (eighth) runs RRT-Rope on each: stock
@@ -653,8 +708,9 @@ obvious lever is a cap on how far apart a candidate pair may be: a long-range sh
 clutter almost never succeeds, and it is the most expensive rollout on offer. Using the
 certificate to skip rollouts outright is the other. Neither is implemented.
 
-Rope is off by default, so none of this costs anything unless asked for: for raw planning
-speed the rollout still wins, and short paths are what you currently pay for.
+The PyBullet scene demo defaults to the coarse `delta = 0.65` setting; pass a non-positive
+`shortcutRadians` to disable it when measuring raw planning only. The reported planner
+`seconds` still excludes shortcut time, which is printed separately.
 
 ### The margin does not fit this benchmark
 

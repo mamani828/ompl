@@ -1,6 +1,8 @@
+// Constant diagonal Hessian and exact projection shortcuts.
 #include "ompl/cbf/CBFControlFilter.h"
 
 #include <algorithm>
+#include <limits>
 #include <stdexcept>
 
 #include <qpmad/solver.h>
@@ -26,7 +28,9 @@ struct ompl::cbf::CBFControlFilter::Solver
     using Backend = qpmad::SolverTemplate<double, nJoints, 1, nConstraints>;
 
     Backend backend;
-    // qpmad factorizes the Hessian in place, so it gets a scratch copy each solve.
+    qpmad::SolverParameters backendParameters;
+    Eigen::Matrix<double, nJoints, 1> inverseWeights;
+    // Cached inverse Cholesky factor; rebuilt when weights change.
     Eigen::Matrix<double, nJoints, nJoints> hessian{Eigen::Matrix<double, nJoints, nJoints>::Zero()};
     Eigen::Matrix<double, nJoints, 1> objective;
     Eigen::Matrix<double, nConstraints, 1> rowLower;
@@ -38,6 +42,10 @@ struct ompl::cbf::CBFControlFilter::Solver
     /// ClearanceBarrier::decreaseRates(). Constant, so computed once.
     ClearanceBarrier::Values decreaseRates;
     ClearanceBarrier::Values threshold;
+    /// The horizon `threshold` was last scaled by. A rollout asks about the same step
+    /// over and over, so rebuilding 343 scaled rows every call is pure repetition; the
+    /// profile put it at 10% of a call. NaN forces the first build.
+    double thresholdHorizon{std::numeric_limits<double>::quiet_NaN()};
 };
 
 ompl::cbf::CBFControlFilter::CBFControlFilter(const ClearanceBarrier &barrier)
@@ -48,8 +56,20 @@ ompl::cbf::CBFControlFilter::CBFControlFilter(const ClearanceBarrier &barrier)
 ompl::cbf::CBFControlFilter::CBFControlFilter(const ClearanceBarrier &barrier, const Parameters &parameters)
   : barrier_(barrier), parameters_(parameters), solver_(std::make_unique<Solver>())
 {
-    // Per unit time; scaled by the actual step in filter(), which is where dt is known.
+    setParameters(parameters);
+}
+
+void ompl::cbf::CBFControlFilter::setParameters(const Parameters &parameters)
+{
+    if (!parameters.weights.allFinite() || (parameters.weights.array() <= 0.0).any())
+        throw std::invalid_argument("CBF weights must be finite and positive");
+    parameters_ = parameters;
+    solver_->inverseWeights = parameters_.weights.cwiseInverse();
+    solver_->hessian.setZero();
+    solver_->hessian.diagonal() = parameters_.weights.cwiseSqrt().cwiseInverse();
+    solver_->backendParameters.hessian_type_ = qpmad::SolverParameters::HESSIAN_INVERTED_CHOLESKY_FACTOR;
     solver_->decreaseRates = barrier_.decreaseRates(parameters_.maxSpeed);
+    solver_->thresholdHorizon = std::numeric_limits<double>::quiet_NaN();
 }
 
 ompl::cbf::CBFControlFilter::~CBFControlFilter() = default;
@@ -101,6 +121,20 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
 
 ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Configuration &q,
                                                                     const Control &nominal, double duration,
+                                                                    Control &filtered, double &certified,
+                                                                    double &safe) const
+{
+    Diagnostics diagnostics;
+    const Status status = filter(q, nominal, duration, filtered, diagnostics);
+    certified = diagnostics.certifiedDuration;
+    // Both spans came out of the one pass `filter()` already made over the evaluation.
+    // A blocked call leaves the control zero and certifies nothing either way.
+    safe = status == Status::Blocked ? 0.0 : diagnostics.safeDuration;
+    return status;
+}
+
+ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Configuration &q,
+                                                                    const Control &nominal, double duration,
                                                                     Control &filtered,
                                                                     Diagnostics &diagnostics) const
 {
@@ -117,10 +151,20 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     ClearanceBarrier::Evaluation &evaluation = solver.evaluation;
     if (parameters_.screening)
     {
-        // A sphere cannot lose more than rate*dt of clearance over the step, so anything
-        // clear by more than that cannot bind and needs no row -- and so no gradient and
-        // no Jacobian either, which is where the cost is.
-        solver.threshold = solver.decreaseRates * duration;
+        // Two horizons, and the row has to clear both. A sphere with h > rate/kappa is
+        // satisfied by every control in the box, so its row cannot change the QP; a
+        // sphere with h > rate*dt cannot reach zero across the step the caller is about
+        // to integrate. Screening on the larger keeps the QP's answer identical to the
+        // unscreened one and the skipped spheres safe -- and costs no gradient and no
+        // Jacobian, which is where the money is.
+        const double horizon = parameters_.kappa > 0.0 ? 1.0 / parameters_.kappa
+                                                       : std::numeric_limits<double>::infinity();
+        const double scale = std::max(duration, horizon);
+        if (!(scale == solver.thresholdHorizon))
+        {
+            solver.threshold = solver.decreaseRates * scale;
+            solver.thresholdHorizon = scale;
+        }
         ScopedTimer timer("evaluate_screened");
         barrier_.evaluateScreened(q, solver.threshold, evaluation);
     }
@@ -130,6 +174,11 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
         barrier_.evaluate(q, evaluation);
     }
 
+    // Free: the region reads the values and boundaries this evaluation already
+    // produced, and no gradient. Computed before the early returns below so a Blocked
+    // call still reports where it may safely move, which is the one thing a caller
+    // that has just been refused actually wants to know.
+    diagnostics.region = barrier_.certifiedRegion(evaluation);
     diagnostics.worstValue = evaluation.values[static_cast<Eigen::Index>(evaluation.worst)];
     diagnostics.worstSphere = evaluation.worst;
     diagnostics.worstSelfValue =
@@ -139,8 +188,12 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     diagnostics.solverIterations = 0;
     diagnostics.activeRows = evaluation.active;
     // Nothing is certified until a control has been settled on; every path that gives
-    // up below leaves it at zero, which asks the caller to come back rather than run.
+    // up below leaves both at zero, which asks the caller to come back rather than run.
+    // The gain is the same statement upside down, so its "certifies nothing" is
+    // infinity: a blocked call must not be read as one that needed no allowance.
     diagnostics.certifiedDuration = 0.0;
+    diagnostics.safeDuration = 0.0;
+    diagnostics.requiredGain = std::numeric_limits<double>::infinity();
 
     // Outside the baked field, GridSDF clamps and over-reports clearance, so the
     // barrier cannot be trusted. Refusing to move is the only safe answer.
@@ -155,25 +208,38 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     Control upper;
     controlBounds(q, duration, lower, upper);
 
-    // Discrete-time CBF: (dh_i/dq) u >= -gamma h_i / dt. Row r constrains barrier
-    // evaluation.constraint[r], which is r itself unless screening reordered things --
-    // and which may be a world sphere or a self-collision pair, indifferently.
+    // Continuous-time CBF: (dh_i/dq) u >= -kappa h_i, with no step length in it. Row r
+    // constrains barrier evaluation.constraint[r], which is r itself unless screening
+    // reordered things -- and which may be a world sphere or a self-collision pair,
+    // indifferently.
     const Eigen::Index active = evaluation.active;
     for (Eigen::Index r = 0; r < active; ++r)
-        solver.rowLower[r] =
-            evaluation.values[evaluation.constraint[r]] * (-parameters_.gamma / duration);
+        solver.rowLower[r] = evaluation.values[evaluation.constraint[r]] * -parameters_.kappa;
 
-    if (active == 0)
+    filtered = nominal.cwiseMax(lower).cwiseMin(upper);
+    bool feasible = true;
+    for (Eigen::Index r = 0; r < active; ++r)
+        feasible = feasible && evaluation.rows.row(r).dot(filtered) >= solver.rowLower[r];
+    if (!feasible && active == 1)
     {
-        // Screening has proved that no barrier can bind during this step. What remains
-        // is a diagonal box QP, whose exact solution is the component-wise clamp of the
-        // nominal control. Avoid entering qpmad for this common open-space case.
-        filtered = nominal.cwiseMax(lower).cwiseMin(upper);
+        const Control direction = evaluation.rows.row(0).transpose().cwiseProduct(solver.inverseWeights);
+        const double denominator = evaluation.rows.row(0).dot(direction);
+        if (denominator > 0.0)
+        {
+            const double multiplier = std::max(0.0, (solver.rowLower[0] - evaluation.rows.row(0).dot(nominal)) / denominator);
+            const Control candidate = nominal + multiplier * direction;
+            if (candidate.allFinite() && (candidate.array() >= lower.array()).all() &&
+                (candidate.array() <= upper.array()).all() &&
+                evaluation.rows.row(0).dot(candidate) >= solver.rowLower[0] - 1e-12)
+            {
+                filtered = candidate;
+                feasible = true;
+            }
+        }
     }
-    else
+    if (!feasible)
     {
         // minimize 0.5 u^T W u - (W uNom)^T u, i.e. H = W and objective = -W uNom.
-        solver.hessian.diagonal() = parameters_.weights;
         solver.objective = -parameters_.weights.cwiseProduct(nominal);
 
         try
@@ -185,7 +251,7 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
             const auto status = solver.backend.solve(filtered, solver.hessian, solver.objective, lower, upper,
                                                      evaluation.rows.topRows(active),
                                                      solver.rowLower.head(active),
-                                                     solver.rowUpper.head(active));
+                                                     solver.rowUpper.head(active), solver.backendParameters);
             diagnostics.solverIterations = solver.backend.getNumberOfInequalityIterations();
             if (status != Solver::Backend::OK)
             {
@@ -215,8 +281,24 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     // out of joint travel is not something the barrier can see coming.
     {
         ScopedTimer certTimer("certified_duration");
-        diagnostics.certifiedDuration = barrier_.certifiedDuration(evaluation, filtered, parameters_.gamma);
+        barrier_.durations(evaluation, filtered, parameters_.kappa, diagnostics.safeDuration,
+                           diagnostics.certifiedDuration);
     }
+
+    // The lexicographic program's second stage, and it is this cheap because the first
+    // stage was the QP above: the least gain certifying `filtered` is the reciprocal of
+    // how long `filtered` may safely run, which `durations()` has just computed. Taken
+    // before the joint-limit clamp below deliberately -- running out of joint travel
+    // shortens a step without any barrier having asked for a faster decay, and charging
+    // the gain for it would report an allowance the rows never wanted.
+    //
+    // Identical to `ClearanceBarrier::requiredGain(diagnostics.region, filtered)`, which
+    // is where the derivation lives; spelled as the reciprocal here to avoid repeating
+    // that function's matvec on a number already in hand.
+    diagnostics.requiredGain = diagnostics.safeDuration > 0.0
+                                   ? 1.0 / diagnostics.safeDuration
+                                   : std::numeric_limits<double>::infinity();
+
     if (parameters_.respectJointLimits)
     {
         const Configuration jointLower = robots::UR5::lowerBounds();
@@ -226,8 +308,9 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
             if (filtered[j] == 0.0)
                 continue;
             const double room = (filtered[j] > 0.0 ? jointUpper[j] : jointLower[j]) - q[j];
-            diagnostics.certifiedDuration =
-                std::min(diagnostics.certifiedDuration, std::max(room / filtered[j], 0.0));
+            const double travel = std::max(room / filtered[j], 0.0);
+            diagnostics.certifiedDuration = std::min(diagnostics.certifiedDuration, travel);
+            diagnostics.safeDuration = std::min(diagnostics.safeDuration, travel);
         }
     }
 
@@ -236,6 +319,6 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     FilterStats::instance().record(status == Status::Unchanged ? FilterOutcome::Unchanged
                                                                 : FilterOutcome::Filtered,
                                    diagnostics.activeRows, diagnostics.solverIterations,
-                                   diagnostics.certifiedDuration);
+                                   diagnostics.certifiedDuration, diagnostics.requiredGain);
     return status;
 }

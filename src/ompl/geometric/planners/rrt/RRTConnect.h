@@ -40,6 +40,10 @@
 #include "ompl/datastructures/NearestNeighbors.h"
 #include "ompl/geometric/planners/PlannerIncludes.h"
 
+#include <functional>
+#include <utility>
+#include <vector>
+
 namespace ompl
 {
     namespace geometric
@@ -61,6 +65,26 @@ namespace ompl
         class RRTConnect : public base::Planner
         {
         public:
+            /** \brief Observation hook for the planner's primary random-sample extension.
+
+                The callback receives the nearest tree state, the sampled target, whether
+                the target was within \c range, whether the extension added a state,
+                whether it reached the sampled target, and whether the start tree was
+                being grown. Connect-loop extensions are not reported. Intended for
+                diagnostics; leaving it unset has no effect. */
+            using SampleExtensionCallback =
+                std::function<void(const base::State *, const base::State *, bool, bool, bool, bool)>;
+
+            /** \brief Hook invoked after an accepted motion has been subdivided for
+                insertion into the tree.
+
+                The states are ordered from the motion's geometric start to its end and
+                include both endpoints. This is useful for directed state spaces that
+                keep an executed-trajectory ledger and need to split the corresponding
+                edge record at the same points. */
+            using IntermediateStatesCallback =
+                std::function<void(const std::vector<base::State *> &)>;
+
             /** \brief Constructor */
             RRTConnect(const base::SpaceInformationPtr &si, bool addIntermediateStates = false);
 
@@ -86,6 +110,22 @@ namespace ompl
                 addIntermediateStates_ = addIntermediateStates;
             }
 
+            /** \brief Cap the number of interior states inserted per accepted motion.
+
+                Zero preserves the resolution-derived count used by ordinary
+                RRTConnect. A positive cap is useful when intermediate states are
+                exploratory prefixes rather than collision-checking samples. */
+            void setMaxIntermediateStates(unsigned int count)
+            {
+                maxIntermediateStates_ = count;
+            }
+
+            /** \brief Return the interior-state cap, or zero when uncapped. */
+            unsigned int getMaxIntermediateStates() const
+            {
+                return maxIntermediateStates_;
+            }
+
             /** \brief Set the range the planner is supposed to use.
 
                 This parameter greatly influences the runtime of the
@@ -100,6 +140,43 @@ namespace ompl
             double getRange() const
             {
                 return maxDistance_;
+            }
+
+            /** \brief Keep useful state-space steering results even when a target is
+                already within range.
+
+                Stock RRTConnect uses the sampled state directly when it is within
+                \c range and asks the motion validator to accept that exact endpoint.
+                Some directed state spaces produce a safe, useful endpoint without
+                reaching the requested state. When this option is enabled, every grow
+                operation goes through StateSpace::interpolate(); a nonzero partial
+                result is added as an ADVANCED node and only an exact arrival is
+                reported as REACHED.
+
+                Disabled by default, so ordinary geometric state spaces and existing
+                RRTConnect users retain their original behavior. */
+            void setRetainPartialSteering(bool retain)
+            {
+                retainPartialSteering_ = retain;
+            }
+
+            /** \brief Return whether useful partial steering endpoints are retained. */
+            bool getRetainPartialSteering() const
+            {
+                return retainPartialSteering_;
+            }
+
+            /** \brief Observe the outcome of each primary random-sample extension. */
+            void setSampleExtensionCallback(SampleExtensionCallback callback)
+            {
+                sampleExtensionCallback_ = std::move(callback);
+            }
+
+            /** \brief Observe an accepted motion immediately before its intermediate
+                states are inserted into the tree. */
+            void setIntermediateStatesCallback(IntermediateStatesCallback callback)
+            {
+                intermediateStatesCallback_ = std::move(callback);
             }
 
             /** \brief Set a different nearest neighbors datastructure */
@@ -166,7 +243,8 @@ namespace ompl
             }
 
             /** \brief Grow a tree towards a random state */
-            GrowState growTree(TreeData &tree, TreeGrowingInfo &tgi, Motion *rmotion);
+            GrowState growTree(TreeData &tree, TreeGrowingInfo &tgi, Motion *rmotion,
+                               Motion **nearest = nullptr);
 
             /** \brief State sampler */
             base::StateSamplerPtr sampler_;
@@ -186,6 +264,13 @@ namespace ompl
             /** \brief Flag indicating whether intermediate states are added to the built tree of motions */
             bool addIntermediateStates_;
 
+            /** \brief Optional cap on interior states inserted for one motion. */
+            unsigned int maxIntermediateStates_{0};
+
+            /** \brief Route within-range targets through state-space steering so a
+                directed space can retain a useful endpoint without exact arrival. */
+            bool retainPartialSteering_{false};
+
             /** \brief The random number generator */
             RNG rng_;
 
@@ -194,6 +279,12 @@ namespace ompl
 
             /** \brief Distance between the nearest pair of start tree and goal tree nodes. */
             double distanceBetweenTrees_;
+
+            /** \brief Optional diagnostic observer for primary sample extensions. */
+            SampleExtensionCallback sampleExtensionCallback_;
+
+            /** \brief Optional hook for state spaces that retain subdivided edge data. */
+            IntermediateStatesCallback intermediateStatesCallback_;
         };
     }  // namespace geometric
 }  // namespace ompl

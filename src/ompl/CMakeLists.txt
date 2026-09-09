@@ -9,7 +9,10 @@ file(GLOB_RECURSE OMPL_SOURCE_CODE datastructures/*.cpp util/*.cpp base/*.cpp
   geometric/*.cpp control/*.cpp multilevel/*.cpp tools/*.cpp)
 
 # The CBF module needs qpmad, which is vendored and kept private: the qpmad
-# include lives only in cbf/src/*.cpp, never in an installed ompl header.
+# include lives only in cbf/src/*.cpp, never in an installed ompl header --
+# except RobotCBFControlFilter.h, a class template whose qpmad-typed solver
+# member cannot be pimpl'd the way the concrete CBFControlFilter is (there is
+# no single compiled .cpp for a template to hide it behind).
 if(OMPL_HAVE_QPMAD)
     file(GLOB_RECURSE OMPL_CBF_SOURCE_CODE cbf/*.cpp)
     list(APPEND OMPL_SOURCE_CODE ${OMPL_CBF_SOURCE_CODE})

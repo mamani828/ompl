@@ -501,7 +501,7 @@ BOOST_AUTO_TEST_CASE(NothingCanBindWithinTheCertifiedDuration)
     const UR5 robot;
     const Barrier barrier(robot, obstacleField(), 0.0);
     const UR5::Configuration maxSpeed = UR5::velocityLimits();
-    constexpr double gamma = 0.4;
+    constexpr double kappa = 8.0;  // 1/s
 
     ompl::RNG rng;
     double longest = 0.0;
@@ -525,8 +525,12 @@ BOOST_AUTO_TEST_CASE(NothingCanBindWithinTheCertifiedDuration)
             u[j] = maxSpeed[j] * ((descend >= 0.0) ? 1.0 : -1.0);
         }
 
-        const double duration = barrier.certifiedDuration(evaluation, u, gamma);
-        BOOST_REQUIRE_GT(duration, 0.0);
+        // A rate-based certificate is empty when a row's clearance is already below
+        // `rate/kappa` -- there is no span over which that row provably cannot bind --
+        // so an empty answer is a legitimate one here, unlike under the per-step form.
+        const double duration = barrier.certifiedDuration(evaluation, u, kappa);
+        if (duration <= 0.0)
+            continue;
         longest = std::max(longest, duration);
         ++certified;
 
@@ -535,8 +539,12 @@ BOOST_AUTO_TEST_CASE(NothingCanBindWithinTheCertifiedDuration)
         {
             const double t = duration * step / samples;
             const Barrier::Values along = barrier.values(q + u * t);
+            // The envelope the row promises, `h(t) >= h(0) e^{-kappa t}`, and not merely
+            // non-negativity: the certificate is only worth having if the motion it
+            // licenses is the motion the filter would have allowed.
+            const double envelope = std::exp(-kappa * t);
             for (Eigen::Index i = 0; i < Barrier::nConstraints; ++i)
-                BOOST_REQUIRE_GE(along[i], (1.0 - gamma) * evaluation.values[i] - 1e-9);
+                BOOST_REQUIRE_GE(along[i], envelope * evaluation.values[i] - 1e-9);
         }
     }
 
@@ -578,7 +586,10 @@ BOOST_AUTO_TEST_CASE(TheCertificateStopsAtTheEdgeOfTheField)
 
     UR5::Configuration u = UR5::Configuration::Zero();
     u[1] = UR5::velocityLimits()[1];  // swing the arm through the wall of the box
-    const double duration = barrier.certifiedDuration(evaluation, u, 1.0);
+    // A deliberately permissive rate: 1 ms of horizon, so no clearance row can be what
+    // binds and the boundary term -- which carries no rate at all -- is isolated.
+    constexpr double permissive = 1000.0;
+    const double duration = barrier.certifiedDuration(evaluation, u, permissive);
 
     BOOST_REQUIRE_GT(duration, 0.0);
     BOOST_REQUIRE(std::isfinite(duration));
@@ -591,7 +602,7 @@ BOOST_AUTO_TEST_CASE(TheCertificateStopsAtTheEdgeOfTheField)
     const sdf::GridSDF roomy(sphereField(Eigen::Vector3d(0.0, 0.0, 40.0), 0.1),
                              UR5::reachableBounds(), 4 * voxel);
     const Barrier unbounded(robot, roomy, 0.0);
-    BOOST_CHECK_GT(unbounded.certifiedDuration(unbounded.evaluate(q), u, 1.0), duration);
+    BOOST_CHECK_GT(unbounded.certifiedDuration(unbounded.evaluate(q), u, permissive), duration);
 
     for (int step = 0; step <= 20; ++step)
     {
@@ -600,4 +611,235 @@ BOOST_AUTO_TEST_CASE(TheCertificateStopsAtTheEdgeOfTheField)
         barrier.values(q + u * (duration * step / 20), values, &inBounds);
         BOOST_CHECK(inBounds);
     }
+}
+
+// ---------------------------------------------------------------------------
+// The certified region: the same Lipschitz bookkeeping read as a set of joint
+// displacements rather than as a span of time. See ClearanceBarrier::CertifiedRegion.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+    // A field with one sphere in it, wide enough that most configurations sit inside.
+    sdf::GridSDF regionField()
+    {
+        return sdf::GridSDF(sphereField(obstacleCenter, obstacleRadius), reachableBox(), voxel);
+    }
+
+    // Random configurations inside the joint limits, skipping the ones that are already
+    // in violation -- there is no region to certify around those, and saying so is the
+    // correct answer rather than an omission.
+    template <typename Fn>
+    void overSafeConfigurations(const Barrier &barrier, unsigned seed, int count, Fn &&body)
+    {
+        ompl::RNG rng(seed);
+        const UR5::Configuration lower = UR5::lowerBounds();
+        const UR5::Configuration upper = UR5::upperBounds();
+        for (int t = 0; t < count; ++t)
+        {
+            UR5::Configuration q;
+            for (Eigen::Index j = 0; j < 6; ++j)
+                q[j] = rng.uniformReal(lower[j], upper[j]);
+
+            const Barrier::Evaluation evaluation = barrier.evaluate(q);
+            if (!evaluation.inBounds || evaluation.values.minCoeff() <= 0.0)
+                continue;
+            body(q, evaluation, rng);
+        }
+    }
+}  // namespace
+
+// The claim the region makes, checked against the barrier itself rather than against
+// another bound: every displacement it certifies really is clear, and so is every point
+// on the way there. The second half is what makes the region worth more than a point
+// test -- it is convex and centred on q, so a certified endpoint carries its whole
+// segment with it, and an edge needs no rollout.
+BOOST_AUTO_TEST_CASE(TheCertifiedRegionNeverClaimsAnUnsafeDisplacement)
+{
+    const UR5 robot;
+    const sdf::GridSDF field = regionField();
+    const Barrier barrier(robot, field);
+
+    long certified = 0;
+    double worstEndpoint = std::numeric_limits<double>::infinity();
+    double worstInterior = std::numeric_limits<double>::infinity();
+
+    overSafeConfigurations(barrier, 42, 1500,
+        [&](const UR5::Configuration &q, const Barrier::Evaluation &evaluation, ompl::RNG &rng)
+        {
+            const Barrier::CertifiedRegion region = barrier.certifiedRegion(evaluation);
+            BOOST_REQUIRE(region.valid);
+            const double radius = Barrier::certifiedRadius(region);
+            BOOST_REQUIRE_GT(radius, 0.0);
+
+            // Probe well past the inscribed ball, so most displacements are rejected and
+            // the ones that are not are genuinely near the polytope's faces.
+            for (int k = 0; k < 20; ++k)
+            {
+                UR5::Configuration delta;
+                for (Eigen::Index j = 0; j < 6; ++j)
+                    delta[j] = rng.uniformReal(-3.0 * radius, 3.0 * radius);
+
+                if (!Barrier::contains(region, delta))
+                    continue;
+                ++certified;
+
+                for (int step = 1; step <= 8; ++step)
+                {
+                    const Barrier::Values along = barrier.values(q + delta * (step / 8.0));
+                    BOOST_REQUIRE_GE(along.minCoeff(), 0.0);
+                    (step == 8 ? worstEndpoint : worstInterior) =
+                        std::min(step == 8 ? worstEndpoint : worstInterior, along.minCoeff());
+                }
+            }
+        });
+
+    BOOST_REQUIRE_GT(certified, 500);
+    // Sound but not slack: somewhere in there a certified point sits within a
+    // millimetre of the barrier it was certified against. A region that never came
+    // close would be sound for the uninteresting reason of being tiny.
+    BOOST_CHECK_LT(worstEndpoint, 1e-3);
+    BOOST_CHECK_LT(worstInterior, 1e-3);
+}
+
+// Why the polytope is worth carrying instead of the scalar radius that would be easier
+// to store. `contains()` costs the same matvec `certifiedDuration()` already performs,
+// and the set it tests is far larger than the ball inscribed in it -- the arm can move a
+// long way on the joints with short lever arms, which is exactly what a single radius
+// cannot express.
+BOOST_AUTO_TEST_CASE(TheRegionIsMuchLargerThanTheBallInscribedInIt)
+{
+    const UR5 robot;
+    const sdf::GridSDF field = regionField();
+    const Barrier barrier(robot, field);
+
+    long probes = 0;
+    long insidePolytope = 0;
+    long insideBall = 0;
+
+    overSafeConfigurations(barrier, 7, 800,
+        [&](const UR5::Configuration &, const Barrier::Evaluation &evaluation, ompl::RNG &rng)
+        {
+            const Barrier::CertifiedRegion region = barrier.certifiedRegion(evaluation);
+            const double radius = Barrier::certifiedRadius(region);
+
+            // Uniform over a cube of half-width 3r, so the inscribed ball takes a known
+            // (1/3)^6 share of the probes and the comparison is a volume ratio.
+            for (int k = 0; k < 40; ++k)
+            {
+                UR5::Configuration delta;
+                for (Eigen::Index j = 0; j < 6; ++j)
+                    delta[j] = rng.uniformReal(-3.0 * radius, 3.0 * radius);
+                ++probes;
+                if (Barrier::contains(region, delta))
+                    ++insidePolytope;
+                if (delta.cwiseAbs().maxCoeff() <= radius)
+                    ++insideBall;
+                // Anything the ball accepts the polytope must accept too.
+                if (delta.cwiseAbs().maxCoeff() <= radius)
+                    BOOST_REQUIRE(Barrier::contains(region, delta));
+            }
+        });
+
+    BOOST_REQUIRE_GT(probes, 4000);
+    BOOST_REQUIRE_GT(insideBall, 0);
+    // Measured at ~100x. Ten is a floor with an order of magnitude of headroom, so this
+    // fails on a regression rather than on sampling noise.
+    BOOST_CHECK_GT(static_cast<double>(insidePolytope) / static_cast<double>(insideBall), 10.0);
+}
+
+// The region and the duration certificate are the same bound, so they must agree where
+// they overlap. `certifiedDuration()` is the region restricted to the ray `u t`, less
+// the `1/kappa` its stronger no-op claim costs -- so every span it certifies has to land
+// inside the region, and with room to spare.
+BOOST_AUTO_TEST_CASE(TheDurationCertificateLandsInsideTheRegion)
+{
+    const UR5 robot;
+    const sdf::GridSDF field = regionField();
+    const Barrier barrier(robot, field);
+    const UR5::Configuration maxSpeed = UR5::velocityLimits();
+    constexpr double kappa = 8.0;
+
+    long compared = 0;
+    overSafeConfigurations(barrier, 11, 5000,
+        [&](const UR5::Configuration &, const Barrier::Evaluation &evaluation, ompl::RNG &)
+        {
+            // Straight down the worst sphere's steepest descent at full speed: the
+            // fastest any admissible control can spend clearance, and the case where the
+            // two bounds are closest to disagreeing.
+            UR5::Configuration u;
+            for (Eigen::Index j = 0; j < 6; ++j)
+            {
+                const double descend = -evaluation.rows(static_cast<Eigen::Index>(evaluation.worst), j);
+                u[j] = maxSpeed[j] * ((descend >= 0.0) ? 1.0 : -1.0);
+            }
+
+            const double duration = barrier.certifiedDuration(evaluation, u, kappa);
+            if (duration <= 0.0)
+                return;
+            ++compared;
+
+            // Nudged a hair inward. On the constraint that actually binds the two agree
+            // to the last bit and no further: `certifiedDuration()` reaches its answer by
+            // dividing by `travel` and `contains()` by multiplying by it, so the endpoint
+            // lands on the polytope's face and rounds either side of it. The claim being
+            // checked is containment, not which way the face rounds.
+            const Barrier::CertifiedRegion region = barrier.certifiedRegion(evaluation);
+            BOOST_REQUIRE(Barrier::contains(region, (u * duration * (1.0 - 1e-9)).eval()));
+        });
+
+    BOOST_REQUIRE_GT(compared, 100);
+}
+
+// The reframing the region makes available: `1/kappa` does not say where a filtered edge
+// may go, only how fast it may be run. A displacement strictly inside the region is a
+// no-op edge at some finite traversal time, however close to the faces it sits -- and one
+// outside is not a no-op edge at any speed.
+BOOST_AUTO_TEST_CASE(EveryEdgeInsideTheRegionIsANoOpEdgeAtSomeSpeed)
+{
+    const UR5 robot;
+    const sdf::GridSDF field = regionField();
+    const Barrier barrier(robot, field);
+    constexpr double kappa = 8.0;
+
+    long interior = 0;
+    long exterior = 0;
+    double slowest = 0.0;
+
+    overSafeConfigurations(barrier, 3, 800,
+        [&](const UR5::Configuration &, const Barrier::Evaluation &evaluation, ompl::RNG &rng)
+        {
+            const Barrier::CertifiedRegion region = barrier.certifiedRegion(evaluation);
+            const double radius = Barrier::certifiedRadius(region);
+
+            for (int k = 0; k < 20; ++k)
+            {
+                UR5::Configuration delta;
+                for (Eigen::Index j = 0; j < 6; ++j)
+                    delta[j] = rng.uniformReal(-3.0 * radius, 3.0 * radius);
+
+                const double time = Barrier::noOpTraversalTime(region, delta, kappa);
+                if (Barrier::contains(region, (delta * 0.999).eval()))
+                {
+                    // Strictly inside, so a finite traversal time exists. Scaling the
+                    // displacement down is what makes "strictly" checkable without
+                    // reaching into the polytope's faces.
+                    const double inner = Barrier::noOpTraversalTime(region, (delta * 0.999).eval(), kappa);
+                    BOOST_REQUIRE(std::isfinite(inner));
+                    slowest = std::max(slowest, inner);
+                    ++interior;
+                }
+                else if (!Barrier::contains(region, delta))
+                {
+                    // Outside the region the edge is not even safe, so no speed makes it
+                    // a no-op.
+                    BOOST_REQUIRE(!std::isfinite(time));
+                    ++exterior;
+                }
+            }
+        });
+
+    BOOST_REQUIRE_GT(interior, 200);
+    BOOST_REQUIRE_GT(exterior, 200);
+    BOOST_CHECK_GT(slowest, 0.0);
 }

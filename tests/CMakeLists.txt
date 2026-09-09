@@ -78,6 +78,10 @@ if (OMPL_BUILD_TESTS)
     # Test the CBF barrier assembly (spherized robot + workspace SDF)
     add_ompl_test(test_clearance_barrier cbf/test_clearance_barrier.cpp)
 
+    # Test the templated Reachy2-family barrier (fixed-base arm and the same arm
+    # behind a planar mobile base)
+    add_ompl_test(test_robot_clearance_barrier cbf/test_robot_clearance_barrier.cpp)
+
     # Test the vendored qpmad QP solver behaves as the CBF steering step expects,
     # and the CBF safety filter built on it
     if(OMPL_HAVE_QPMAD)
@@ -86,6 +90,13 @@ if (OMPL_BUILD_TESTS)
         add_ompl_test(test_cbf_control_filter cbf/test_cbf_control_filter.cpp)
         add_ompl_test(test_filtered_propagator cbf/test_filtered_propagator.cpp)
         add_ompl_test(test_filtered_state_space cbf/test_filtered_state_space.cpp)
+
+        # RobotCBFControlFilter.h includes <qpmad/solver.h> directly (it cannot
+        # pimpl a value-typed template member the way CBFControlFilter.cpp does),
+        # so this test needs the qpmad include path that the others don't.
+        add_ompl_test(test_robot_cbf_control_filter cbf/test_robot_cbf_control_filter.cpp)
+        target_include_directories(test_robot_cbf_control_filter PRIVATE
+            ${CMAKE_SOURCE_DIR}/external/qpmad/include)
     endif()
 
     # Test VAMP integration

@@ -73,7 +73,7 @@ namespace ompl::cbf
                 return true;
             }
 
-            typename Space::Rollout rollout = space_->roll(s1, s2, 1.0);
+            typename Space::Rollout rollout = space_->steer(s1, s2, 1.0);
             if (!rollout.reachedTarget)
             {
                 ++invalid_;
@@ -103,7 +103,7 @@ namespace ompl::cbf
                 return true;
             }
 
-            typename Space::Rollout rollout = space_->roll(s1, s2, 1.0);
+            typename Space::Rollout rollout = space_->steer(s1, s2, 1.0);
             if (rollout.reachedTarget)
             {
                 recordArrival(s1, s2, std::move(rollout));
