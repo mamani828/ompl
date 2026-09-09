@@ -140,11 +140,9 @@ def main():
         f"{len(seeds)} seed(s), {len(scenes)} scene(s): {len(rows):,} method rows; "
         f"{sum(row['eligible'] for row in rows):,} eligible method runs.",
         "",
-        "Parameters: RRTConnect, 0.5 s timeout, 2.0 rad range, 0.03 m SDF voxel, "
-        "0 world margin, 0 self margin, automatic SDF interpolation guard buffer, "
-        "0.05 s CBF step, CBF decay rate 8 /s (the old per-step gamma 0.4 at that "
-        "step), no shortcutting. "
-        "Safety is a 0.02 rad dense audit against the original exact box/cylinder primitives.",
+        "Run parameters are not encoded in the CSV; preserve the benchmark invocation "
+        "alongside this report. Safety fields come from the benchmark's dense audit "
+        "against the original exact box/cylinder primitives.",
         "The `samples` metric counts checked configurations for isSafe, barrier evaluations "
         "for qpFixed/bubbleCBF/qpFreeGate, and sampled configurations for VAMP "
         "(motion batches include SIMD padding).",
