@@ -154,6 +154,11 @@ namespace ompl::cbf
             /// Skip constraint rows for spheres that cannot bind within the step.
             /// See the class comment for what this gives up.
             bool screening{true};
+            /// Compute the Lipschitz safe/no-op durations returned by the extended
+            /// filter overloads. Disable only for a fixed-step A/B: the QP and its row
+            /// screening are unchanged, but both reported durations remain zero and
+            /// the duration matvec is skipped.
+            bool certificates{true};
         };
 
         /// Optional per-call detail, for diagnostics and benchmarking.

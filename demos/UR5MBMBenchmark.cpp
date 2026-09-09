@@ -40,6 +40,11 @@
 // - `cbf-rrtc`: the same planner over `cbf::FilteredStateSpace`, so every edge is a CBF
 //   rollout and every intermediate state is certified as it is produced. No state
 //   validity checker at all.
+// - `qp-fixed`: the same CBF-QP and rollout, capped at one integration step so no
+//   Lipschitz certificate is spent to skip later filter calls.
+// - `qp-free`: the accept-or-stop CBF gate adapted from LQR-CBF-RRT*. It applies the
+//   nominal control only while every potentially binding CBF row passes, never solves a
+//   QP, and has no state validity checker.
 // - `vamp-rrtc`: the same planner with VAMP's native SIMD state and motion validation,
 //   when this target is built with `OMPL_BUILD_VAMP=ON`.
 //
@@ -56,8 +61,10 @@
 // a standard benchmark is a finding about the margin.
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -86,6 +93,7 @@
 #include <ompl/util/Time.h>
 
 #include "UR5SelfCollisionAudit.h"
+#include "UR5QPFreeGate.h"
 
 #ifdef OMPL_MBM_HAVE_VAMP
 #include <ompl/vamp/Utils.h>
@@ -106,6 +114,12 @@ namespace sdf = ompl::sdf;
 namespace
 {
     constexpr int dimension = 6;
+    constexpr int checkedRow = 0;
+    constexpr int qpFixedRow = 1;
+    constexpr int qpLipschitzRow = 2;
+    constexpr int qpFreeRow = 3;
+    constexpr int vampRow = 4;
+    constexpr int comparisonRows = 5;
 
     /// Joint-space spacing all rows are audited at, in radians. Finer than the rollout
     /// step so the audit is not merely re-reading the filter's own decisions.
@@ -239,6 +253,16 @@ namespace
         return bounds;
     }
 
+    class SeededUR5Sampler final : public ob::RealVectorStateSampler
+    {
+    public:
+        SeededUR5Sampler(const ob::StateSpace *space, std::uint_fast32_t seed)
+          : ob::RealVectorStateSampler(space)
+        {
+            rng_.setLocalSeed(seed);
+        }
+    };
+
     struct Result
     {
         bool solved{false};
@@ -359,10 +383,16 @@ namespace
     /// The bar: straight-line edges, the same SDF behind an ordinary validity checker.
     Result runCollisionChecked(const Problem &problem, const Barrier &barrier, double range,
                                double timeLimit, double segmentFraction, double shortcutDelta,
+                               std::uint_fast32_t sampleSeed,
                                std::vector<UR5::Configuration> *record)
     {
         auto space = std::make_shared<ob::RealVectorStateSpace>(dimension);
         space->setBounds(jointBounds());
+        space->setStateSamplerAllocator(
+            [sampleSeed](const ob::StateSpace *stateSpace)
+            {
+                return std::make_shared<SeededUR5Sampler>(stateSpace, sampleSeed);
+            });
         if (segmentFraction > 0.0)
             space->setLongestValidSegmentFraction(segmentFraction);
         auto si = std::make_shared<ob::SpaceInformation>(space);
@@ -516,11 +546,17 @@ namespace
     };
 
     Result runVamp(const Problem &problem, const Barrier &audited, double range, double timeLimit,
-                   double shortcutDelta, std::vector<UR5::Configuration> *record)
+                   double shortcutDelta, std::uint_fast32_t sampleSeed,
+                   std::vector<UR5::Configuration> *record)
     {
         const VampEnvironment environment = makeVampEnvironment(problem);
         auto space = std::make_shared<ob::RealVectorStateSpace>(dimension);
         space->setBounds(jointBounds());
+        space->setStateSamplerAllocator(
+            [sampleSeed](const ob::StateSpace *stateSpace)
+            {
+                return std::make_shared<SeededUR5Sampler>(stateSpace, sampleSeed);
+            });
         auto si = std::make_shared<ob::SpaceInformation>(space);
 
         std::size_t samples = 0;
@@ -575,15 +611,22 @@ namespace
 
     /// The CBF rollout as the state space's interpolate(), with no collision checking
     /// anywhere: the barrier certifies each step as it is produced.
-    Result runFiltered(const Problem &problem, const Barrier &audited, const Filter &filter,
+    Result runFiltered(const Problem &problem, const Barrier &audited,
+                       const ompl::cbf::ControlFilter &filter,
                        double stepSize, double range, double timeLimit, double maxStepScale,
                        double shortcutDelta, bool safeHops, unsigned int picardIterations,
                        unsigned int picardWindow, unsigned int picardWorkers,
                        unsigned int trajectoryPrefixes, unsigned int rolloutCallBudget,
+                       std::uint_fast32_t sampleSeed,
                        std::vector<UR5::Configuration> *record)
     {
         auto space = std::make_shared<Space>(filter, stepSize, UR5::velocityLimits());
         space->setBounds(jointBounds());
+        space->setStateSamplerAllocator(
+            [sampleSeed](const ob::StateSpace *stateSpace)
+            {
+                return std::make_shared<SeededUR5Sampler>(stateSpace, sampleSeed);
+            });
         if (maxStepScale > 0.0)
             space->setMaxStepScale(maxStepScale);
         // The A/B for the certified region: off spends the no-op certificate, on spends
@@ -598,11 +641,14 @@ namespace
         std::unique_ptr<ompl::cbf::ParallelPicardRollout> picard;
         if (picardIterations > 0)
         {
+            const auto *qpFilter = dynamic_cast<const Filter *>(&filter);
+            if (qpFilter == nullptr)
+                throw ompl::Exception("Picard rollout requires the CBF-QP filter");
             ompl::cbf::ParallelPicardRollout::Parameters picardParameters;
             picardParameters.maxIterations = picardIterations;
             picardParameters.windowSteps = picardWindow;
             picardParameters.workers = picardWorkers;
-            picard = std::make_unique<ompl::cbf::ParallelPicardRollout>(filter,
+            picard = std::make_unique<ompl::cbf::ParallelPicardRollout>(*qpFilter,
                                                                         picardParameters);
             space->setRolloutPlanner(
                 [&picard, space](const UR5::Configuration &from,
@@ -690,7 +736,7 @@ namespace
 
     struct Tally
     {
-        static constexpr int rows = 3;
+        static constexpr int rows = comparisonRows;
         int attempted{0};
         int skipped{0};  ///< start or goal inside our margin
         /// Breakdown of `skipped` by which barrier rejected the endpoint. Not mutually
@@ -709,26 +755,28 @@ namespace
         /// positive; how far above zero they sit is what decides which margins are
         /// affordable on a standard benchmark.
         std::vector<double> endpointClearance;
-        int solved[rows]{};
-        std::vector<double> seconds[rows];
-        std::vector<double> evaluations[rows];
-        std::vector<double> vertices[rows];
-        std::vector<double> primarySamples[rows];
-        std::vector<double> productiveSamples[rows];
-        std::vector<double> verticesPerSample[rows];
-        std::vector<double> pathLength[rows];
-        std::vector<double> radPerCall[rows];
-        std::vector<double> coarse[rows];
-        std::size_t unsafe[rows]{};
-        std::size_t audited[rows]{};
-        std::size_t misses[rows]{};
-        std::size_t selfColliding[rows]{};
-        double worstClearance[rows]{std::numeric_limits<double>::infinity(),
-                                    std::numeric_limits<double>::infinity(),
-                                    std::numeric_limits<double>::infinity()};
-        double worstSelf[rows]{std::numeric_limits<double>::infinity(),
-                               std::numeric_limits<double>::infinity(),
-                               std::numeric_limits<double>::infinity()};
+        std::array<int, rows> solved{};
+        std::array<std::vector<double>, rows> seconds;
+        std::array<std::vector<double>, rows> evaluations;
+        std::array<std::vector<double>, rows> vertices;
+        std::array<std::vector<double>, rows> primarySamples;
+        std::array<std::vector<double>, rows> productiveSamples;
+        std::array<std::vector<double>, rows> verticesPerSample;
+        std::array<std::vector<double>, rows> pathLength;
+        std::array<std::vector<double>, rows> radPerCall;
+        std::array<std::vector<double>, rows> coarse;
+        std::array<std::size_t, rows> unsafe{};
+        std::array<std::size_t, rows> audited{};
+        std::array<std::size_t, rows> misses{};
+        std::array<std::size_t, rows> selfColliding{};
+        std::array<double, rows> worstClearance;
+        std::array<double, rows> worstSelf;
+
+        Tally()
+        {
+            worstClearance.fill(std::numeric_limits<double>::infinity());
+            worstSelf.fill(std::numeric_limits<double>::infinity());
+        }
 
         void add(int row, const Result &result)
         {
@@ -945,6 +993,8 @@ int main(int argc, char **argv)
     parameters.kappa = kappa;
     parameters.maxSpeed = UR5::velocityLimits();
     parameters.respectJointLimits = true;
+    Filter::Parameters fixedParameters = parameters;
+    fixedParameters.certificates = false;
 
     std::printf("\nMotionBenchMaker UR5, %d problems loaded, up to %d per scene\n",
                 static_cast<int>(problems.size()), perScene);
@@ -996,24 +1046,27 @@ int main(int argc, char **argv)
                   "picard_fallbacks\n";
     }
 
-    std::ofstream baselineOut, filteredOut, vampOut;
+    std::ofstream baselineOut, fixedOut, filteredOut, gateOut, vampOut;
     if (!pathPrefix.empty())
     {
         baselineOut.open(pathPrefix + ".rrtc");
+        fixedOut.open(pathPrefix + ".qp-fixed");
         filteredOut.open(pathPrefix + ".cbf");
+        gateOut.open(pathPrefix + ".qp-free");
 #ifdef OMPL_MBM_HAVE_VAMP
         vampOut.open(pathPrefix + ".vamp");
 #endif
-        if (!baselineOut.is_open() || !filteredOut.is_open()
+        if (!baselineOut.is_open() || !fixedOut.is_open() || !filteredOut.is_open() ||
+            !gateOut.is_open()
 #ifdef OMPL_MBM_HAVE_VAMP
             || !vampOut.is_open()
 #endif
         )
         {
-            std::printf("cannot write %s.{rrtc,cbf}\n", pathPrefix.c_str());
+            std::printf("cannot write %s.{rrtc,qp-fixed,cbf,qp-free}\n", pathPrefix.c_str());
             return 1;
         }
-        for (std::ofstream *out : {&baselineOut, &filteredOut
+        for (std::ofstream *out : {&baselineOut, &fixedOut, &filteredOut, &gateOut
 #ifdef OMPL_MBM_HAVE_VAMP
                                    , &vampOut
 #endif
@@ -1036,11 +1089,15 @@ int main(int argc, char **argv)
             Barrier::guarding(robot, field, margin,
                               buffer < 0.0 ? Barrier::interpolationBuffer(field) : buffer,
                               selfMargin);
-        const Filter filter(guard, parameters);
+        const Filter fixedFilter(guard, fixedParameters);
+        const Filter lipschitzFilter(guard, parameters);
+        const ompl::demo::UR5QPFreeGate qpFreeGate(guard, parameters);
 
         Tally &tally = tallies[problem.scene];
         ++tally.attempted;
         ++overall.attempted;
+        const std::uint_fast32_t sampleSeed =
+            static_cast<std::uint_fast32_t>(seed + overall.attempted);
 
         const Barrier bare(robot, field, 0.0, selfMargin);
         const double endpoints =
@@ -1072,38 +1129,58 @@ int main(int argc, char **argv)
             }
             const Result skipped;
             writeCsvRow(csvOut, seed, problem, "isSafe", false, skipped);
+            writeCsvRow(csvOut, seed, problem, "qpFixed", false, skipped);
             writeCsvRow(csvOut, seed, problem, "bubbleCBF", false, skipped);
+            writeCsvRow(csvOut, seed, problem, "qpFreeGate", false, skipped);
 #ifdef OMPL_MBM_HAVE_VAMP
             writeCsvRow(csvOut, seed, problem, "VAMP", false, skipped);
 #endif
             continue;
         }
 
-        std::vector<UR5::Configuration> checkedPath, rolledPath;
+        std::vector<UR5::Configuration> checkedPath, fixedPath, rolledPath, gatePath;
         const Result checked = runCollisionChecked(problem, audited, range, timeLimit,
-                                                   segmentFraction, shortcutDelta,
+                                                   segmentFraction, shortcutDelta, sampleSeed,
                                                    pathPrefix.empty() ? nullptr : &checkedPath);
-        const Result rolled = runFiltered(problem, audited, filter, stepSize, range, timeLimit,
-                                          maxStepScale, shortcutDelta, safeHops,
+        const Result fixed = runFiltered(problem, audited, fixedFilter, stepSize, range,
+                                         timeLimit, 1.0, shortcutDelta, false,
+                                         picardIterations, picardWindow, picardWorkers,
+                                         trajectoryPrefixes, rolloutCallBudget, sampleSeed,
+                                         pathPrefix.empty() ? nullptr : &fixedPath);
+        const Result rolled = runFiltered(problem, audited, lipschitzFilter, stepSize, range,
+                                          timeLimit, maxStepScale, shortcutDelta, safeHops,
                                           picardIterations, picardWindow, picardWorkers,
-                                          trajectoryPrefixes, rolloutCallBudget,
+                                          trajectoryPrefixes, rolloutCallBudget, sampleSeed,
                                           pathPrefix.empty() ? nullptr : &rolledPath);
+        const Result gated = runFiltered(problem, audited, qpFreeGate, stepSize, range,
+                                         timeLimit, 1.0, shortcutDelta, false,
+                                         0, picardWindow, picardWorkers, trajectoryPrefixes,
+                                         rolloutCallBudget, sampleSeed,
+                                         pathPrefix.empty() ? nullptr : &gatePath);
 #ifdef OMPL_MBM_HAVE_VAMP
         std::vector<UR5::Configuration> vampPath;
-        const Result vamp = runVamp(problem, audited, range, timeLimit, shortcutDelta,
+        const Result vamp = runVamp(problem, audited, range, timeLimit, shortcutDelta, sampleSeed,
                                     pathPrefix.empty() ? nullptr : &vampPath);
 #endif
         writeMotion(baselineOut, problem, checkedPath);
+        writeMotion(fixedOut, problem, fixedPath);
         writeMotion(filteredOut, problem, rolledPath);
-        tally.add(0, checked);
-        tally.add(1, rolled);
-        overall.add(0, checked);
-        overall.add(1, rolled);
+        writeMotion(gateOut, problem, gatePath);
+        tally.add(checkedRow, checked);
+        tally.add(qpFixedRow, fixed);
+        tally.add(qpLipschitzRow, rolled);
+        tally.add(qpFreeRow, gated);
+        overall.add(checkedRow, checked);
+        overall.add(qpFixedRow, fixed);
+        overall.add(qpLipschitzRow, rolled);
+        overall.add(qpFreeRow, gated);
         writeCsvRow(csvOut, seed, problem, "isSafe", true, checked);
+        writeCsvRow(csvOut, seed, problem, "qpFixed", true, fixed);
         writeCsvRow(csvOut, seed, problem, "bubbleCBF", true, rolled);
+        writeCsvRow(csvOut, seed, problem, "qpFreeGate", true, gated);
 #ifdef OMPL_MBM_HAVE_VAMP
-        tally.add(2, vamp);
-        overall.add(2, vamp);
+        tally.add(vampRow, vamp);
+        overall.add(vampRow, vamp);
         writeMotion(vampOut, problem, vampPath);
         writeCsvRow(csvOut, seed, problem, "VAMP", true, vamp);
 #endif
@@ -1112,8 +1189,10 @@ int main(int argc, char **argv)
     if (!pathPrefix.empty())
     {
         baselineOut.close();
+        fixedOut.close();
         filteredOut.close();
-        std::printf("wrote %s.{rrtc,cbf,vamp} -- audit them against the meshes with\n"
+        gateOut.close();
+        std::printf("wrote %s.{rrtc,qp-fixed,cbf,qp-free,vamp} -- audit them against the meshes with\n"
                     "  ur5_experiments/scripts/audit_self_collision.py --path %s.cbf\n",
                     pathPrefix.c_str(), pathPrefix.c_str());
     }
@@ -1124,10 +1203,12 @@ int main(int argc, char **argv)
         std::printf("\n%s  (%d problems, %d skipped: %d clearance, %d self-collision)\n",
                     entry.first.c_str(), tally.attempted, tally.skipped, tally.skippedClearance,
                     tally.skippedSelfCollision);
-        reportRow("rrtconnect", tally, 0);
-        reportRow("cbf-rrtc", tally, 1);
+        reportRow("rrtconnect", tally, checkedRow);
+        reportRow("qp-fixed", tally, qpFixedRow);
+        reportRow("qp-lipsch", tally, qpLipschitzRow);
+        reportRow("qp-free", tally, qpFreeRow);
 #ifdef OMPL_MBM_HAVE_VAMP
-        reportRow("vamp-rrtc", tally, 2);
+        reportRow("vamp-rrtc", tally, vampRow);
 #endif
     }
 
@@ -1158,16 +1239,18 @@ int main(int argc, char **argv)
     std::printf("\nall scenes  (%d problems, %d skipped: %d clearance, %d self-collision)\n",
                 overall.attempted, overall.skipped, overall.skippedClearance,
                 overall.skippedSelfCollision);
-    reportRow("rrtconnect", overall, 0);
-    reportRow("cbf-rrtc", overall, 1);
+    reportRow("rrtconnect", overall, checkedRow);
+    reportRow("qp-fixed", overall, qpFixedRow);
+    reportRow("qp-lipsch", overall, qpLipschitzRow);
+    reportRow("qp-free", overall, qpFreeRow);
 #ifdef OMPL_MBM_HAVE_VAMP
-    reportRow("vamp-rrtc", overall, 2);
+    reportRow("vamp-rrtc", overall, vampRow);
 #endif
     std::printf("\n\"samples\" is checked configurations for isSafe, barrier evaluations for\n"
-                "bubbleCBF, and SIMD configuration lanes evaluated for VAMP. They measure\n"
+                "the three CBF rows, and SIMD configuration lanes evaluated for VAMP. They measure\n"
                 "sampling work, while wall time captures the very different per-sample costs.\n"
                 "\"unsafe/audited\" evaluates exact primitive clearance at every state of the\n"
-                "densified solution -- for cbf-rrtc that is the rollout the planner recorded\n"
+                "densified solution -- for each CBF row that is the rollout the planner recorded\n"
                 "for each edge, replayed, so it is the motion that would actually be executed,\n"
                 "sampled inside each step rather than only at its boundaries. Non-zero unsafe\n"
                 "invalidates a row however fast it was.\n"

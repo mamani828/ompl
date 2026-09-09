@@ -50,3 +50,29 @@ give a comma-separated problem-index allowlist.
 The UR5 benchmark audits every returned executed path against exact MBM primitive
 distances and the independent UR5 self-collision model. Do not use timing results
 unless the world-collision, self-collision, and replay-miss totals are all zero.
+
+## All-method MotionBenchMaker comparison
+
+The existing `demo_UR5MBMBenchmark` target now runs these rows together:
+
+- `rrtconnect`: explicit SDF collision checking;
+- `qp-fixed`: our CBF-QP at the fixed integration step, with Lipschitz duration
+  computation disabled;
+- `qp-lipsch`: our CBF-QP using its Lipschitz rollout certificates;
+- `qp-free`: the accept-or-stop gate, with neither QPs nor collision checking;
+- `vamp-rrtc`: VAMP collision checking, when VAMP is available.
+
+Every row receives an independently allocated sampler with the same per-problem seed.
+The CBF rows use `AllValidStateValidityChecker`; their filter/rollout is the only
+in-planner safety mechanism. The exact primitive and self-collision audit remains common
+to all returned paths.
+
+```bash
+./build/demos/demo_UR5MBMBenchmark scenes.txt \
+  10 5.0 0.03 0.05 2.0 0.005 0.03 -1 19.8 -1 0 \
+  '' -1 17 results/mbm_all_methods.csv
+```
+
+`qp-fixed` still uses sound row screening because that cannot change the QP solution;
+what it disables is the separate duration certificate and the coarse rollout hops that
+spend it. It is therefore the fixed-step, no-Lipschitz-certificate A/B for `qp-lipsch`.

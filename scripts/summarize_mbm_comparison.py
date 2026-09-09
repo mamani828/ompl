@@ -8,7 +8,7 @@ import statistics
 from pathlib import Path
 
 
-METHODS = ("isSafe", "bubbleCBF", "VAMP")
+METHODS = ("isSafe", "qpFixed", "bubbleCBF", "qpFreeGate", "VAMP")
 
 
 def percentile(values, fraction):
@@ -99,12 +99,13 @@ def main():
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     rows = load(args.csv)
+    methods = tuple(method for method in METHODS if any(row["method"] == method for row in rows))
 
     raw_fields = [name for name in rows[0] if name != "audit_safe"] + ["audit_safe"]
     write_table(args.output_dir / "all_runs.csv", rows, raw_fields)
 
     overall = []
-    for method in METHODS:
+    for method in methods:
         summary = {"method": method, **summarize([row for row in rows if row["method"] == method])}
         time_ratios = paired_ratios(rows, method, "seconds") if method != "isSafe" else [1.0]
         sample_ratios = paired_ratios(rows, method, "samples") if method != "isSafe" else [1.0]
@@ -117,7 +118,7 @@ def main():
     scenes = sorted({row["scene"] for row in rows})
     by_scene = []
     for scene in scenes:
-        for method in METHODS:
+        for method in methods:
             selected = [row for row in rows if row["scene"] == scene and row["method"] == method]
             by_scene.append({"scene": scene, "method": method, **summarize(selected)})
     write_table(args.output_dir / "scene_summary.csv", by_scene, list(by_scene[0]))
@@ -125,7 +126,7 @@ def main():
     seeds = sorted({row["seed"] for row in rows})
     by_seed = []
     for seed in seeds:
-        for method in METHODS:
+        for method in methods:
             selected = [row for row in rows if row["seed"] == seed and row["method"] == method]
             by_seed.append({"seed": seed, "method": method, **summarize(selected)})
     write_table(args.output_dir / "seed_summary.csv", by_seed, list(by_seed[0]))
@@ -136,7 +137,7 @@ def main():
     lines = [
         "# UR5 MotionBenchMaker comparison",
         "",
-        f"Five seeds, 20 problems per scene, seven scenes: {len(rows):,} method rows; "
+        f"{len(seeds)} seed(s), {len(scenes)} scene(s): {len(rows):,} method rows; "
         f"{sum(row['eligible'] for row in rows):,} eligible method runs.",
         "",
         "Parameters: RRTConnect, 0.5 s timeout, 2.0 rad range, 0.03 m SDF voxel, "
@@ -145,7 +146,8 @@ def main():
         "step), no shortcutting. "
         "Safety is a 0.02 rad dense audit against the original exact box/cylinder primitives.",
         "The `samples` metric counts checked configurations for isSafe, barrier evaluations "
-        "for bubbleCBF, and sampled configurations for VAMP (motion batches include SIMD padding).",
+        "for qpFixed/bubbleCBF/qpFreeGate, and sampled configurations for VAMP "
+        "(motion batches include SIMD padding).",
         "",
         "## Overall",
         "",
@@ -184,12 +186,13 @@ def main():
 
     lines.extend([
         "", "## Audit-safe completion rate by seed", "",
-        "| Seed | isSafe | bubbleCBF | VAMP |", "|---:|---:|---:|---:|",
+        "| Seed | " + " | ".join(methods) + " |",
+        "|---:|" + "---:|" * len(methods),
     ])
     seed_map = {(item["seed"], item["method"]): item for item in by_seed}
     for seed in seeds:
         cells = [str(seed)]
-        for method in METHODS:
+        for method in methods:
             item = seed_map[(seed, method)]
             cells.append(f"{item['audit_safe_solutions']}/{item['eligible_runs']} "
                          f"({item['audit_safe_rate_pct']:.1f}%)")
@@ -197,12 +200,13 @@ def main():
 
     lines.extend([
         "", "## Audit-safe completion rate by scene", "",
-        "| Scene | isSafe | bubbleCBF | VAMP |", "|---|---:|---:|---:|",
+        "| Scene | " + " | ".join(methods) + " |",
+        "|---|" + "---:|" * len(methods),
     ])
     scene_map = {(item["scene"], item["method"]): item for item in by_scene}
     for scene in scenes:
         cells = [scene]
-        for method in METHODS:
+        for method in methods:
             item = scene_map[(scene, method)]
             cells.append(f"{item['audit_safe_solutions']}/{item['eligible_runs']} "
                          f"({item['audit_safe_rate_pct']:.1f}%)")
@@ -210,10 +214,11 @@ def main():
 
     lines.extend([
         "", "## Median time for audit-safe solutions by scene (ms)", "",
-        "| Scene | isSafe | bubbleCBF | VAMP |", "|---|---:|---:|---:|",
+        "| Scene | " + " | ".join(methods) + " |",
+        "|---|" + "---:|" * len(methods),
     ])
     for scene in scenes:
-        cells = [scene] + [number(scene_map[(scene, method)]["median_ms_safe"]) for method in METHODS]
+        cells = [scene] + [number(scene_map[(scene, method)]["median_ms_safe"]) for method in methods]
         lines.append("| " + " | ".join(cells) + " |")
     (args.output_dir / "README.md").write_text("\n".join(lines) + "\n")
 

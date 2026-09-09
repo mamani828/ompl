@@ -92,6 +92,31 @@ BOOST_AUTO_TEST_CASE(SafeNominalPassesThroughUntouched)
     BOOST_CHECK(diagnostics.inBounds);
 }
 
+BOOST_AUTO_TEST_CASE(CertificatesCanBeDisabledForFixedStepBaseline)
+{
+    const UR5 robot;
+    const Barrier barrier(robot, farField(), /*margin=*/0.0);
+    Filter::Parameters enabledParameters = parameters();
+    Filter::Parameters disabledParameters = enabledParameters;
+    disabledParameters.certificates = false;
+    const Filter enabled(barrier, enabledParameters);
+    const Filter disabled(barrier, disabledParameters);
+
+    const UR5::Configuration q = UR5::Configuration::Zero();
+    const UR5::Configuration nominal = UR5::Configuration::Constant(0.1);
+    UR5::Configuration enabledControl, disabledControl;
+    Filter::Diagnostics enabledDiagnostics, disabledDiagnostics;
+    BOOST_REQUIRE(enabled.filter(q, nominal, duration, enabledControl, enabledDiagnostics) ==
+                  ControlFilter::Status::Unchanged);
+    BOOST_REQUIRE(disabled.filter(q, nominal, duration, disabledControl, disabledDiagnostics) ==
+                  ControlFilter::Status::Unchanged);
+    BOOST_CHECK_SMALL((enabledControl - disabledControl).norm(), 1e-15);
+    BOOST_CHECK_GT(enabledDiagnostics.safeDuration, 0.0);
+    BOOST_CHECK_EQUAL(disabledDiagnostics.safeDuration, 0.0);
+    BOOST_CHECK_EQUAL(disabledDiagnostics.certifiedDuration, 0.0);
+    BOOST_CHECK(std::isinf(disabledDiagnostics.requiredGain));
+}
+
 // With one row active the QP has a closed form: projecting uNom onto
 // {u : a^T u >= b} under the identity metric gives u = a*b/|a|^2. Because the
 // nominal here points straight down -a, that result is *independent of how

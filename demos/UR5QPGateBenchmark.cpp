@@ -10,6 +10,8 @@
 #include <ompl/geometric/planners/rrt/RRT.h>
 #include <ompl/util/Console.h>
 
+#include "UR5QPFreeGate.h"
+
 #include <chrono>
 #include <cstdint>
 #include <iomanip>
@@ -20,114 +22,7 @@
 
 namespace
 {
-    class QPFreeUR5Gate final : public ompl::cbf::ControlFilter
-    {
-    public:
-        QPFreeUR5Gate(const Barrier &barrier, const Filter::Parameters &parameters)
-          : barrier_(barrier), parameters_(parameters),
-            decreaseRates_(barrier.decreaseRates(parameters.maxSpeed))
-        {
-            threshold_.setZero();
-        }
-
-        Status filter(const Configuration &q, const Control &nominal, double duration,
-                      Control &applied) const override
-        {
-            ++calls_;
-            applied.setZero();
-            if (!(duration > 0.0))
-                return reject();
-
-            Control lower = -parameters_.maxSpeed.cwiseAbs();
-            Control upper = parameters_.maxSpeed.cwiseAbs();
-            if (parameters_.respectJointLimits)
-            {
-                lower = lower.cwiseMax((UR5::lowerBounds() - q) / duration);
-                upper = upper.cwiseMin((UR5::upperBounds() - q) / duration);
-            }
-            applied = nominal.cwiseMax(lower).cwiseMin(upper);
-
-            // Upstream selects nearby obstacles before evaluating its gate.  Use the
-            // UR5 barrier's sound counterpart: a row beyond this threshold is satisfied
-            // by every control in the shared control box and cannot change accept/reject.
-            const double horizon = parameters_.kappa > 0.0
-                                       ? std::max(duration, 1.0 / parameters_.kappa)
-                                       : std::numeric_limits<double>::infinity();
-            if (horizon != cachedHorizon_)
-            {
-                threshold_ = decreaseRates_ * horizon;
-                cachedHorizon_ = horizon;
-            }
-            barrier_.evaluateScreened(q, threshold_, evaluation_);
-            rows_ += static_cast<std::size_t>(evaluation_.active);
-            if (!evaluation_.inBounds)
-            {
-                applied.setZero();
-                return reject();
-            }
-
-            for (Eigen::Index row = 0; row < evaluation_.active; ++row)
-            {
-                const int constraint = evaluation_.constraint[row];
-                const double h = evaluation_.values[constraint];
-                if (h < 0.0 ||
-                    evaluation_.rows.row(row).dot(applied) + parameters_.kappa * h < 0.0)
-                {
-                    applied.setZero();
-                    return reject();
-                }
-            }
-
-            return applied.isApprox(nominal, 0.0) ? Status::Unchanged : Status::Filtered;
-        }
-
-        const char *name() const override
-        {
-            return "ur5-qp-free-cbf-gate";
-        }
-
-        std::size_t calls() const
-        {
-            return calls_;
-        }
-
-        std::size_t rejected() const
-        {
-            return rejected_;
-        }
-
-        double meanRows() const
-        {
-            return calls_ ? static_cast<double>(rows_) / static_cast<double>(calls_) : 0.0;
-        }
-
-    private:
-        Status reject() const
-        {
-            ++rejected_;
-            return Status::Blocked;
-        }
-
-        const Barrier &barrier_;
-        Filter::Parameters parameters_;
-        Barrier::Values decreaseRates_;
-        mutable Barrier::Values threshold_;
-        mutable Barrier::Evaluation evaluation_;
-        mutable double cachedHorizon_{-1.0};
-        mutable std::size_t calls_{0};
-        mutable std::size_t rejected_{0};
-        mutable std::size_t rows_{0};
-    };
-
-    class SeededUR5Sampler final : public ob::RealVectorStateSampler
-    {
-    public:
-        SeededUR5Sampler(const ob::StateSpace *space, std::uint_fast32_t seed)
-          : ob::RealVectorStateSampler(space)
-        {
-            rng_.setLocalSeed(seed);
-        }
-    };
+    using QPFreeUR5Gate = ompl::demo::UR5QPFreeGate;
 
     class SeededUR5RRT final : public og::RRT
     {

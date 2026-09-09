@@ -279,6 +279,7 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     // The joint limits need re-checking against it. The QP's control box keeps
     // q + u*duration inside them, which says nothing about a longer span, and running
     // out of joint travel is not something the barrier can see coming.
+    if (parameters_.certificates)
     {
         ScopedTimer certTimer("certified_duration");
         barrier_.durations(evaluation, filtered, parameters_.kappa, diagnostics.safeDuration,
@@ -295,11 +296,12 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     // Identical to `ClearanceBarrier::requiredGain(diagnostics.region, filtered)`, which
     // is where the derivation lives; spelled as the reciprocal here to avoid repeating
     // that function's matvec on a number already in hand.
-    diagnostics.requiredGain = diagnostics.safeDuration > 0.0
-                                   ? 1.0 / diagnostics.safeDuration
-                                   : std::numeric_limits<double>::infinity();
+    if (parameters_.certificates)
+        diagnostics.requiredGain = diagnostics.safeDuration > 0.0
+                                       ? 1.0 / diagnostics.safeDuration
+                                       : std::numeric_limits<double>::infinity();
 
-    if (parameters_.respectJointLimits)
+    if (parameters_.certificates && parameters_.respectJointLimits)
     {
         const Configuration jointLower = robots::UR5::lowerBounds();
         const Configuration jointUpper = robots::UR5::upperBounds();

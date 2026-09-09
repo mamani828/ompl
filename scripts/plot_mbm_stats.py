@@ -24,22 +24,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-# Fixed categorical order, dataviz default palette. Slots 1/2/3 are the three
-# planners every run emits and are the documented all-pairs-validated trio;
-# hybrid-rrtc (rarely present) sits on slot 6 rather than a neighbouring hue so it
-# stays separable from vamp's aqua. Colour follows the planner, never its rank, so
-# a run missing one of them does not repaint the others.
+# Fixed categorical order. Colour follows the planner, never its rank, so a run
+# missing an optional row does not repaint the others.
 PLANNER_COLOR = {
-    "rrtconnect": "#2a78d6",  # blue, slot 1
-    "cbf-rrtc": "#eb6834",  # orange, slot 2
-    "vamp-rrtc": "#1baf7a",  # aqua, slot 3
-    "hybrid-rrtc": "#008300",  # green, slot 6
+    "rrtconnect": "#2a78d6",
+    "qp-fixed": "#8c62aa",
+    "qp-lipsch": "#eb6834",
+    "qp-free": "#d43f70",
+    "vamp-rrtc": "#1baf7a",
+    "hybrid-rrtc": "#008300",
 }
-PLANNERS = ["rrtconnect", "cbf-rrtc", "vamp-rrtc", "hybrid-rrtc"]
+PLANNERS = ["rrtconnect", "qp-fixed", "qp-lipsch", "qp-free", "vamp-rrtc", "hybrid-rrtc"]
 
 # One CSV column, three meanings -- collision checks for the checked baseline, filter
-# calls for the CBF rollout, SIMD configuration lanes for VAMP. They measure sampling
-# work; the wall-time figure is where their very different per-sample costs show up.
+# calls for each CBF rollout, and SIMD configuration lanes for VAMP. They measure
+# sampling work; wall time captures their very different per-evaluation costs.
 EVAL_LABEL = "checks / filter calls / SIMD lanes (log scale)"
 
 INK = "#0b0b0b"
@@ -130,7 +129,9 @@ def cdf_panel(ax, groups, log_x, xlabel, title):
 # the run log and every report say.
 METHOD_NAMES = {
     "isSafe": "rrtconnect",
-    "bubbleCBF": "cbf-rrtc",
+    "qpFixed": "qp-fixed",
+    "bubbleCBF": "qp-lipsch",
+    "qpFreeGate": "qp-free",
     "VAMP": "vamp-rrtc",
     "vamp": "vamp-rrtc",
 }
