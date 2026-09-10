@@ -62,7 +62,9 @@
 #include <ompl/util/Time.h>
 
 #include "UR5SelfCollisionAudit.h"
+#include "EnvelopeHoldFilter.h"
 
+#include "UR5QPFreeGate.h"
 namespace ob = ompl::base;
 namespace og = ompl::geometric;
 using Barrier = ompl::cbf::ClearanceBarrier;
@@ -443,7 +445,56 @@ namespace
         Filter::Parameters parameters;
         if (filterKappa > 0.0)
             parameters.kappa = filterKappa;
-        const Filter filter(guard, parameters);
+        // `OMPL_PB_ROW` selects the same rows the MotionBenchMaker benchmark runs, so
+        // the two sets are comparable. One row per process, all sharing the seeds, which
+        // makes runs over one scene a paired A/B of the certificate alone.
+        //
+        //   qpFixed     no certificate, hop pinned to one controller step
+        //   qpAdaptive  L1 Lipschitz certificate, hop spends it   (default)
+        //   qpEnvelope  motion-envelope certificate, otherwise identical to qpAdaptive
+        enum class Row
+        {
+            Fixed,
+            Adaptive,
+            Envelope,
+            Free
+        };
+        static const Row row = []
+        {
+            const char *v = std::getenv("OMPL_PB_ROW");
+            const std::string name = v != nullptr ? v : "qpAdaptive";
+            if (name == "qpFixed")
+                return Row::Fixed;
+            if (name == "qpEnvelope")
+                return Row::Envelope;
+            if (name == "qpFreeGate")
+                return Row::Free;
+            return Row::Adaptive;
+        }();
+        if (row == Row::Fixed)
+            parameters.certificates = false;
+        if (const char *v = std::getenv("OMPL_CBF_SCREENING"))
+            parameters.screening = std::atoi(v) != 0;
+        if (const char *v = std::getenv("OMPL_CBF_ACTIVE_PAIRS"))
+            parameters.activePairs = std::atoi(v) != 0;
+        if (const char *v = std::getenv("OMPL_CBF_CLOSED_FORM_PROJECTION"))
+            parameters.closedFormProjection = std::atoi(v) != 0;
+        if (const char *v = std::getenv("OMPL_CBF_JOINT_LIMITS"))
+            parameters.respectJointLimits = std::atoi(v) != 0;
+        if (const char *v = std::getenv("OMPL_CBF_PLAIN_QP"))
+            parameters.plainSolve = std::atoi(v) != 0;
+        const Filter lipschitzFilter(guard, parameters);
+        std::unique_ptr<ompl::demo::EnvelopeHoldFilter> envelopeFilter;
+        std::unique_ptr<ompl::demo::UR5QPFreeGate> freeFilter;
+        if (row == Row::Envelope)
+            envelopeFilter = std::make_unique<ompl::demo::EnvelopeHoldFilter>(guard, parameters);
+        if (row == Row::Free)
+            freeFilter = std::make_unique<ompl::demo::UR5QPFreeGate>(guard, parameters);
+        const ompl::cbf::ControlFilter &filter = row == Row::Envelope
+                                                    ? static_cast<const ompl::cbf::ControlFilter &>(*envelopeFilter)
+                                                : row == Row::Free
+                                                    ? static_cast<const ompl::cbf::ControlFilter &>(*freeFilter)
+                                                    : static_cast<const ompl::cbf::ControlFilter &>(lipschitzFilter);
 
         auto space = std::make_shared<ompl::cbf::FilteredStateSpace>(filter, stepSize,
                                                                     UR5::velocityLimits());
@@ -461,7 +512,14 @@ namespace
             });
         // Above 1 the rollout runs each control as far as the filter certifies it, which
         // in open space is the whole extension; at 1 it steps at `stepSize` regardless.
-        if (maxStepScale > 0.0)
+        if (row == Row::Fixed || row == Row::Free)
+        {
+            // The fixed-step reference: one step per filter call, and the no-op
+            // certificate rather than the safety one, exactly as `qpFixed` runs.
+            space->setMaxStepScale(1.0);
+            space->setSafeHops(false);
+        }
+        else if (maxStepScale > 0.0)
             space->setMaxStepScale(maxStepScale);
         if (minProgressFraction >= 0.0)
             space->setMinProgressFraction(minProgressFraction);
@@ -478,7 +536,9 @@ namespace
             picardParameters.maxIterations = picardIterations;
             picardParameters.windowSteps = picardWindow;
             picardParameters.workers = picardWorkers;
-            picard = std::make_unique<ompl::cbf::ParallelPicardRollout>(filter,
+            // The concrete QP, not the possibly-wrapping `filter`: Picard speculates with
+            // the quadratic program, and the envelope wrapper delegates to this same one.
+            picard = std::make_unique<ompl::cbf::ParallelPicardRollout>(lipschitzFilter,
                                                                         picardParameters);
             space->setRolloutPlanner(
                 [&picard, space](const UR5::Configuration &from,
@@ -851,14 +911,14 @@ int main(int argc, char **argv)
         const auto cutPercent = [](const Result &res)
         { return res.lengthBefore > 0.0 ? 1e2 * (1.0 - res.lengthAfter / res.lengthBefore) : 0.0; };
 
-        std::printf("%-28s %-6s %7s %8.3f %6zu %8zu %8zu %+9.4f %7zu %8s %6s %8zu %+9.4f %8.3f "
+        std::printf("%-28s %-6s %7s %8.6f %6zu %8zu %8zu %+9.4f %7zu %8s %6s %8zu %+9.4f %8.3f "
                     "%8.3f %6.1f%% %6.1f\n",
                     goal.label.c_str(), "rrtc", base.solved ? "yes" : "no", baseMedian,
                     base.waypoints, base.auditedStates, base.unsafeStates,
                     base.solved ? base.minBarrier : 0.0, base.steps, "-", "-",
                     base.selfColliding, base.solved ? base.minSelfOverlap : 0.0, base.lengthBefore,
                     base.lengthAfter, cutPercent(base), 1e3 * base.shortcutSeconds);
-        std::printf("%-28s %-6s %7s %8.3f %6zu %8zu %8zu %+9.4f %7zu %8.4f %5.0f%% %8zu %+9.4f "
+        std::printf("%-28s %-6s %7s %8.6f %6zu %8zu %8zu %+9.4f %7zu %8.4f %5.0f%% %8zu %+9.4f "
                     "%8.3f %8.3f %6.1f%% %6.1f\n",
                     "", "cbf", r.solved ? "yes" : "no", cbfMedian, r.waypoints, r.auditedStates,
                     r.unsafeStates, r.solved ? r.minBarrier : 0.0, r.steps,
@@ -949,6 +1009,44 @@ int main(int argc, char **argv)
                     baselineLengthBefore > 0.0 ? cbfLengthBefore / baselineLengthBefore : 0.0,
                     baselineLength > 0.0 ? cbfLength / baselineLength : 0.0);
     std::printf("%zu audited states below the audited margin (cbf row)\n", unsafeTotal);
+    {
+        const auto &e = ompl::demo::EnvelopeHoldFilter::aggregate();
+        if (e.calls > 0)
+        {
+            const double n = static_cast<double>(e.calls);
+            std::printf("envelope hop: %zu filter calls reached the certificate, "
+                        "past one step %.1f%% (L1 alone %.1f%%), gated %.1f%%, "
+                        "escalated %.1f%%\n",
+                        e.calls, 100.0 * e.pastStep / n, 100.0 * e.pastStepL1 / n,
+                        100.0 * e.gated / static_cast<double>(e.gated + e.calls),
+                        100.0 * e.rescreened / n);
+            if (e.innerSeconds > 0.0)
+            {
+                const double calls = n + static_cast<double>(e.gated);
+                std::printf("envelope cost: wrapped QP %.3f us/call, certificate %.3f "
+                            "us/call (%.1f%% on top); %.3f us per query run\n",
+                            1e6 * e.innerSeconds / calls, 1e6 * e.certificateSeconds / calls,
+                            100.0 * e.certificateSeconds / e.innerSeconds,
+                            e.queries > 0 ? 1e6 * (e.certificateSeconds - e.gatedSeconds) /
+                                                static_cast<double>(e.queries)
+                                          : 0.0);
+            }
+            const auto hist = [](const char *label, const std::size_t (&h)[5])
+            {
+                double d = 0.0;
+                for (int i = 0; i < 5; ++i)
+                    d += static_cast<double>(h[i]);
+                if (d > 0.0)
+                    std::printf("  %-9s %7.2f%% %7.2f%% %7.2f%% %7.2f%% %7.2f%%\n", label,
+                                1e2 * h[0] / d, 1e2 * h[1] / d, 1e2 * h[2] / d,
+                                1e2 * h[3] / d, 1e2 * h[4] / d);
+            };
+            std::printf("span handed to the rollout, in controller steps:\n");
+            std::printf("  %-9s %8s %7s %7s %7s %7s\n", "", "<1", "1-2", "2-4", "4-8", "8+");
+            hist("L1 only", e.l1Steps);
+            hist("envelope", e.envSteps);
+        }
+    }
     if (selfTotal > 0)
         std::printf("%zu audited states self-collide. The barrier does model the arm against "
                     "itself now, so this is not a known gap any more -- it says a pair that "

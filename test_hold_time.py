@@ -7,7 +7,7 @@ import unittest
 import numpy as np
 
 from hold_time import (
-    Geometry, SelfCollisionPair, weighted_l1, level2, tightened_level2,
+    Geometry, SelfCollisionPair, weighted_l1, telescoping_l1, level2, tightened_level2,
     experimental_anchored, speed_capped_time, speed_capped_bound,
     _anchored_prefix_bound, relative_self_collision_geometry,
     normal_anchored_time, self_collision_hold, minimum_self_collision_hold,
@@ -31,6 +31,26 @@ def along_ray(g, v, t):
 
 
 class HoldTests(unittest.TestCase):
+    def test_telescoping_l1_is_tighter_and_bounds_the_ray(self):
+        rng = np.random.default_rng(1701)
+        for _ in range(30):
+            axes = rng.normal(size=(6, 3))
+            axes /= np.linalg.norm(axes, axis=1)[:, None]
+            g = Geometry(axes, rng.normal(size=(6, 3)) * .2)
+            v = rng.uniform(-2, 2, 6)
+            d0 = rng.uniform(.01, .5)
+            local = telescoping_l1(g, v, d0)
+            global_l1 = weighted_l1(d0, v, g.reach_radii)
+            self.assertGreaterEqual(local + 1e-13, global_l1)
+            for t in np.linspace(0, min(local, 1.0), 101):
+                displacement = np.linalg.norm(
+                    along_ray(g, v, t).segments.sum(axis=0) - g.segments.sum(axis=0))
+                self.assertLessEqual(displacement, d0 + 1e-11)
+
+        stationary = Geometry([[0, 0, 1]], [[0, 0, 1]])
+        self.assertEqual(telescoping_l1(stationary, [2], .1), math.inf)
+        self.assertEqual(telescoping_l1(stationary, [2], 0), 0)
+
     def test_scalar_edges_and_branches(self):
         self.assertEqual(speed_capped_time(1, 0, 2, 0), math.inf)
         self.assertEqual(speed_capped_time(1, 0, 0, 1), math.inf)

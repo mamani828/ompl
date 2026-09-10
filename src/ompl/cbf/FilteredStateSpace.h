@@ -127,6 +127,13 @@ namespace ompl::cbf
             unsigned int filtered{0};              ///< of those, how many the CBF altered
             unsigned int blocked{0};               ///< of those, how many had no safe control
             unsigned int coarse{0};                ///< of those, how many ran past `stepSize`
+            /// What set each hop's length -- "did the hop reach the end of the certified
+            /// region, or did something else stop it first". Exactly one per step, so
+            /// the four sum to `steps`.
+            unsigned int hopFloored{0};       ///< region shorter than one step; the floor won
+            unsigned int hopAtRegion{0};      ///< the hop ended exactly at the region's edge
+            unsigned int hopEdgeLimited{0};   ///< region outlasted the extension; `budget` won
+            unsigned int hopScaleLimited{0};  ///< `maxStepScale * stepSize` won
             double travel{0.0};                    ///< joint-space radians covered
             double fraction{0.0};                  ///< share of the full horizon it got through
             bool reachedTarget{false};             ///< did it finish within reachTolerance of `to`?
@@ -170,6 +177,13 @@ namespace ompl::cbf
             std::size_t filtered{0};
             std::size_t blocked{0};
             std::size_t coarse{0};  ///< steps that ran past `stepSize` on a certificate
+            /// What actually set each hop's length, which is the question "is the hop
+            /// reaching the end of the certified region, or is something else stopping
+            /// it first". Exactly one is incremented per step, and they sum to `steps`.
+            std::size_t hopFloored{0};   ///< the region was shorter than one step; the floor won
+            std::size_t hopAtRegion{0};  ///< the hop ended exactly at the region's edge
+            std::size_t hopEdgeLimited{0};   ///< the region outlasted the extension; `budget` won
+            std::size_t hopScaleLimited{0};  ///< `maxStepScale * stepSize` won
             double travel{0.0};     ///< joint-space radians rolled; `travel / steps` is what a
                                     ///< filter call buys, which is the number to quote a cost at
             std::size_t abandoned{0};  ///< rollouts discarded for making no progress
@@ -315,9 +329,22 @@ namespace ompl::cbf
                 // it was asked about, which it answered for; above that the filter has
                 // certified itself a no-op, so running on is not an extrapolation but a
                 // saving of calls whose outcome is already known.
-                const double span =
-                    std::min(std::max(stepSize_, std::min(reach, maxStepScale_ * stepSize_)),
-                             budget - elapsed);
+                const double scaleCap = maxStepScale_ * stepSize_;
+                const double edgeCap = budget - elapsed;
+                const double span = std::min(std::max(stepSize_, std::min(reach, scaleCap)),
+                                             edgeCap);
+
+                // Attribute the hop before anything downstream can shorten it. The order
+                // follows the formula: the floor is applied inside the outer min, so a
+                // sub-step region reads as floored even when the edge finally clips it.
+                if (reach <= stepSize_)
+                    ++out.hopFloored;
+                else if (edgeCap < std::min(reach, scaleCap))
+                    ++out.hopEdgeLimited;
+                else if (scaleCap < reach)
+                    ++out.hopScaleLimited;
+                else
+                    ++out.hopAtRegion;
 
                 // A QP can return a nonzero control whose motion is numerically useless.
                 // Treat it as zero before integrating a long chain of microscopic states.
@@ -963,6 +990,10 @@ namespace ompl::cbf
             statistics_.filtered += rollout.filtered;
             statistics_.blocked += rollout.blocked;
             statistics_.coarse += rollout.coarse;
+            statistics_.hopFloored += rollout.hopFloored;
+            statistics_.hopAtRegion += rollout.hopAtRegion;
+            statistics_.hopEdgeLimited += rollout.hopEdgeLimited;
+            statistics_.hopScaleLimited += rollout.hopScaleLimited;
             statistics_.travel += rollout.travel;
             statistics_.callBudgetTerminations += rollout.callBudgetReached ? 1u : 0u;
             statistics_.stallTerminations += rollout.stalled ? 1u : 0u;

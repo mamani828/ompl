@@ -64,6 +64,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -186,9 +187,42 @@ namespace
         }
     };
 
+    /// The per-joint speed limit the filter, the state space and the baseline's edge
+    /// resolution all read. `UR5::velocityLimits()` is a conservative `Constant(0.5)`,
+    /// well under the real arm (2.09 rad/s proximal, 3.14 wrist); `OMPL_CBF_MAX_SPEED`
+    /// replaces it with a uniform value so a run can ask what the cap costs.
+    ///
+    /// It cannot be zero or unbounded. `FilteredStateSpace` rejects non-positive entries,
+    /// and the QP's control box is what makes its feasible set bounded. Raising it is
+    /// therefore how "no velocity limit" is expressed, and it moves three things at once:
+    /// the QP's box, `decreaseRates` (so every certificate length), and -- because
+    /// `FilteredStateSpace` measures distance in *seconds* -- the meaning of the planner's
+    /// range. Pass an explicit `segmentFraction` alongside it, or the baseline's
+    /// collision-check spacing is derived from this and silently coarsens with it.
+    const UR5::Configuration &effectiveMaxSpeed()
+    {
+        static const UR5::Configuration value = []
+        {
+            if (const char *v = std::getenv("OMPL_CBF_MAX_SPEED"))
+            {
+                const double speed = std::atof(v);
+                if (speed > 0.0)
+                    return UR5::Configuration::Constant(speed).eval();
+            }
+            return UR5::velocityLimits().eval();
+        }();
+        return value;
+    }
+
     /// Which comparison rows to run, so a study of a subset does not pay for the rest.
     /// `OMPL_MBM_ROWS=isSafe,qpAdaptive,qpEnvelope`; unset runs everything, which is the
     /// behaviour every earlier result was produced with.
+    ///
+    /// The selection governs the summary table and the CSV as well as the work: a
+    /// deselected row is absent from both, rather than present as a line of zeros that
+    /// reads as a row which ran and solved nothing. Names are the CSV's own `method`
+    /// values -- `isSafe`, `qpFixed`, `qpAdaptive`, `l1Old`, `holdNew`, `qpFreeGate`,
+    /// `qpEnvelope`, `VAMP`.
     bool wantRow(const char *name)
     {
         static const std::string selection = []
@@ -316,6 +350,13 @@ namespace
         /// is a collision check at a fixed resolution rather than a step.
         double radPerCall{0.0};
         double coarse{0.0};
+        /// Share of hops whose length was set by, respectively: the one-step floor (the
+        /// certified region was shorter than a step), the region itself, and the end of
+        /// the extension. They sum to one over rows that roll. This is what says whether
+        /// a longer certificate can help at all -- only the first bucket can convert.
+        double hopFloored{0.0};
+        double hopAtRegion{0.0};
+        double hopEdgeLimited{0.0};
         double minClearance{std::numeric_limits<double>::infinity()};
         /// The independent self-collision check -- see demos/UR5SelfCollisionAudit.h. The
         /// barrier carries self rows now, but only for the pairs the offline search kept,
@@ -447,6 +488,15 @@ namespace
         pdef->setStartAndGoalStates(start, goal, 0.05);
 
         Result result;
+        // Re-seed the global seed generator immediately before the planner is built.
+        // `RRTConnect` holds its own `RNG`, which draws `nextSeed()` from that generator
+        // at construction, so without this a planner's stream depends on how many RNGs
+        // the process happened to build before it -- and therefore on which *other* rows
+        // `OMPL_MBM_ROWS` selected. That made row-set composition perturb every row:
+        // `qpAdaptive` scored 1523 alone and 1484 beside `qpEnvelope`. Re-seeding here
+        // makes each row a function of `sampleSeed` alone, so a row means the same thing
+        // whichever others are enabled.
+        ompl::RNG::setSeed(sampleSeed);
         auto planner = std::make_shared<og::RRTConnect>(si);
         planner->setRange(range);
         planner->setSampleExtensionCallback(
@@ -611,6 +661,15 @@ namespace
         }
         auto pdef = std::make_shared<ob::ProblemDefinition>(si);
         pdef->setStartAndGoalStates(start, goal, 0.05);
+        // Re-seed the global seed generator immediately before the planner is built.
+        // `RRTConnect` holds its own `RNG`, which draws `nextSeed()` from that generator
+        // at construction, so without this a planner's stream depends on how many RNGs
+        // the process happened to build before it -- and therefore on which *other* rows
+        // `OMPL_MBM_ROWS` selected. That made row-set composition perturb every row:
+        // `qpAdaptive` scored 1523 alone and 1484 beside `qpEnvelope`. Re-seeding here
+        // makes each row a function of `sampleSeed` alone, so a row means the same thing
+        // whichever others are enabled.
+        ompl::RNG::setSeed(sampleSeed);
         auto planner = std::make_shared<og::RRTConnect>(si);
         planner->setRange(range);
         planner->setProblemDefinition(pdef);
@@ -653,7 +712,7 @@ namespace
                        std::vector<UR5::Configuration> *record,
                        const Space::RolloutPlanner *customRollout = nullptr)
     {
-        auto space = std::make_shared<Space>(filter, stepSize, UR5::velocityLimits());
+        auto space = std::make_shared<Space>(filter, stepSize, effectiveMaxSpeed());
         space->setBounds(jointBounds());
         space->setStateSamplerAllocator(
             [sampleSeed](const ob::StateSpace *stateSpace)
@@ -713,6 +772,15 @@ namespace
         pdef->setStartAndGoalStates(start, goal, 0.1);
 
         Result result;
+        // Re-seed the global seed generator immediately before the planner is built.
+        // `RRTConnect` holds its own `RNG`, which draws `nextSeed()` from that generator
+        // at construction, so without this a planner's stream depends on how many RNGs
+        // the process happened to build before it -- and therefore on which *other* rows
+        // `OMPL_MBM_ROWS` selected. That made row-set composition perturb every row:
+        // `qpAdaptive` scored 1523 alone and 1484 beside `qpEnvelope`. Re-seeding here
+        // makes each row a function of `sampleSeed` alone, so a row means the same thing
+        // whichever others are enabled.
+        ompl::RNG::setSeed(sampleSeed);
         auto planner = std::make_shared<og::RRTConnect>(si, trajectoryPrefixes > 0);
         planner->setRange(range);
         planner->setRetainPartialSteering(true);
@@ -750,6 +818,15 @@ namespace
             const double calls = static_cast<double>(space->statistics().steps);
             result.radPerCall = space->statistics().travel / calls;
             result.coarse = static_cast<double>(space->statistics().coarse) / calls;
+            const auto &st = space->statistics();
+            const double hops = static_cast<double>(st.hopFloored + st.hopAtRegion +
+                                                    st.hopEdgeLimited + st.hopScaleLimited);
+            if (hops > 0.0)
+            {
+                result.hopFloored = static_cast<double>(st.hopFloored) / hops;
+                result.hopAtRegion = static_cast<double>(st.hopAtRegion) / hops;
+                result.hopEdgeLimited = static_cast<double>(st.hopEdgeLimited) / hops;
+            }
         }
 
         ob::PlannerData data(si);
@@ -800,6 +877,7 @@ namespace
         std::array<std::vector<double>, rows> pathLength;
         std::array<std::vector<double>, rows> radPerCall;
         std::array<std::vector<double>, rows> coarse;
+        std::array<std::vector<double>, rows> hopFloored, hopAtRegion, hopEdgeLimited;
         std::array<std::size_t, rows> unsafe{};
         std::array<std::size_t, rows> audited{};
         std::array<std::size_t, rows> misses{};
@@ -829,6 +907,9 @@ namespace
                 pathLength[row].push_back(result.pathLength);
             radPerCall[row].push_back(result.radPerCall);
             coarse[row].push_back(result.coarse);
+            hopFloored[row].push_back(result.hopFloored);
+            hopAtRegion[row].push_back(result.hopAtRegion);
+            hopEdgeLimited[row].push_back(result.hopEdgeLimited);
             unsafe[row] += result.unsafeStates;
             audited[row] += result.auditedStates;
             misses[row] += result.misses;
@@ -886,8 +967,12 @@ namespace
         }
     }
 
-    void reportRow(const char *label, const Tally &tally, int row)
+    /// \p name is the `OMPL_MBM_ROWS` name of the row, so a deselected row prints
+    /// nothing rather than a line of zeros indistinguishable from total failure.
+    void reportRow(const char *label, const char *name, const Tally &tally, int row)
     {
+        if (!wantRow(name))
+            return;
         const int scored = static_cast<int>(tally.seconds[row].size());
         const Distribution ms = distribution(tally.seconds[row]);
         std::printf("  %-11s %3d/%-4d %7.2f/%.2f/%-7.2f %10.0f %8.0f %8.2f", label, tally.solved[row],
@@ -915,7 +1000,7 @@ namespace
     void writeCsvRow(std::ofstream &out, unsigned long seed, const Problem &problem,
                      const char *method, bool eligible, const Result &result)
     {
-        if (!out.is_open())
+        if (!out.is_open() || !wantRow(method))
             return;
         out << seed << ',' << problem.scene << ',' << problem.index << ',' << method << ','
             << (eligible ? 1 : 0) << ',' << (result.solved ? 1 : 0) << ',' << result.seconds << ','
@@ -928,7 +1013,8 @@ namespace
                     ? static_cast<double>(result.vertices) / result.primarySamples
                     : 0.0)
             << ',' << result.picardAttempts << ',' << result.picardAccepted << ','
-            << result.picardFallbacks << '\n';
+            << result.picardFallbacks << ',' << result.hopFloored << ','
+            << result.hopAtRegion << ',' << result.hopEdgeLimited << '\n';
     }
 }  // namespace
 
@@ -946,11 +1032,25 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    // The L1 baseline is the *arm-length* table, not the swept-enclosure-tightened
+    // lever-arm one. Both bound `|dp_i/dq_k|`; arm length bounds distance-to-axis by
+    // full distance-to-origin, discarding the axial component, and is what the
+    // published weighted-L1 certificate uses. The tightening is this repository's own
+    // improvement, so folding it into the baseline would compare the envelope against
+    // a stronger L1 than anything in the literature and understate the gap.
+    //
+    // Set before any table is touched, and only if the caller has not chosen: pass
+    // OMPL_UR5_LEVER_BOUNDS=lever_arm to measure against the tightened bound instead.
+    // `qpEnvelope` is unaffected either way -- it reads the same table for its own L1
+    // term and scores identically on both -- so this moves `qpAdaptive` alone.
+    ::setenv("OMPL_UR5_LEVER_BOUNDS", "arm_length", 0);
+    ::setenv("OMPL_ROBOT_LEVER_BOUNDS", "arm_length", 0);
+
     const std::string path = argv[1];
     const int perScene = argc > 2 ? std::atoi(argv[2]) : 10;
     const double timeLimit = argc > 3 ? std::atof(argv[3]) : 5.0;
     const double voxel = argc > 4 ? std::atof(argv[4]) : 0.03;
-    const double stepSize = argc > 5 ? std::atof(argv[5]) : 0.05;
+    const double stepSize = argc > 5 ? std::atof(argv[5]) : 0.01;
     const double range = argc > 6 ? std::atof(argv[6]) : 2.0;
     // The audited margin, and the extra the filter guards on top of it. MotionBenchMaker
     // endpoints are grasp poses sitting ~8 mm off the shelf, so the defaults
@@ -1013,11 +1113,36 @@ int main(int argc, char **argv)
     // `maxSpeed * stepSize` radians per filter call; OMPL states the baseline's resolution
     // as a fraction of the state space's maximum extent, so convert. A RealVectorStateSpace
     // over `dimension` joints spanning [lo, hi] has extent |hi - lo| * sqrt(dimension).
-    const double rolloutStep = UR5::velocityLimits().maxCoeff() * stepSize;
+    const double rolloutStep = effectiveMaxSpeed().maxCoeff() * stepSize;
     const double extent =
         (UR5::upperBounds() - UR5::lowerBounds()).norm();
     const double segmentFraction =
         segmentFractionArg > 0.0 ? segmentFractionArg : rolloutStep / extent;
+
+    // Split the problem set over independent processes: `OMPL_MBM_SHARD=i/n` runs the
+    // problems whose ordinal is `i` mod `n`. Each problem keeps the seed it would have
+    // had in a single-process run, so concatenating the shards' CSVs reproduces the
+    // unsharded CSV exactly -- only the per-shard summary tables are partial, since each
+    // process can only tally what it ran. Sharding buys parallel *planning*, which
+    // `bakeConcurrent` does not: at a fine voxel one field is ~3.7 GB, so the practical
+    // ceiling is memory, roughly a dozen shards in 62 GB.
+    unsigned shardIndex = 0u;
+    unsigned shardCount = 1u;
+    if (const char *v = std::getenv("OMPL_MBM_SHARD"))
+    {
+        if (std::sscanf(v, "%u/%u", &shardIndex, &shardCount) != 2 || shardCount == 0u ||
+            shardIndex >= shardCount)
+        {
+            std::fprintf(stderr, "OMPL_MBM_SHARD must read i/n with 0 <= i < n, got '%s'\n", v);
+            return 1;
+        }
+    }
+    // Threads for the field bake. Defaults to the hardware count, which is right for one
+    // process and oversubscribes when several shards run at once -- set it to
+    // cores/shards in that case.
+    unsigned bakeThreads = 0u;
+    if (const char *v = std::getenv("OMPL_SDF_BAKE_THREADS"))
+        bakeThreads = static_cast<unsigned>(std::max(0, std::atoi(v)));
 
     ompl::RNG::setSeed(seed);
     ompl::msg::setLogLevel(ompl::msg::LOG_ERROR);
@@ -1027,14 +1152,41 @@ int main(int argc, char **argv)
 
     Filter::Parameters parameters;
     parameters.kappa = kappa;
-    parameters.maxSpeed = UR5::velocityLimits();
+    parameters.maxSpeed = effectiveMaxSpeed();
     parameters.respectJointLimits = true;
+    // The geometric state space already bounds sampled configurations. This switch
+    // isolates the effect of additionally constraining one Euler step inside the QP.
+    if (const char *v = std::getenv("OMPL_CBF_JOINT_LIMITS"))
+        parameters.respectJointLimits = std::atoi(v) != 0;
     // Process-isolated ablation switch for the active-set pair traversal, in the style
     // of OMPL_UR5_LEVER_BOUNDS. See ClearanceBarrier::ActiveSet.
     if (const char *v = std::getenv("OMPL_CBF_ACTIVE_PAIRS"))
         parameters.activePairs = std::atoi(v) != 0;
     if (const char *v = std::getenv("OMPL_CBF_PAIR_RELEVANCE"))
         parameters.pairRelevance = std::atof(v);
+    // Widens the QP's row screen, and with it the horizon any certificate built from
+    // the screened set may claim. Costs QP rows; see Parameters::screenHorizonScale.
+    if (const char *v = std::getenv("OMPL_CBF_SCREEN_SCALE"))
+        parameters.screenHorizonScale = std::atof(v);
+    // Off by default *here*, unlike the library. Screening is sound and a pure speed
+    // win -- it keeps the QP's answer identical -- but it makes a filter call about
+    // half as expensive, and a hold certificate's cost is fixed per call while its
+    // benefit is proportional to what a call costs. Benchmarking the certificates
+    // against a screened filter therefore measures them in their least favourable
+    // regime: the same rows read -2.5% against `qpFixed` screened and -16.3%
+    // unscreened. Unscreened is the honest denominator for a certificate study, and
+    // it also removes the clip the screened path imposes on the certificate. The
+    // library default is untouched; set OMPL_CBF_SCREENING=1 to restore it.
+    parameters.screening = false;
+    if (const char *v = std::getenv("OMPL_CBF_SCREENING"))
+        parameters.screening = std::atoi(v) != 0;
+    // Solve the QP with no shortcuts -- no feasibility bypass, no closed-form one-row
+    // projection, no pre-inverted Cholesky factor. See Parameters::plainSolve.
+    if (const char *v = std::getenv("OMPL_CBF_PLAIN_QP"))
+        parameters.plainSolve = std::atoi(v) != 0;
+    // Isolate the one-row projection from the other QP shortcuts.
+    if (const char *v = std::getenv("OMPL_CBF_CLOSED_FORM_PROJECTION"))
+        parameters.closedFormProjection = std::atoi(v) != 0;
 
     Filter::Parameters fixedParameters = parameters;
     fixedParameters.certificates = false;
@@ -1045,8 +1197,8 @@ int main(int argc, char **argv)
                 "range %.2f rad, %.1f s limit\n\n",
                 voxel, margin,
                 buffer < 0.0 ? Barrier::interpolationBuffer(
-                                   sdf::GridSDF(problems.front().field(),
-                                                UR5::reachableBounds(), voxel))
+                                   sdf::GridSDF::bakeConcurrent(problems.front().field(),
+                                                                UR5::reachableBounds(), voxel))
                              : buffer,
                 stepSize, range, timeLimit);
     std::printf("hop certificates: old L1 Lipschitz region and new hold-time bound\n");
@@ -1086,7 +1238,7 @@ int main(int argc, char **argv)
                   "waypoints,audited_states,unsafe_states,min_clearance,min_self_overlap,"
                   "self_colliding,misses,rad_per_call,coarse_fraction,primary_samples,"
                   "productive_samples,vertices_per_sample,picard_attempts,picard_accepted,"
-                  "picard_fallbacks\n";
+                  "picard_fallbacks,hop_floored,hop_at_region,hop_edge_limited\n";
     }
 
     std::ofstream baselineOut, fixedOut, filteredOut, gateOut, vampOut;
@@ -1119,12 +1271,28 @@ int main(int argc, char **argv)
                  << "# each motion begins with a '# motion <scene> <index>' marker\n";
     }
 
+    // Position in the filtered problem sequence, 1-based -- what `overall.attempted`
+    // counts in an unsharded run. Kept separately so it stays the problem's *absolute*
+    // ordinal when only a shard of the set runs in this process, which is what makes
+    // `sampleSeed` below independent of the sharding.
+    unsigned long ordinal = 0;
+
     for (const Problem &problem : problems)
     {
         if (seen[problem.scene]++ >= perScene)
             continue;
 
-        const sdf::GridSDF field(problem.field(), UR5::reachableBounds(), voxel);
+        // Every problem that clears the per-scene filter takes the next ordinal, whether
+        // or not this process is the one that runs it.
+        ++ordinal;
+        if (shardCount > 1u && (ordinal - 1u) % shardCount != shardIndex)
+            continue;
+
+        // Threaded bake: bit-identical to the serial one, but a 3 mm grid is 463 M
+        // nodes and 11.2 s single-threaded, paid once per problem. See bakeConcurrent.
+        const sdf::GridSDF field =
+            sdf::GridSDF::bakeConcurrent(problem.field(), UR5::reachableBounds(), voxel,
+                                         bakeThreads);
         // The barrier the assertions use, and the thicker one the filter guards so that
         // auditing against the first one passes. See ClearanceBarrier::guarding().
         const Barrier audited(robot, field, margin, selfMargin);
@@ -1146,8 +1314,9 @@ int main(int argc, char **argv)
         Tally &tally = tallies[problem.scene];
         ++tally.attempted;
         ++overall.attempted;
-        const std::uint_fast32_t sampleSeed =
-            static_cast<std::uint_fast32_t>(seed + overall.attempted);
+        // The problem's absolute ordinal, not this process's running count, so a sharded
+        // run reproduces an unsharded one problem for problem.
+        const std::uint_fast32_t sampleSeed = static_cast<std::uint_fast32_t>(seed + ordinal);
 
         const Barrier bare(robot, field, 0.0, selfMargin);
         const double endpoints =
@@ -1254,8 +1423,10 @@ int main(int argc, char **argv)
                 : Result();
 #ifdef OMPL_MBM_HAVE_VAMP
         std::vector<UR5::Configuration> vampPath;
-        const Result vamp = runVamp(problem, audited, range, timeLimit, shortcutDelta, sampleSeed,
-                                    pathPrefix.empty() ? nullptr : &vampPath);
+        const Result vamp =
+            wantRow("VAMP") ? runVamp(problem, audited, range, timeLimit, shortcutDelta, sampleSeed,
+                                      pathPrefix.empty() ? nullptr : &vampPath)
+                            : Result();
 #endif
         writeMotion(baselineOut, problem, checkedPath);
         writeMotion(fixedOut, problem, fixedPath);
@@ -1307,19 +1478,51 @@ int main(int argc, char **argv)
         std::printf("\n%s  (%d problems, %d skipped: %d clearance, %d self-collision)\n",
                     entry.first.c_str(), tally.attempted, tally.skipped, tally.skippedClearance,
                     tally.skippedSelfCollision);
-        reportRow("rrtconnect", tally, checkedRow);
-        reportRow("qp-fixed", tally, qpFixedRow);
-        reportRow("qp-adapt", tally, qpAdaptiveRow);
-        reportRow("l1-old", tally, qpLipschitzRow);
-        reportRow("hold-new", tally, qpSafeRow);
-        reportRow("qp-free", tally, qpFreeRow);
-        reportRow("qp-env", tally, qpEnvelopeRow);
+        reportRow("rrtconnect", "isSafe", tally, checkedRow);
+        reportRow("qp-fixed", "qpFixed", tally, qpFixedRow);
+        reportRow("qp-adapt", "qpAdaptive", tally, qpAdaptiveRow);
+        reportRow("l1-old", "l1Old", tally, qpLipschitzRow);
+        reportRow("hold-new", "holdNew", tally, qpSafeRow);
+        reportRow("qp-free", "qpFreeGate", tally, qpFreeRow);
+        reportRow("qp-env", "qpEnvelope", tally, qpEnvelopeRow);
 #ifdef OMPL_MBM_HAVE_VAMP
-        reportRow("vamp-rrtc", tally, vampRow);
+        reportRow("vamp-rrtc", "VAMP", tally, vampRow);
 #endif
     }
 
     // The feasibility question, since it decides how much of the benchmark is usable.
+    // The question a longer certificate has to answer: is the hop ending at the edge of
+    // the certified region, or is something else stopping it first? Only hops in the
+    // first column can be converted by a better certificate -- a hop that already runs
+    // to the region's edge, or to the end of its extension, is not certificate-limited.
+    {
+        bool any = false;
+        for (const auto &entry : tallies)
+            for (int row = 0; row < comparisonRows; ++row)
+                any = any || !entry.second.hopAtRegion[row].empty();
+        if (any)
+        {
+            std::printf("\nHop disposition -- what set the hop's length, median over problems.\n");
+            std::printf("  %-11s %14s %12s %14s\n", "row", "floored(<1 step)", "at region",
+                        "edge-limited");
+            const auto line = [&](const char *label, const char *name, int row)
+            {
+                if (!wantRow(name) || overall.hopAtRegion[row].empty())
+                    return;
+                std::printf("  %-11s %13.1f%% %11.1f%% %13.1f%%\n", label,
+                            1e2 * median(overall.hopFloored[row]),
+                            1e2 * median(overall.hopAtRegion[row]),
+                            1e2 * median(overall.hopEdgeLimited[row]));
+            };
+            line("qp-fixed", "qpFixed", qpFixedRow);
+            line("qp-adapt", "qpAdaptive", qpAdaptiveRow);
+            line("l1-old", "l1Old", qpLipschitzRow);
+            line("hold-new", "holdNew", qpSafeRow);
+            line("qp-free", "qpFreeGate", qpFreeRow);
+            line("qp-env", "qpEnvelope", qpEnvelopeRow);
+        }
+    }
+
     std::printf("\nEndpoint clearance at zero margin -- min(start, goal) over all spheres.\n");
     std::printf("  %-20s %8s %9s %9s %9s   %s\n", "scene", "min", "median", "max",
                 "affordable", "problems by margin");
@@ -1346,15 +1549,15 @@ int main(int argc, char **argv)
     std::printf("\nall scenes  (%d problems, %d skipped: %d clearance, %d self-collision)\n",
                 overall.attempted, overall.skipped, overall.skippedClearance,
                 overall.skippedSelfCollision);
-    reportRow("rrtconnect", overall, checkedRow);
-    reportRow("qp-fixed", overall, qpFixedRow);
-    reportRow("qp-adapt", overall, qpAdaptiveRow);
-    reportRow("l1-old", overall, qpLipschitzRow);
-    reportRow("hold-new", overall, qpSafeRow);
-    reportRow("qp-free", overall, qpFreeRow);
-    reportRow("qp-env", overall, qpEnvelopeRow);
+    reportRow("rrtconnect", "isSafe", overall, checkedRow);
+    reportRow("qp-fixed", "qpFixed", overall, qpFixedRow);
+    reportRow("qp-adapt", "qpAdaptive", overall, qpAdaptiveRow);
+    reportRow("l1-old", "l1Old", overall, qpLipschitzRow);
+    reportRow("hold-new", "holdNew", overall, qpSafeRow);
+    reportRow("qp-free", "qpFreeGate", overall, qpFreeRow);
+    reportRow("qp-env", "qpEnvelope", overall, qpEnvelopeRow);
 #ifdef OMPL_MBM_HAVE_VAMP
-    reportRow("vamp-rrtc", overall, vampRow);
+    reportRow("vamp-rrtc", "VAMP", overall, vampRow);
 #endif
     std::printf("\n\"samples\" is checked configurations for isSafe, barrier evaluations for\n"
                 "the three CBF rows, and SIMD configuration lanes evaluated for VAMP. They measure\n"
@@ -1374,16 +1577,93 @@ int main(int argc, char **argv)
         {
             const double n = static_cast<double>(e.calls);
             std::printf("\nenvelope hop: %zu filter calls, %.3f hold queries/call, "
-                        "%.1f%% saturated, mean span gain %.3fx over L1, "
+                        "%.1f%% saturated, "
                         "%.1f%% longer than L1, past one step %.1f%% (L1 alone %.1f%%), "
-                        "gated %.1f%%, empty-active %.1f%%\n",
+                        "gated %.1f%%, empty-active %.1f%%, screen-escalated %.1f%%\n",
                         e.calls, e.queries / n, 100.0 * e.saturated / e.queries,
-                        e.gainCalls > 0 ? e.gain / static_cast<double>(e.gainCalls) : 0.0,
                         100.0 * e.longer / n, 100.0 * e.pastStep / n,
                         100.0 * e.pastStepL1 / n,
                         100.0 * e.gated / static_cast<double>(e.gated + e.calls),
                         e.queries > 0 ? 100.0 * e.emptyActive / static_cast<double>(e.queries)
-                                      : 0.0);
+                                      : 0.0,
+                        100.0 * e.rescreened / n);
+            // Which geometry the hop is paying for. "unbound" is not a bottleneck: the
+            // certificate reached the end of its horizon, or of the screening clip,
+            // with clearance to spare, so a longer look -- not more room -- is what
+            // that call wanted.
+            std::printf("envelope bottleneck: world %.1f%%, self-collision %.1f%%, "
+                        "unbound %.1f%% (horizon or screen clip), blocked %.1f%%, "
+                        "joint-limit clamped %.1f%%\n",
+                        100.0 * e.worldBound / n, 100.0 * e.selfBound / n,
+                        100.0 * e.unbound / n, 100.0 * e.blocked / n,
+                        100.0 * e.limitBound / n);
+            // Within the binding row, which of its three lower bounds was the answer.
+            // Shares are of that family's own bound calls, so the two lines read
+            // independently; ties go to the cheapest term, so a large L1 share means
+            // the envelope terms are being computed and not used.
+            // The third term is not the same certificate in the two families and must
+            // not be printed under one name: a self pair has a contact normal and gets
+            // the directional bound, a world row has none and gets the strictly weaker
+            // isotropic one. See `HoldEngine::worldRow`.
+            const auto terms = [](const char *label, const char *anchor,
+                                  const std::size_t (&t)[4])
+            {
+                const double d = static_cast<double>(t[0] + t[1] + t[2] + t[3]);
+                if (d <= 0.0)
+                    return;
+                std::printf("  %-16s L1 %.1f%%, local-L1 %.1f%%, speed-capped %.1f%%, "
+                            "%s %.1f%% (of %.0f bound calls)\n",
+                            label, 100.0 * t[0] / d, 100.0 * t[1] / d, 100.0 * t[2] / d,
+                            anchor, 100.0 * t[3] / d, d);
+            };
+            if (e.certificateSeconds > 0.0 || e.innerSeconds > 0.0)
+            {
+                const double calls = n + static_cast<double>(e.gated);
+                std::printf("envelope cost: wrapped QP %.3f us/call, certificate %.3f "
+                            "us/call (%.1f%% on top), of which gate-rejected %.3f us/call; "
+                            "%.3f us per query run\n",
+                            1e6 * e.innerSeconds / calls, 1e6 * e.certificateSeconds / calls,
+                            e.innerSeconds > 0.0
+                                ? 100.0 * e.certificateSeconds / e.innerSeconds
+                                : 0.0,
+                            1e6 * e.gatedSeconds / calls,
+                            e.queries > 0
+                                ? 1e6 * (e.certificateSeconds - e.gatedSeconds) /
+                                      static_cast<double>(e.queries)
+                                : 0.0);
+            }
+            std::printf("envelope binding term:\n");
+            terms("world rows", "isotropic-anchored", e.worldTerm);
+            terms("self-pair rows", "normal-anchored", e.selfTerm);
+            // The number that decides whether the local-lever term pays: world rows it
+            // settled before any envelope was built, over rows that got that far.
+            if (const std::size_t reached = holdtime::localReachedTally(); reached > 0)
+                std::printf("local-lever screen: %zu of %zu expensive world rows settled "
+                            "before the envelope (%.1f%%)\n",
+                            holdtime::localPrunedTally(), reached,
+                            100.0 * holdtime::localPrunedTally() /
+                                static_cast<double>(reached));
+
+            // The statistic that survives contact with the rollout, and the one to quote
+            // instead of `mean span gain`: the span the rollout is handed, in controller
+            // steps. A hop is floored at one step, so only mass moving out of the first
+            // column can change anything the planner does.
+            const auto histogram = [](const char *label, const std::size_t (&h)[5])
+            {
+                double d = 0.0;
+                for (int i = 0; i < 5; ++i)
+                    d += static_cast<double>(h[i]);
+                if (d <= 0.0)
+                    return;
+                std::printf("  %-9s %8.2f%% %8.2f%% %8.2f%% %8.2f%% %8.2f%%\n", label,
+                            1e2 * h[0] / d, 1e2 * h[1] / d, 1e2 * h[2] / d, 1e2 * h[3] / d,
+                            1e2 * h[4] / d);
+            };
+            std::printf("span handed to the rollout, in controller steps "
+                        "(%zu calls):\n", e.calls + e.gated);
+            std::printf("  %-9s %9s %8s %8s %8s %8s\n", "", "<1", "1-2", "2-4", "4-8", "8+");
+            histogram("L1 only", e.l1Steps);
+            histogram("envelope", e.envSteps);
         }
     }
     if (holdtime::holdTimingEnabled())

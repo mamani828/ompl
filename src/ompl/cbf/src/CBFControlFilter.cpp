@@ -68,8 +68,17 @@ void ompl::cbf::CBFControlFilter::setParameters(const Parameters &parameters)
     parameters_ = parameters;
     solver_->inverseWeights = parameters_.weights.cwiseInverse();
     solver_->hessian.setZero();
-    solver_->hessian.diagonal() = parameters_.weights.cwiseSqrt().cwiseInverse();
-    solver_->backendParameters.hessian_type_ = qpmad::SolverParameters::HESSIAN_INVERTED_CHOLESKY_FACTOR;
+    if (parameters_.plainSolve)
+    {
+        solver_->hessian.diagonal() = parameters_.weights;
+        solver_->backendParameters.hessian_type_ = qpmad::SolverParameters::HESSIAN_LOWER_TRIANGULAR;
+    }
+    else
+    {
+        solver_->hessian.diagonal() = parameters_.weights.cwiseSqrt().cwiseInverse();
+        solver_->backendParameters.hessian_type_ =
+            qpmad::SolverParameters::HESSIAN_INVERTED_CHOLESKY_FACTOR;
+    }
     solver_->decreaseRates = barrier_.decreaseRates(parameters_.maxSpeed);
     solver_->thresholdHorizon = std::numeric_limits<double>::quiet_NaN();
     solver_->activePairs.relevance = parameters_.pairRelevance;
@@ -163,7 +172,8 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
         // Jacobian, which is where the money is.
         const double horizon = parameters_.kappa > 0.0 ? 1.0 / parameters_.kappa
                                                        : std::numeric_limits<double>::infinity();
-        const double scale = std::max(duration, horizon);
+        const double scale =
+            std::max(1.0, parameters_.screenHorizonScale) * std::max(duration, horizon);
         if (!(scale == solver.thresholdHorizon))
         {
             solver.threshold = solver.decreaseRates * scale;
@@ -229,7 +239,12 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     bool feasible = true;
     for (Eigen::Index r = 0; r < active; ++r)
         feasible = feasible && evaluation.rows.row(r).dot(filtered) >= solver.rowLower[r];
-    if (!feasible && active == 1)
+    // See Parameters::plainSolve: both shortcuts below are skipped, so every call pays
+    // a solve, as an unassisted CBF-QP would.
+    if (parameters_.plainSolve)
+        feasible = false;
+    if (!feasible && active == 1 && parameters_.closedFormProjection &&
+        !parameters_.plainSolve)
     {
         const Control direction = evaluation.rows.row(0).transpose().cwiseProduct(solver.inverseWeights);
         const double denominator = evaluation.rows.row(0).dot(direction);
@@ -250,6 +265,16 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     {
         // minimize 0.5 u^T W u - (W uNom)^T u, i.e. H = W and objective = -W uNom.
         solver.objective = -parameters_.weights.cwiseProduct(nominal);
+        if (parameters_.plainSolve)
+        {
+            // qpmad factorises in place and rewrites `hessian_type_` so later solves
+            // reuse the factor. A genuinely fresh solve therefore has to restore both
+            // every call, which is what a caller assembling a new program each step pays.
+            solver.hessian.setZero();
+            solver.hessian.diagonal() = parameters_.weights;
+            solver.backendParameters.hessian_type_ =
+                qpmad::SolverParameters::HESSIAN_LOWER_TRIANGULAR;
+        }
 
         try
         {

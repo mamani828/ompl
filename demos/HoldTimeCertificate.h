@@ -72,6 +72,40 @@ inline Counters &counters()
 #define HT_COUNT(field, n) ((void)0)
 #endif
 
+/// Which term of a row's `max(L1, local-L1, speed-capped, anchored)` produced that
+/// row's certificate. A world row's answer is the largest of four sound lower
+/// bounds, so the question "was the expensive term worth computing" is answered by
+/// which one attained the max -- and ties are resolved toward the *cheapest* term
+/// that attains it, because if L1 alone already reached the answer then the anchored
+/// root solve bought nothing for that row.
+///
+/// `Anchored` names different arithmetic in the two families: a self-pair row anchors
+/// on the pair's own contact normal (`NormalAnchor`), while a world row has no usable
+/// normal -- the SDF is not convex -- and falls back to the isotropic bound
+/// (`IsoAnchor`). Attribution is therefore only meaningful split by family.
+enum class HoldTerm : unsigned char
+{
+    None = 0,      ///< no row bound the answer, so no term did either
+    L1,            ///< the global lever-arm time, which every row has for free
+    LocalL1,       ///< `localWorldRate`: telescoping local lever arms, no envelope needed
+    SpeedCapped,   ///< `speedCappedTime`: initial speed, bounded acceleration, speed cap
+    Anchored,      ///< the root solve: `NormalAnchor` for self pairs, `IsoAnchor` for world
+};
+
+/// World rows whose certificate was settled by the local-lever term before any
+/// envelope was built, against those that reached the expensive path at all. The
+/// ratio is what says whether the term pays for itself.
+inline std::size_t &localPrunedTally()
+{
+    static std::size_t n = 0;
+    return n;
+}
+inline std::size_t &localReachedTally()
+{
+    static std::size_t n = 0;
+    return n;
+}
+
 /// How many queries were answered by the empty-screened-set shortcut. Always
 /// compiled: the envelope filter reports it whether or not the counters are on.
 inline std::size_t &emptyActiveTally()
@@ -765,7 +799,27 @@ public:
         /// rows without ever taking their square root.
         double selfL1{0.0};
         /// Whether a self-pair row, rather than a world sphere row, set the answer.
+        /// Only meaningful when `bounded`: with no row binding, neither family did.
         bool selfBinding{false};
+        /// Whether a geometry row set the answer at all, rather than the horizon --
+        /// or, on the screened path, the screening clip -- capping it. An unbounded
+        /// query has no bottleneck to attribute: the certificate ran out of look-ahead,
+        /// not out of clearance.
+        bool bounded{false};
+        /// Whether the answer was zero: some row's slack was already non-positive, so
+        /// the control cannot be held at all. Blocked implies `bounded`, and
+        /// `selfBinding` says which family it was.
+        bool blocked{false};
+        /// Input. `selfL1` costs a full 303-pair L1 sweep on top of the query, which is
+        /// most of what the query saved; callers that only want the attribution clear
+        /// it. Left on so the region rollout, which reports the gain over L1, is
+        /// unaffected.
+        bool wantSelfL1{true};
+        /// Which term of the binding row's `max` achieved it. `None` when no row bound
+        /// the answer, and also when the row that did was blocked outright -- a
+        /// non-positive slack is rejected before any of the three terms is formed, so
+        /// there is nothing to attribute.
+        HoldTerm bindingTerm{HoldTerm::None};
         std::size_t selfEvaluated{0};   ///< self rows whose expensive certificate ran
         std::size_t worldEvaluated{0};  ///< world rows whose expensive certificate ran
     };
@@ -805,13 +859,13 @@ public:
     /// be held should not repeat any of that. `Evaluation` keeps what it built, so this
     /// takes it and starts at the screening pass.
     double holdScaleFrom(const Barrier::Evaluation &evaluation, const Configuration &u,
-                         double horizon) const
+                         double horizon, Report *report = nullptr) const
     {
         barrier_.worldSlack(evaluation, borrowedSlack_);
         pairSubsetCount_ = -1;
         worldSubsetCount_ = -1;
         return queryAt(evaluation.kin, evaluation.centers, borrowedSlack_.data(),
-                       evaluation.inBounds, u, horizon, nullptr);
+                       evaluation.inBounds, u, horizon, report);
     }
 
     /// As above, sweeping only the self-collision pairs the caller's own screening kept.
@@ -830,7 +884,7 @@ public:
     /// the first, so a row it dropped could still bind through the second. Forty rows
     /// are cheap; the 303 are what this is for.
     double holdScaleFrom(const Barrier::Evaluation &evaluation, const Configuration &u,
-                         double horizon, double screenHorizon) const
+                         double horizon, double screenHorizon, Report *report = nullptr) const
     {
         // The world rows can join the restriction only when the baked box provably
         // contains the arm's reach. Otherwise their slack is the smaller of clearance
@@ -855,6 +909,13 @@ public:
             HT_COUNT(queries, 1);
             HT_COUNT(emptyActive, 1);
             ++emptyActiveTally();
+            if (report != nullptr)
+            {
+                const bool wantSelfL1 = report->wantSelfL1;
+                *report = Report();
+                report->wantSelfL1 = wantSelfL1;
+                report->selfL1 = std::min(horizon, screenHorizon);
+            }
             return std::min(horizon, screenHorizon);
         }
 
@@ -863,7 +924,7 @@ public:
         worldSubsetCount_ = worldToo ? nw : -1;
         const double span =
             queryAt(evaluation.kin, evaluation.centers, borrowedSlack_.data(),
-                    evaluation.inBounds, u, std::min(horizon, screenHorizon), nullptr);
+                    evaluation.inBounds, u, std::min(horizon, screenHorizon), report);
         pairSubsetCount_ = -1;
         worldSubsetCount_ = -1;
         return span;
@@ -919,7 +980,17 @@ private:
         Endpoint e;
         endpoint(f, b, e);
         const double d0 = slack_[p];
-        double t = std::max(std::min(T, l1), std::min(T, speedCappedTime(d0, e.S, e.C, e.V)));
+        // Kept apart rather than folded into `t`, so the row can say which of them
+        // answered it. Both are already clipped to the horizon, and `solve` never
+        // returns more than its argument, so the three are directly comparable.
+        termL1_ = std::min(T, l1);
+        termSpeed_ = std::min(T, speedCappedTime(d0, e.S, e.C, e.V));
+        termAnchor_ = 0.0;
+        // The telescoping argument extends to a pair through its common ancestor frame,
+        // but is not implemented here: self rows bind a minority of the time and their
+        // own L1 already wins most of those, so there is little to recover.
+        termLocal_ = 0.0;
+        double t = std::max(termL1_, termSpeed_);
         if (fastRoots_ && t >= best)
             return t;
         anchorEndpoint(e, f, b);
@@ -930,11 +1001,20 @@ private:
         const Vec3 n = w / dist_[p];
         const double bb = n.dot(e.u0), cc = n.dot(e.a0);
         if (!fastRoots_)
-            return std::max(t, normalAnchoredTime(d0, bb, cc, e.H, T));
+        {
+            termAnchor_ = normalAnchoredTime(d0, bb, cc, e.H, T);
+            return std::max(t, termAnchor_);
+        }
         const NormalAnchor anchor(bb, cc, e.H, d0);
         if (anchor.holds(best))
+        {
+            // The row cannot lower the bound, so it will not be the binding row and
+            // this value is never read for attribution.
+            termAnchor_ = best;
             return best;   // the anchored term alone already exceeds the bound
-        return std::max(t, anchor.solve(T));
+        }
+        termAnchor_ = anchor.solve(T);
+        return std::max(t, termAnchor_);
     }
 
     /// World row i's certificate, same shape. No contact normal is available -- the
@@ -943,19 +1023,112 @@ private:
     {
         ++worldEvaluated_;
         HT_COUNT(worldExpensive, 1);
+        ++localReachedTally();
+        const double d0 = worldSlack_[i];
+        termL1_ = std::min(T, l1);
+        // Ordered before `endpoint()` deliberately. The local-lever term needs no
+        // envelope, no `HoldCache` frame and no jerk bound -- six radii at the current
+        // configuration -- so a row it settles is a row that costs nothing further.
+        // Switchable so the term's contribution can be isolated; on by default. It is
+        // never unsound to include (rho_ik(q0) <= leverArmBounds()(i,k)) and never
+        // unsound to omit (the row falls back to the global L1 time).
+        static const bool localEnabled = []
+        {
+            const char *v = std::getenv("OMPL_ENV_LOCAL");
+            return v == nullptr || std::atoi(v) != 0;
+        }();
+        // A zero local rate means no joint that moves this sphere is moving, so the hold
+        // is unbounded -- `T`, not zero. Zero is reserved for "this term is switched off",
+        // where it must never win the `max`.
+        const double localRate = localEnabled ? localWorldRate(i) : 0.0;
+        termLocal_ = !localEnabled ? 0.0 : (localRate > 0.0 ? std::min(T, d0 / localRate) : T);
+        termSpeed_ = 0.0;
+        termAnchor_ = 0.0;
+        double t = std::max(termL1_, termLocal_);
+        if (fastRoots_ && t >= best)
+        {
+            if (localEnabled && termLocal_ >= best)
+                ++localPrunedTally();
+            return t;
+        }
         Endpoint e;
         endpoint(0, i, e);
-        const double d0 = worldSlack_[i];
-        double t = std::max(std::min(T, l1), std::min(T, speedCappedTime(d0, e.S, e.C, e.V)));
+        termSpeed_ = std::min(T, speedCappedTime(d0, e.S, e.C, e.V));
+        t = std::max(t, termSpeed_);
         if (fastRoots_ && t >= best)
             return t;
         anchorEndpoint(e, 0, i);
         if (!fastRoots_)
-            return std::max(t, anchoredTime(d0, e.u0, e.a0, e.H, T));
+        {
+            termAnchor_ = anchoredTime(d0, e.u0, e.a0, e.H, T);
+            return std::max(t, termAnchor_);
+        }
         const IsoAnchor anchor(e.u0, e.a0, e.H, d0);
         if (anchor.holds(best))
+        {
+            termAnchor_ = best;
             return best;
-        return std::max(t, anchor.solve(T));
+        }
+        termAnchor_ = anchor.solve(T);
+        return std::max(t, termAnchor_);
+    }
+
+    /// Telescoping local-lever rate for world sphere \p i: `sum_k rho_ik(q0) |u_k|`,
+    /// with each `rho_ik` the *current* distance from the sphere centre to joint k's
+    /// axis rather than its configuration-wide maximum.
+    ///
+    /// This is a certificate for the straight ray `q0 + t u`, not merely a linearisation,
+    /// by a proximal-to-distal telescoping argument. Reach `q0 + t u` one joint at a
+    /// time in index order. At step k, joints 1..k-1 have moved and joints k..n have
+    /// not, so the change in the earlier joints is a *rigid* transform of the entire
+    /// distal assembly -- joint k's axis and sphere i together, still in their original
+    /// relative pose. A rigid transform preserves distance, so the radius the sphere
+    /// swings on at step k is exactly `rho_ik(q0)`, and that step's displacement is
+    /// `2 rho sin(|t u_k| / 2) <= rho_ik(q0) |t u_k|`. Summing with the triangle
+    /// inequality bounds `|p_i(q0 + t u) - p_i(q0)|` by `t sum_k rho_ik(q0) |u_k|`.
+    ///
+    /// The bound is linear in `t`, hence monotone, so it also bounds the supremum over
+    /// the whole prefix `[0, t]` -- which is what a hold certificate needs, and what a
+    /// non-monotone bound would not give.
+    ///
+    /// Ordering is load-bearing: distal-to-proximal would move joints k+1..f(i) before
+    /// step k, changing the sphere's distance to axis k, and the argument fails. And
+    /// since `rho_ik(q0) <= max_q rho_ik(q) = leverArmBounds()(i, k)`, this is never
+    /// weaker than the global L1 time it sits beside.
+    ///
+    /// `jointAxis` is a unit vector, so the perpendicular distance comes from two dot
+    /// products rather than a cross product and a norm.
+    double localWorldRate(int i) const
+    {
+        const Eigen::Vector3d p = centers_->col(i);
+        const int frames = WS.frame[i];
+        double rate = 0.0;
+        for (int k = 0; k < frames; ++k)
+        {
+            const double speed = au_[k];
+            if (speed <= 0.0)
+                continue;
+            const Eigen::Vector3d v = p - kin_->jointOrigin[k];
+            const double axial = v.dot(kin_->jointAxis[k]);
+            rate += speed * std::sqrt(std::max(v.squaredNorm() - axial * axial, 0.0));
+        }
+        return rate;
+    }
+
+    /// The cheapest term attaining the last fully evaluated row's `max`. Ties go to
+    /// the cheaper term deliberately: `L1` here means the two expensive terms bought
+    /// that row nothing, which is the question the counter exists to answer.
+    HoldTerm classifyTerm() const
+    {
+        const double m =
+            std::max(std::max(termL1_, termLocal_), std::max(termSpeed_, termAnchor_));
+        if (termL1_ >= m)
+            return HoldTerm::L1;
+        if (termLocal_ >= m)
+            return HoldTerm::LocalL1;
+        if (termSpeed_ >= m)
+            return HoldTerm::SpeedCapped;
+        return HoldTerm::Anchored;
     }
 
     void refreshMargin() const
@@ -987,6 +1160,10 @@ private:
     mutable double dist_[NP];
     mutable std::size_t selfEvaluated_{0};
     mutable std::size_t worldEvaluated_{0};
+    /// The last fully evaluated row's three terms, for `classifyTerm()`. Written by
+    /// every `selfRow`/`worldRow` call and read only for the row that binds.
+    mutable double termL1_{0.0}, termSpeed_{0.0}, termAnchor_{0.0}, termLocal_{0.0};
+    mutable Configuration au_{Configuration::Zero()};   ///< |u|, for `localWorldRate`
 };
 
 inline double HoldEngine::queryAt(const Robot::Kinematics &kin,
@@ -1007,16 +1184,26 @@ inline double HoldEngine::queryAt(const Robot::Kinematics &kin,
     {
         report->selfL1 = horizon;
         report->selfBinding = false;
+        report->bounded = false;
+        report->blocked = false;
+        report->bindingTerm = HoldTerm::None;
         report->selfEvaluated = 0;
         report->worldEvaluated = 0;
     }
     if (!valid)
     {
         HT_COUNT(zeroReturns, 1);
+        // Out of the baked box is a world statement, not a self-collision one.
+        if (report != nullptr)
+        {
+            report->bounded = true;
+            report->blocked = true;
+        }
         return 0.0;   // holdWorldScale()'s answer for an out-of-box region
     }
 
     const Configuration au = u.cwiseAbs();
+    au_ = au;
     if (worldSubsetCount_ < 0)
         worldRate_.noalias() = Robot::leverArmBounds() * au;
     else
@@ -1045,6 +1232,11 @@ inline double HoldEngine::queryAt(const Robot::Kinematics &kin,
         if (slack <= 0.0)
         {
             HT_COUNT(zeroReturns, 1);
+            if (report != nullptr)
+            {
+                report->bounded = true;
+                report->blocked = true;
+            }
             return 0.0;
         }
         if (slack < rate * worldMin)
@@ -1056,6 +1248,10 @@ inline double HoldEngine::queryAt(const Robot::Kinematics &kin,
 
     double best = horizon;
     bool selfBound = false;
+    // The term that produced `best`, tracked alongside the family that did. Captured
+    // at each point `best` falls, because `classifyTerm()` reads scratch that the very
+    // next row overwrites.
+    HoldTerm bindingTerm = HoldTerm::None;
     if (worldArg >= 0)
     {
         // The envelope -- the one genuinely superlinear piece of this query -- is
@@ -1064,6 +1260,8 @@ inline double HoldEngine::queryAt(const Robot::Kinematics &kin,
         HT_COUNT(cacheBuilds, 1);
         HT_COUNT(seedWorld, 1);
         best = worldRow(worldArg, horizon, worldMin, horizon);
+        if (best < horizon)
+            bindingTerm = classifyTerm();
     }
 
     // ---------------------------------------------------- self pairs, screened hard
@@ -1121,6 +1319,12 @@ inline double HoldEngine::queryAt(const Robot::Kinematics &kin,
         if (slack <= 0.0)
         {
             HT_COUNT(zeroReturns, 1);
+            if (report != nullptr)
+            {
+                report->selfBinding = true;
+                report->bounded = true;
+                report->blocked = true;
+            }
             return 0.0;
         }
         const double l1 = slack / speed;
@@ -1180,6 +1384,7 @@ inline double HoldEngine::queryAt(const Robot::Kinematics &kin,
             {
                 best = value;
                 selfBound = true;
+                bindingTerm = classifyTerm();
             }
         }
         else
@@ -1190,6 +1395,7 @@ inline double HoldEngine::queryAt(const Robot::Kinematics &kin,
             {
                 best = value;
                 selfBound = false;
+                bindingTerm = classifyTerm();
             }
         }
     }
@@ -1197,13 +1403,21 @@ inline double HoldEngine::queryAt(const Robot::Kinematics &kin,
     if (report != nullptr)
     {
         report->selfBinding = selfBound;
+        // `best` starts at the horizon and only ever falls, and every row clips its own
+        // certificate there, so `best < horizon` holds exactly when some row -- rather
+        // than the look-ahead the caller asked for -- set the answer. That is the
+        // condition under which `selfBinding` names a bottleneck at all: a query that
+        // ran out of horizon has no binding row, and the seed row leaves `selfBound`
+        // false whether it bound the answer or returned the horizon untouched.
+        report->bounded = best < horizon;
+        report->bindingTerm = report->bounded ? bindingTerm : HoldTerm::None;
         report->selfEvaluated = selfEvaluated_;
         report->worldEvaluated = worldEvaluated_;
         // The pure-L1 answer over the pair rows, which the screen no longer produces
         // for free: it rejects most rows without ever taking their square root. It is
         // a diagnostic and only a self-binding step reports it, so it is measured
         // here, where the original measured it, and at the same rate.
-        if (selfBound)
+        if (selfBound && report->wantSelfL1)
             report->selfL1 = repoSelfScale(centers, au, horizon, selfMargin_);
     }
     return std::min(best, horizon);

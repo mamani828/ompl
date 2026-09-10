@@ -30,6 +30,7 @@ PLANNER_COLOR = {
     "rrtconnect": "#2a78d6",
     "qp-fixed": "#8c62aa",
     "qp-lipsch": "#eb6834",
+    "qp-envelope": "#13a89e",
     "qp-free": "#d43f70",
     "vamp-rrtc": "#1baf7a",
     "hybrid-rrtc": "#008300",
@@ -40,7 +41,7 @@ PLANNER_COLOR = {
     # since the pair is meant to be read against each other.
     "cbf-nocert": "#b9a3cc",
 }
-PLANNERS = ["rrtconnect", "qp-fixed", "qp-lipsch", "qp-free", "cbf-rrtc", "cbf-nocert",
+PLANNERS = ["rrtconnect", "qp-fixed", "qp-lipsch", "qp-free", "qp-envelope", "cbf-rrtc", "cbf-nocert",
             "vamp-rrtc", "hybrid-rrtc"]
 
 # One CSV column, three meanings -- collision checks for the checked baseline, filter
@@ -137,6 +138,8 @@ def cdf_panel(ax, groups, log_x, xlabel, title):
 METHOD_NAMES = {
     "isSafe": "rrtconnect",
     "qpFixed": "qp-fixed",
+    "qpAdaptive": "qp-lipsch",
+    "qpEnvelope": "qp-envelope",
     "bubbleCBF": "qp-lipsch",
     "qpFreeGate": "qp-free",
     "VAMP": "vamp-rrtc",

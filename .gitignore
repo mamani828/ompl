@@ -57,3 +57,6 @@ cmake_install.cmake
 /tests/test_filtered_state_space
 /tests/test_reachy2_mobile
 /tests/test_ur5
+
+# Baked SDF grids: ~30 MB each and regenerable from the scene definition
+*.grid

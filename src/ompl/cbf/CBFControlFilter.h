@@ -174,6 +174,44 @@ namespace ompl::cbf
             /// Also caps the certificate at `relevance * max(dt, 1/kappa)`, which is why
             /// it is not 1. See `ClearanceBarrier::ActiveSet::relevance`.
             double pairRelevance{4.0};
+            /// Multiplier on the row-screening horizon `max(dt, 1/kappa)`.
+            ///
+            /// Widening keeps rows the screen would otherwise drop, so the QP is
+            /// strictly more constrained and the answer stays sound -- the cost is
+            /// gradients and Jacobians for the extra rows, which is most of what
+            /// screening was buying.
+            ///
+            /// It is not the QP this exists for. A dropped row is only known to be worth
+            /// more than the screening horizon, so any certificate built from the
+            /// screened set is capped there; at kappa 20 and a 10 ms step that cap is
+            /// five controller steps, and it lands on exactly the long hops. Widening
+            /// moves the cap out proportionally. See `EnvelopeHoldFilter`, which reads
+            /// this to keep its own clip in step with the screen it is reusing.
+            double screenHorizonScale{1.0};
+            /// Enable the exact weighted projection used when one constraint row is active.
+            /// Disable this to benchmark that shortcut alone while retaining the
+            /// feasible-nominal bypass and pre-inverted Cholesky factor.
+            bool closedFormProjection{true};
+
+            /// Strip every shortcut off the QP path and solve it the way a caller who
+            /// built a fresh quadratic program each step would.
+            ///
+            /// Three things are given up. The *feasibility bypass*: a clamped nominal
+            /// that already satisfies every row is returned without a solve. The
+            /// *single-row projection*: one active row has a closed-form projection onto
+            /// its halfspace, which is exact and needs no solver. And the *pre-inverted
+            /// Cholesky factor*: the Hessian is diagonal, so its inverse factor is
+            /// `1/sqrt(w)` in closed form, and handing that to qpmad skips factorisation
+            /// entirely -- once, because qpmad rewrites `hessian_type_` and reuses the
+            /// factor for the life of the solver.
+            ///
+            /// All three are sound; they exist because this QP is small and structured.
+            /// But they make the filter faster than a general-purpose CBF-QP would be,
+            /// and a certificate's worth is measured against the cost of a filter call,
+            /// so a study that quotes the shortcut-laden call as the denominator flatters
+            /// the shortcuts and understates the certificate. Turn this on to measure
+            /// against an unassisted solver.
+            bool plainSolve{false};
         };
 
         /// Optional per-call detail, for diagnostics and benchmarking.
