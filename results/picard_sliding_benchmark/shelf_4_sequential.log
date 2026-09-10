@@ -1,0 +1,53 @@
+scene shelf   grid /home/ax-ml-ubu24/ompl/results/picard_sliding_benchmark/shelf.grid
+field 155x155x158 nodes, voxel 0.0150 m, maxGradientNorm 1.6668
+margin 0.0600, interpolation buffer 0.0150, guarded margin 0.0750
+CBF kappa 19.800 /s, RRTConnect range 1.500 rad, min progress 0.10
+retain partial CBF steering: on
+rollout early termination: on, 40-call budget, 3 stalled steps
+start barrier h = +0.0127 m
+
+goal                         row     solved  seconds   wpts  audited   unsafe     min h   evals rad/call coarse selfcoll  min self     len0     len1    cut%  cutms
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 12 states (6 start + 6 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 66 states (59 start + 7 goal)
+lower_bay_left               rrtc       yes 0.004535     11      518        0   +0.0068    4524        -      -        0   +0.0025   12.972   12.972    0.0%    0.0
+                             cbf        yes 0.001036      9      470        0   +0.0127     362   0.0299     5%        0   +0.0025    7.467    7.467    0.0%    0.0
+    cbf planner: 10 recorded / 12 rollouts (83.3%), 2 abandoned, 10 ledger-served, 362 filter calls
+    rollout early stops: 4 budget, 1 stalled, 0 tiny-control
+    productive samples: rrtc 61/561 (10.9%), cbf 3/3 (100.0%)
+    ! barrier mismatch at goal: exporter +0.0052, here +0.0201
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 15 states (9 start + 6 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 97 states (92 start + 5 goal)
+lower_bay_right              rrtc       yes 0.006652     11      544        0   +0.0012    6965        -      -        0   +0.0025   13.608   13.608    0.0%    0.0
+                             cbf        yes 0.000749      8      428        0   +0.0104     292   0.0423    16%        0   +0.0025    8.337    8.337    0.0%    0.0
+    cbf planner: 13 recorded / 15 rollouts (86.7%), 2 abandoned, 13 ledger-served, 292 filter calls
+    rollout early stops: 4 budget, 0 stalled, 0 tiny-control
+    productive samples: rrtc 93/708 (13.1%), cbf 3/3 (100.0%)
+    ! barrier mismatch at goal: exporter +0.0049, here +0.0199
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 17 states (5 start + 12 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 15 states (12 start + 3 goal)
+upper_bay_left               rrtc       yes 0.000785      6      262        0   +0.0099     852        -      -        0   +0.0025    6.574    6.574    0.0%    0.0
+                             cbf        yes 0.001177     16      636        0   +0.0095     430   0.0271     3%        0   +0.0025   11.343   11.343    0.0%    0.0
+    cbf planner: 15 recorded / 17 rollouts (88.2%), 2 abandoned, 15 ledger-served, 430 filter calls
+    rollout early stops: 4 budget, 1 stalled, 0 tiny-control
+    productive samples: rrtc 10/52 (19.2%), cbf 3/3 (100.0%)
+    ! barrier mismatch at goal: exporter +0.0049, here +0.0192
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 10 states (5 start + 5 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 15 states (13 start + 2 goal)
+upper_bay_right              rrtc       yes 0.000865      7      344        0   +0.0053     932        -      -        0   +0.0025    8.609    8.609    0.0%    0.0
+                             cbf        yes 0.000527      9      391        0   +0.0010     227   0.0312    11%        0   +0.0025    6.904    6.904    0.0%    0.0
+    cbf planner: 8 recorded / 9 rollouts (88.9%), 1 abandoned, 8 ledger-served, 227 filter calls
+    rollout early stops: 4 budget, 1 stalled, 0 tiny-control
+    productive samples: rrtc 11/76 (14.5%), cbf 2/2 (100.0%)
+    ! barrier mismatch at goal: exporter +0.0049, here +0.0192
+
+solved: rrtc 4/4, cbf 4/4   median ms over 1 trials: rrtc 4.535, cbf 1.036 (4.38x)
+path length over 4 goals both solved, radians: rrtc 41.763 -> 41.763, cbf 34.052 -> 34.052   cbf/rrtc before 0.82x, after 0.82x
+0 audited states below the audited margin (cbf row)

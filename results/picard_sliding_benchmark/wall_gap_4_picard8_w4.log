@@ -1,0 +1,37 @@
+scene wall_gap   grid /home/ax-ml-ubu24/ompl/results/picard_sliding_benchmark/wall_gap.grid
+field 155x155x158 nodes, voxel 0.0150 m, maxGradientNorm 1.6590
+margin 0.0600, interpolation buffer 0.0150, guarded margin 0.0750
+CBF kappa 19.800 /s, RRTConnect range 1.500 rad, min progress 0.10
+retain partial CBF steering: on
+rollout early termination: on, 40-call budget, 3 stalled steps
+parallel Picard on: 2 iterations, 8-step windows, 4 workers
+start barrier h = +0.0127 m
+
+goal                         row     solved  seconds   wpts  audited   unsafe     min h   evals rad/call coarse selfcoll  min self     len0     len1    cut%  cutms
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1271 states (789 start + 482 goal)
+Info:    ProblemDefinition: Adding approximate solution from planner RRTConnect
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 12944 states (11902 start + 1042 goal)
+Info:    ProblemDefinition: Adding approximate solution from planner RRTConnect
+beyond_offset_right          rrtc        no 2.000017     12      659        0   +0.0000  694743        -      -        0   +0.0000   16.475   16.475    0.0%    0.0
+                             cbf         no 2.000570      8      470        0   +0.0000 1008627   0.0016     0%        0   +0.0000    7.588    7.588    0.0%    0.0
+    cbf planner: 1269 recorded / 2740 rollouts (46.3%), 1471 abandoned, 1269 ledger-served, 1008627 filter calls
+    rollout early stops: 16 budget, 2 stalled, 0 tiny-control
+    parallel Picard: 2715/2740 proposals accepted, 25 fallbacks; 3213/132390 windows converged (132258 map-certified), 1004660 map + 426 verify filters, 22 verification failures, 1988.034 ms total; 129160 partial slides, 136641 committed steps, 849990 reused guesses
+    productive samples: rrtc 12942/254418 (5.1%), cbf 954/1471 (64.9%)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1358 states (805 start + 553 goal)
+Info:    ProblemDefinition: Adding approximate solution from planner RRTConnect
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 12731 states (11661 start + 1070 goal)
+Info:    ProblemDefinition: Adding approximate solution from planner RRTConnect
+beyond_offset_left           rrtc        no 2.000024     14      741        0   +0.0000  688746        -      -        0   +0.0000   18.541   18.541    0.0%    0.0
+                             cbf         no 2.001193      9      583        0   +0.0000 1078927   0.0016     0%        0   +0.0000    8.362    8.362    0.0%    0.0
+    cbf planner: 1356 recorded / 2831 rollouts (47.9%), 1475 abandoned, 1356 ledger-served, 1078927 filter calls
+    rollout early stops: 6 budget, 0 stalled, 1 tiny-control
+    parallel Picard: 2820/2831 proposals accepted, 11 fallbacks; 3287/141499 windows converged (141369 map-certified), 1075292 map + 397 verify filters, 11 verification failures, 1989.163 ms total; 138206 partial slides, 145596 committed steps, 911122 reused guesses
+    productive samples: rrtc 12729/254550 (5.0%), cbf 1001/1475 (67.9%)
+
+solved: rrtc 0/2, cbf 0/2   median ms over 1 trials: rrtc 2000.024, cbf 2001.193 (1.00x)
+0 audited states below the audited margin (cbf row)

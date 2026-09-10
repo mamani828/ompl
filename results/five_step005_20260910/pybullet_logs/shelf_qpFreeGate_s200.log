@@ -1,0 +1,117 @@
+scene shelf   grid results/five_step005_20260910/pybullet_scenes/shelf.grid
+field 155x155x158 nodes, voxel 0.0150 m, maxGradientNorm 1.6668
+margin 0.0600, interpolation buffer 0.0050, guarded margin 0.0650
+CBF kappa 20.000 /s, RRTConnect range 1.000 rad, min progress 0.25
+retain partial CBF steering: on
+rollout early termination: on, 0-call budget, 0 stalled steps
+start barrier h = +0.0127 m
+
+goal                         row     solved  seconds   wpts  audited   unsafe     min h   evals rad/call coarse selfcoll  min self     len0     len1    cut%  cutms
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 64 states (56 start + 8 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 82 states (76 start + 6 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 276 states (248 start + 28 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 49 states (41 start + 8 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 198 states (172 start + 26 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 36 states (30 start + 6 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 172 states (151 start + 21 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 70 states (64 start + 6 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 162 states (141 start + 21 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 11 states (7 start + 4 goal)
+lower_bay_left               rrtc       yes 0.001897      9      307        0   +0.0099     365        -      -        0   +0.0025    7.681    7.681    0.0%    0.0
+                             cbf        yes 0.006516     23      848        0   +0.0011    5107   0.0298     0%        0   +0.0025   15.078   15.078    0.0%    0.0
+    cbf planner: 862 recorded / 4693 rollouts (18.4%), 3831 abandoned, 862 ledger-served, 26616 filter calls
+    rollout early stops: 0 budget, 0 stalled, 0 tiny-control
+    productive samples: rrtc 221/1085 (20.4%), cbf 825/3836 (21.5%)
+    ! barrier mismatch at goal: exporter +0.0052, here +0.0201
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 25 states (19 start + 6 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 63 states (58 start + 5 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 35 states (28 start + 7 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 15 states (12 start + 3 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 108 states (96 start + 12 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 55 states (50 start + 5 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 98 states (88 start + 10 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 69 states (65 start + 4 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 178 states (164 start + 14 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 41 states (38 start + 3 goal)
+lower_bay_right              rrtc       yes 0.002266     13      470        0   +0.0119    1770        -      -        0   +0.0025   11.771   11.771    0.0%    0.0
+                             cbf        yes 0.003067     21      917        0   +0.0011    5799   0.0296     0%        0   +0.0025   16.150   16.150    0.0%    0.0
+    cbf planner: 434 recorded / 2129 rollouts (20.4%), 1695 abandoned, 434 ledger-served, 13067 filter calls
+    rollout early stops: 0 budget, 0 stalled, 0 tiny-control
+    productive samples: rrtc 216/1082 (20.0%), cbf 402/1700 (23.6%)
+    ! barrier mismatch at goal: exporter +0.0049, here +0.0199
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 66 states (52 start + 14 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 25 states (22 start + 3 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 86 states (73 start + 13 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 15 states (13 start + 2 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 92 states (77 start + 15 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 21 states (17 start + 4 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 169 states (149 start + 20 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 31 states (27 start + 4 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 24 states (19 start + 5 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 17 states (14 start + 3 goal)
+upper_bay_left               rrtc       yes 0.000726      8      275        0   +0.0061     635        -      -        0   +0.0025    6.886    6.886    0.0%    0.0
+                             cbf        yes 0.002908     12      460        0   +0.0080     563   0.0341     0%        0   +0.0025    8.403    8.403    0.0%    0.0
+    cbf planner: 427 recorded / 1971 rollouts (21.7%), 1544 abandoned, 427 ledger-served, 12617 filter calls
+    rollout early stops: 0 budget, 0 stalled, 0 tiny-control
+    productive samples: rrtc 83/266 (31.2%), cbf 391/1549 (25.2%)
+    ! barrier mismatch at goal: exporter +0.0049, here +0.0192
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 36 states (30 start + 6 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 19 states (15 start + 4 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 23 states (14 start + 9 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 12 states (10 start + 2 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 38 states (30 start + 8 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 14 states (12 start + 2 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 21 states (16 start + 5 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 17 states (15 start + 2 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 30 states (20 start + 10 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 21 states (17 start + 4 goal)
+upper_bay_right              rrtc       yes 0.000568      9      300        0   +0.0127     862        -      -        0   +0.0025    7.503    7.503    0.0%    0.0
+                             cbf        yes 0.000734     11      407        0   +0.0064     641   0.0327     0%        0   +0.0025    7.658    7.658    0.0%    0.0
+    cbf planner: 138 recorded / 423 rollouts (32.6%), 285 abandoned, 138 ledger-served, 3455 filter calls
+    rollout early stops: 0 budget, 0 stalled, 0 tiny-control
+    productive samples: rrtc 56/154 (36.4%), cbf 107/290 (36.9%)
+    ! barrier mismatch at goal: exporter +0.0049, here +0.0192
+
+solved: rrtc 4/4, cbf 4/4   median ms over 5 trials: rrtc 1.897, cbf 3.067 (0.62x)
+path length over 4 goals both solved, radians: rrtc 33.840 -> 33.840, cbf 47.289 -> 47.289   cbf/rrtc before 1.40x, after 1.40x
+0 audited states below the audited margin (cbf row)

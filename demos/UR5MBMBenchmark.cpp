@@ -130,7 +130,27 @@ namespace
 
     /// Joint-space spacing all rows are audited at, in radians. Finer than the rollout
     /// step so the audit is not merely re-reading the filter's own decisions.
-    constexpr double auditResolution = 0.02;
+    /// Overridable because the audit's own spacing bounds what the audit can say. At
+    /// 0.02 rad a sample is up to ~2 cm of workspace motion at a 1 m lever arm -- an
+    /// order of magnitude more than the millimetre-scale margins under test -- so
+    /// "zero unsafe" means "no sampled state penetrated", not "the path never did".
+    /// `OMPL_MBM_AUDIT_RES=0.002` puts it under a 3 mm buffer, at roughly ten times the
+    /// audit cost, which is what decides whether a clean column is real or an artefact
+    /// of looking too coarsely.
+    double auditResolutionValue()
+    {
+        static const double value = []
+        {
+            if (const char *v = std::getenv("OMPL_MBM_AUDIT_RES"))
+            {
+                const double parsed = std::atof(v);
+                if (parsed > 0.0)
+                    return parsed;
+            }
+            return 0.02;
+        }();
+        return value;
+    }
 
     /// One obstacle: a box (`halfExtents`) or a cylinder (`radius`, `halfLength` about
     /// the local z axis), posed in the world.
@@ -392,7 +412,7 @@ namespace
     {
         recordPathShape(path, result);
         const unsigned int segments = static_cast<unsigned int>(
-            std::max(1.0, std::ceil(path.length() / auditResolution)));
+            std::max(1.0, std::ceil(path.length() / auditResolutionValue())));
         path.interpolate(segments + 1);
         result.auditedStates = path.getStateCount();
         for (std::size_t i = 0; i < path.getStateCount(); ++i)
@@ -432,7 +452,7 @@ namespace
         // mean the same thing in all rows. Note this genuinely samples *inside* a step
         // now; the old rollout quantised every fraction to a step boundary, so a fine
         // request silently came back at the step size.
-        const og::PathGeometric path = ompl::cbf::executedPath(solution, auditResolution, &result.misses);
+        const og::PathGeometric path = ompl::cbf::executedPath(solution, auditResolutionValue(), &result.misses);
         recordPathShape(path, result);
         result.auditedStates = path.getStateCount();
         for (std::size_t i = 0; i < path.getStateCount(); ++i)
@@ -1267,7 +1287,7 @@ int main(int argc, char **argv)
 #endif
              })
             *out << "# audited joint-space motions, one configuration per line, "
-                 << auditResolution << " rad spacing\n"
+                 << auditResolutionValue() << " rad spacing\n"
                  << "# each motion begins with a '# motion <scene> <index>' marker\n";
     }
 

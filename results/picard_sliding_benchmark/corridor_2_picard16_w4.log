@@ -1,0 +1,45 @@
+scene corridor   grid /home/ax-ml-ubu24/ompl/results/picard_sliding_benchmark/corridor.grid
+field 155x155x158 nodes, voxel 0.0150 m, maxGradientNorm 1.7169
+margin 0.0600, interpolation buffer 0.0150, guarded margin 0.0750
+CBF kappa 19.800 /s, RRTConnect range 1.500 rad, min progress 0.10
+retain partial CBF steering: on
+rollout early termination: on, 40-call budget, 3 stalled steps
+parallel Picard on: 2 iterations, 16-step windows, 4 workers
+start barrier h = +0.0127 m
+
+goal                         row     solved  seconds   wpts  audited   unsafe     min h   evals rad/call coarse selfcoll  min self     len0     len1    cut%  cutms
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 6 states (2 start + 4 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 34 states (22 start + 12 goal)
+corridor_entrance_from_above rrtc       yes 0.002135     11      552        0   +0.0015    2114        -      -        0   +0.0025   13.801   13.801    0.0%    0.0
+                             cbf        yes 0.002970      5      309        0   +0.0127     595   0.0088     0%        0   +0.0025    5.237    5.237    0.0%    0.0
+    cbf planner: 4 recorded / 4 rollouts (100.0%), 0 abandoned, 4 ledger-served, 595 filter calls
+    rollout early stops: 0 budget, 0 stalled, 0 tiny-control
+    parallel Picard: 4/4 proposals accepted, 0 fallbacks; 8/42 windows converged (40 map-certified), 561 map + 30 verify filters, 0 verification failures, 2.916 ms total; 34 partial slides, 155 committed steps, 394 reused guesses
+    productive samples: rrtc 28/185 (15.1%), cbf 1/1 (100.0%)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 16 states (7 start + 9 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 97 states (93 start + 4 goal)
+under_the_ceiling            rrtc       yes 0.007457     13      675        0   +0.0004    7471        -      -        0   +0.0025   16.885   16.885    0.0%    0.0
+                             cbf        yes 0.008661     11      513        0   +0.0127    4529   0.0029     0%        0   +0.0025    8.746    8.746    0.0%    0.0
+    cbf planner: 14 recorded / 16 rollouts (87.5%), 2 abandoned, 14 ledger-served, 4529 filter calls
+    rollout early stops: 0 budget, 0 stalled, 0 tiny-control
+    parallel Picard: 14/16 proposals accepted, 2 fallbacks; 21/352 windows converged (349 map-certified), 4486 map + 27 verify filters, 0 verification failures, 8.642 ms total; 331 partial slides, 508 committed steps, 3884 reused guesses
+    productive samples: rrtc 93/1000 (9.3%), cbf 3/3 (100.0%)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 32 states (16 start + 16 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 46 states (39 start + 7 goal)
+far_end_under_the_ceiling    rrtc       yes 0.003311     11      542        0   +0.0066    3348        -      -        0   +0.0025   13.551   13.551    0.0%    0.0
+                             cbf        yes 0.036786     17      914        0   +0.0127   23350   0.0015     0%        0   +0.0025   14.406   14.406    0.0%    0.0
+    cbf planner: 30 recorded / 43 rollouts (69.8%), 13 abandoned, 30 ledger-served, 23350 filter calls
+    rollout early stops: 0 budget, 0 stalled, 0 tiny-control
+    parallel Picard: 43/43 proposals accepted, 0 fallbacks; 57/1702 windows converged (1695 map-certified), 23287 map + 20 verify filters, 0 verification failures, 36.757 ms total; 1645 partial slides, 2005 committed steps, 20829 reused guesses
+    productive samples: rrtc 40/429 (9.3%), cbf 12/14 (85.7%)
+    ! barrier mismatch at goal: exporter +0.0075, here +0.0227
+
+solved: rrtc 3/3, cbf 3/3   median ms over 1 trials: rrtc 3.311, cbf 8.661 (0.38x)
+path length over 3 goals both solved, radians: rrtc 44.237 -> 44.237, cbf 28.389 -> 28.389   cbf/rrtc before 0.64x, after 0.64x
+0 audited states below the audited margin (cbf row)

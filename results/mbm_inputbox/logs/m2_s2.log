@@ -1,0 +1,83 @@
+
+MotionBenchMaker UR5, 140 problems loaded, up to 20 per scene
+voxel 0.030 m, margin 0.0040 m + 0.0050 m filter buffer, stepSize 0.050 s, range 2.00 rad, 5.0 s limit
+
+hop certificate: safe (region)
+input constraints: no input box, screening unchanged (unsound)
+kappa 20.00 /s, certified step uncapped, self-collision margin 0.0000 m over 303 pairs
+baseline segment: 0.001624 of extent = 0.0250 rad, rollout step 0.0250 rad (matched to the rollout)
+rope shortcut off, all rows unsimplified
+
+seed 2
+  planner       solved ms(min/med/max)        samples vertices     path rad/call coarse  worst clr unsafe/audited missed worst self collide
+
+bookshelf_small  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.29/2.16/90.91         2481       29    13.68        -      -    -0.0031     30/13256        0     0.0025       0
+  cbf-rrtc     20/20      0.10/0.80/5.25           321       10     9.36   0.0422    13%    -0.0627    224/11816        0     0.0025       0
+  vamp-rrtc    20/20      0.02/0.14/7.80          6236       29    16.21        -      -    -0.0013     16/15560        0     0.0008       0
+
+bookshelf_tall  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.36/1.48/28.13         1668       20    13.27        -      -    -0.0039     51/13521        0     0.0025       0
+  cbf-rrtc     20/20      0.12/1.46/6.81           543       15    11.20   0.0333     7%    -0.0136     91/15141        0     0.0025       0
+  vamp-rrtc    20/20      0.03/0.15/1.49          3527       20    14.06        -      -    -0.0037     27/13614        0     0.0001       0
+
+bookshelf_thin  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.29/3.31/145.38        3777       37    13.45        -      -    -0.0033     17/12985        0     0.0025       0
+  cbf-rrtc     20/20      0.10/0.86/4.20           348       12     8.42   0.0410    13%    -0.0223    148/11377        0     0.0025       0
+  vamp-rrtc    20/20      0.03/0.15/1.12          3668       21    13.04        -      -    -0.0036     36/13057        0     0.0021       0
+
+box  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.31/0.95/3.53          1078       15    10.34        -      -    -0.0005      3/10593        0     0.0025       0
+  cbf-rrtc     20/20      0.14/0.41/5.73           173        8     7.76   0.0552    20%    -0.0070      3/10099        0     0.0025       0
+  vamp-rrtc    20/20      0.02/0.07/0.17          2536       15    11.52        -      -    -0.0038     44/12547        0     0.0002       0
+
+cage  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      4.12/55.75/399.17       58041      761    21.26        -      -    -0.0018     14/20191        0     0.0025       0
+  cbf-rrtc     20/20      2.34/14.69/36.51         5520       98    17.66   0.0266     4%    -0.0030     90/23719        0     0.0010       0
+  vamp-rrtc    20/20      0.19/3.03/65.78       121713      379    23.91        -      -    -0.0035     90/22620        0     0.0012       0
+
+table_pick  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.22/0.70/3.16           795       11    11.27        -      -    -0.0064     39/10406        0     0.0025       0
+  cbf-rrtc     20/20      0.08/0.20/1.28            95        7     8.20   0.0811    39%    -0.0028     39/8908         0     0.0025       0
+  vamp-rrtc    20/20      0.02/0.07/0.43          2313       14    12.47        -      -    -0.0042     33/11601        0     0.0008       0
+
+table_under_pick  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.41/0.93/4.17          1036       14    13.13        -      -    -0.0046     31/13068        0     0.0025       0
+  cbf-rrtc     20/20      0.23/2.06/6.53           849       22    15.19   0.0317     7%    -0.0115    170/16910        0     0.0025       0
+  vamp-rrtc    20/20      0.02/0.07/0.15          2538       15    13.30        -      -    -0.0035     60/14009        0     0.0018       0
+
+Endpoint clearance at zero margin -- min(start, goal) over all spheres.
+  scene                     min    median       max affordable   problems by margin
+  bookshelf_small        0.0027    0.0088    0.0126    0.0027   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_tall         0.0040    0.0075    0.0121    0.0040   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_thin         0.0045    0.0071    0.0122    0.0045   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  box                    0.0082    0.0127    0.0127    0.0082   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  cage                   0.0100    0.0127    0.0127    0.0100   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_pick             0.0085    0.0092    0.0101    0.0085   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_under_pick       0.0056    0.0090    0.0099    0.0056   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+
+all scenes  (140 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect  140/140     0.22/1.37/399.17        1560       20    12.78        -      -    -0.0064    185/94020        0     0.0025       0
+  cbf-rrtc    140/140     0.08/0.88/36.51          349       12     9.38   0.0370    10%    -0.0627    765/97970        0     0.0010       0
+  vamp-rrtc   140/140     0.02/0.11/65.78         3527       19    14.19        -      -    -0.0042    306/103008       0     0.0001       0
+
+"samples" is checked configurations for isSafe, barrier evaluations for
+bubbleCBF, and SIMD configuration lanes evaluated for VAMP. They measure
+sampling work, while wall time captures the very different per-sample costs.
+"unsafe/audited" evaluates exact primitive clearance at every state of the
+densified solution -- for cbf-rrtc that is the rollout the planner recorded
+for each edge, replayed, so it is the motion that would actually be executed,
+sampled inside each step rather than only at its boundaries. Non-zero unsafe
+invalidates a row however fast it was.
+"missed" counts solution edges that were not on file and had to be
+re-derived; it must be zero, or the audited motion is a different trajectory
+from the one the planner found.
+
+=== CBF profiler (wall time) ===
+=== CBF filter stats ===
+  calls=0  unchanged=0 (0.0%)  filtered=0 (0.0%)  blocked=0 (0.0%)
+  active rows:       avg=0.00  max=0
+  zero-row fast path: 0 (0.0%)
+  qp iterations:     avg=0.00  max=0
+  certified duration: avg=0.00000s  min=0.00000s  max=0.00000s  (over 0 non-blocked calls)
+wall 6.44 s

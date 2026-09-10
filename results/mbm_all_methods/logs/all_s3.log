@@ -1,0 +1,139 @@
+
+MotionBenchMaker UR5, 140 problems loaded, up to 20 per scene
+voxel 0.030 m, margin 0.0040 m + 0.0050 m filter buffer, stepSize 0.050 s, range 2.00 rad, 5.0 s limit
+
+hop certificate: safe (region)
+Picard: off; trajectory prefixes: 0; sequential rollout budget: 40 calls
+kappa 20.00 /s, certified step uncapped, self-collision margin 0.0000 m over 303 pairs
+baseline segment: 0.001624 of extent = 0.0250 rad, rollout step 0.0250 rad (matched to the rollout)
+rope shortcut off, all rows unsimplified
+
+seed 3
+  planner       solved ms(min/med/max)        samples vertices     path rad/call coarse  worst clr unsafe/audited missed worst self collide
+
+bookshelf_small  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.22/1.67/59.51         1934       23    12.78        -      -    -0.0039     47/13375        0     0.0025       0
+      primary samples 116, productive 18 (15.5%), vertices/sample 0.264
+  qp-fixed     20/20      0.16/0.53/3.39           302       10     9.23   0.0320     0%    -0.0043    148/11523        0     0.0025       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 6.000
+  qp-lipsch    20/20      0.08/0.65/4.44           309       10    10.02   0.0447    14%    -0.0048     70/11561        0     0.0025       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 4.500
+  qp-free      10/20      0.18/5000.01/5000.03    1420423    47200    11.05   0.0307     0%     0.0008      0/7921         0     0.0025       0
+      primary samples 357903, productive 47198 (13.2%), vertices/sample 0.183
+  vamp-rrtc    20/20      0.01/0.09/43.01         3598       18    13.56        -      -    -0.0039     71/13526        0     0.0006       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+bookshelf_tall  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.44/2.08/9.22          2408       30    13.81        -      -    -0.0038     87/13526        0     0.0025       0
+      primary samples 140, productive 26 (18.6%), vertices/sample 0.202
+  qp-fixed     20/20      0.20/0.81/2.15           439       13    10.79   0.0292     0%    -0.0022     55/12763        0     0.0025       0
+      primary samples 4, productive 3 (75.0%), vertices/sample 4.333
+  qp-lipsch    20/20      0.11/1.10/3.23           490       16    10.33   0.0376     8%    -0.0058     80/12902        0     0.0025       0
+      primary samples 4, productive 4 (100.0%), vertices/sample 4.500
+  qp-free       7/20      0.35/5000.01/5000.05    1424309    48081    14.09   0.0252     0%     0.0034      0/6382         0     0.0025       0
+      primary samples 375081, productive 48079 (12.8%), vertices/sample 0.133
+  vamp-rrtc    20/20      0.03/0.17/1.87          4083       24    11.18        -      -    -0.0035     54/12891        0     0.0002       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+bookshelf_thin  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.27/1.18/17.26         1341       17    10.71        -      -    -0.0009     18/11965        0     0.0011       0
+      primary samples 58, productive 13 (22.4%), vertices/sample 0.375
+  qp-fixed     20/20      0.18/0.51/2.84           287        9     8.36   0.0318     0%    -0.0092    183/11312        0     0.0025       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 4.667
+  qp-lipsch    20/20      0.08/0.47/1.82           211        9     8.75   0.0453    14%    -0.0131    245/10717        0     0.0025       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 5.000
+  qp-free       3/20      0.28/5000.02/5000.06    1496164    51718     9.77   0.0255     0%     0.0047      0/1946         0     0.0025       0
+      primary samples 373081, productive 51716 (13.9%), vertices/sample 0.139
+  vamp-rrtc    20/20      0.04/0.09/1.01          1136       12    11.52        -      -    -0.0020     29/11350        0     0.0016       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+box  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.27/0.86/2.81           973       13     9.23        -      -    -0.0006      3/10172        0     0.0025       0
+      primary samples 35, productive 10 (28.6%), vertices/sample 0.375
+  qp-fixed     20/20      0.15/0.54/2.22           350       12     8.20   0.0309     0%    -0.0012      8/10900        0     0.0025       0
+      primary samples 3, productive 3 (100.0%), vertices/sample 4.333
+  qp-lipsch    20/20      0.08/0.53/3.55           252       11     9.07   0.0507    16%    -0.0011      4/10822        0     0.0025       0
+      primary samples 3, productive 3 (100.0%), vertices/sample 4.000
+  qp-free      20/20      0.40/1.17/5.41          1065       29    12.10   0.0338     0%     0.0035      0/15535        0     0.0025       0
+      primary samples 69, productive 21 (30.4%), vertices/sample 0.462
+  vamp-rrtc    20/20      0.02/0.05/0.24          1854       12     9.82        -      -    -0.0029     17/10269        0     0.0025       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+cage  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      4.16/38.94/1303.29      41641      528    21.47        -      -    -0.0023     22/22781        0     0.0025       0
+      primary samples 5111, productive 524 (10.3%), vertices/sample 0.109
+  qp-fixed     20/20      1.83/7.73/23.81         4064       71    19.76   0.0253     0%    -0.0055     32/25788        0     0.0025       0
+      primary samples 55, productive 37 (67.3%), vertices/sample 1.378
+  qp-lipsch    20/20      2.74/7.78/25.43         3444       65    21.85   0.0292     5%    -0.0113     67/25248        0     0.0025       0
+      primary samples 47, productive 36 (76.6%), vertices/sample 1.440
+  qp-free      20/20      6.96/56.85/383.31       45600     1020    20.98   0.0305     0%     0.0030      0/26537        0     0.0024       0
+      primary samples 5794, productive 993 (17.1%), vertices/sample 0.181
+  vamp-rrtc    20/20      0.43/6.74/135.47      231152      719    23.11        -      -    -0.0037     64/22907        0     0.0025       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+table_pick  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.21/0.84/7.05           995       14     9.21        -      -    -0.0066     43/9697         0     0.0025       0
+      primary samples 42, productive 10 (23.8%), vertices/sample 0.377
+  qp-fixed     20/20      0.13/0.33/0.79           252        9     7.36   0.0306     0%    -0.0019     39/9179         0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 9.000
+  qp-lipsch    20/20      0.07/0.30/1.87           141        7     7.38   0.0721    19%    -0.0019     75/9275         0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 6.000
+  qp-free      11/20      0.50/8.58/5000.04       8286      198    14.48   0.0311     0%     0.0026      0/8395         0     0.0025       0
+      primary samples 940, productive 195 (20.7%), vertices/sample 0.211
+  vamp-rrtc    20/20      0.03/0.08/0.44          1988       14     9.09        -      -    -0.0042     28/9767         0     0.0025       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+table_under_pick  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.35/0.69/1.93           785       10    11.99        -      -    -0.0047     19/12811        0     0.0025       0
+      primary samples 34, productive 7 (20.6%), vertices/sample 0.400
+  qp-fixed     20/20      0.47/1.30/4.42           732       19    11.94   0.0274     0%    -0.0024    260/16788        0     0.0025       0
+      primary samples 7, productive 7 (100.0%), vertices/sample 2.667
+  qp-lipsch    20/20      0.41/1.45/5.31           659       19    14.59   0.0311     7%    -0.0027    213/18099        0     0.0025       0
+      primary samples 7, productive 6 (85.7%), vertices/sample 2.429
+  qp-free       9/20      0.41/5000.01/5000.09    1443467    49013    14.89   0.0255     0%     0.0038      0/9068         0     0.0025       0
+      primary samples 368043, productive 49011 (13.3%), vertices/sample 0.139
+  vamp-rrtc    20/20      0.03/0.07/0.19          1910       11    12.70        -      -    -0.0030     50/12722        0     0.0025       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+Endpoint clearance at zero margin -- min(start, goal) over all spheres.
+  scene                     min    median       max affordable   problems by margin
+  bookshelf_small        0.0027    0.0088    0.0126    0.0027   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_tall         0.0040    0.0075    0.0121    0.0040   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_thin         0.0045    0.0071    0.0122    0.0045   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  box                    0.0082    0.0127    0.0127    0.0082   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  cage                   0.0100    0.0127    0.0127    0.0100   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_pick             0.0085    0.0092    0.0101    0.0085   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_under_pick       0.0056    0.0090    0.0099    0.0056   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+
+all scenes  (140 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect  140/140     0.21/1.40/1303.29       1597       19    11.92        -      -    -0.0066    239/94327        0     0.0011       0
+      primary samples 65, productive 16 (24.6%), vertices/sample 0.265
+  qp-fixed    140/140     0.13/0.70/23.81          408       12     9.57   0.0294     0%    -0.0092    725/98253        0     0.0025       0
+      primary samples 3, productive 3 (100.0%), vertices/sample 3.500
+  qp-lipsch   140/140     0.07/0.80/25.43          368       12    10.02   0.0381    10%    -0.0131    754/98624        0     0.0025       0
+      primary samples 4, productive 4 (100.0%), vertices/sample 3.400
+  qp-free      80/140     0.18/56.85/5000.09      45600     1020    15.71   0.0305     0%     0.0008      0/75784        0     0.0024       0
+      primary samples 5794, productive 993 (17.1%), vertices/sample 0.179
+  vamp-rrtc   140/140     0.01/0.09/135.47        2617       17    11.82        -      -    -0.0042    313/93432        0     0.0002       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+"samples" is checked configurations for isSafe, barrier evaluations for
+the three CBF rows, and SIMD configuration lanes evaluated for VAMP. They measure
+sampling work, while wall time captures the very different per-sample costs.
+"unsafe/audited" evaluates exact primitive clearance at every state of the
+densified solution -- for each CBF row that is the rollout the planner recorded
+for each edge, replayed, so it is the motion that would actually be executed,
+sampled inside each step rather than only at its boundaries. Non-zero unsafe
+invalidates a row however fast it was.
+"missed" counts solution edges that were not on file and had to be
+re-derived; it must be zero, or the audited motion is a different trajectory
+from the one the planner found.
+
+=== CBF profiler (wall time) ===
+=== CBF filter stats ===
+  calls=0  unchanged=0 (0.0%)  filtered=0 (0.0%)  blocked=0 (0.0%)
+  active rows:       avg=0.00  max=0
+  zero-row fast path: 0 (0.0%)
+  qp iterations:     avg=0.00  max=0
+  certified duration: avg=0.00000s  min=0.00000s  max=0.00000s  (over 0 non-blocked calls)
+  required gain:     avg=0.000/s  max=0.000/s  p50=0.000/s  p90=0.000/s  p99=0.000/s  (over 0 calls, 0 uncertified)

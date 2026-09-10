@@ -1,0 +1,106 @@
+
+MotionBenchMaker UR5, 140 problems loaded, up to 20 per scene
+voxel 0.030 m, margin 0.0040 m + 0.0050 m filter buffer, stepSize 0.050 s, range 2.00 rad, 5.0 s limit
+
+hop certificate: safe (region)
+kappa 8.00 /s, certified step uncapped, self-collision margin 0.0000 m over 303 pairs
+baseline segment: 0.001624 of extent = 0.0250 rad, rollout step 0.0250 rad (matched to the rollout)
+rope shortcut off, all rows unsimplified
+
+seed 1
+  planner       solved ms(min/med/max)        samples vertices     path rad/call coarse  worst clr unsafe/audited missed worst self collide
+
+bookshelf_small  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.19/1.32/126.20        1553       20    14.21        -      -    -0.0032     22/14180        0     0.0025       0
+  cbf-rrtc     20/20      0.11/0.98/2.36           329       12     9.42   0.0448    13%    -0.0045     55/11058        0     0.0025       0
+  vamp-rrtc    20/20      0.02/0.13/0.68          5914       31    15.03        -      -    -0.0039     29/13468        0     0.0004       0
+  kpiece       20/20      0.69/24.79/3212.61      30006      326   116.94        -      -    -0.0064    130/137087       0     0.0001       0
+  cbf-kpiece   20/20      2.28/18.42/633.11        7425      202    97.00   0.0528    27%    -0.0221    170/138226       0    -0.0108       6
+
+bookshelf_tall  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.65/2.88/23.06         3365       37    14.62        -      -    -0.0045     56/14009        0     0.0025       0
+  cbf-rrtc     20/20      0.24/1.67/16.89          524       17    10.74   0.0311     6%    -0.0089     93/14163        0     0.0025       0
+  vamp-rrtc    20/20      0.04/0.13/0.96          4130       20    13.54        -      -    -0.0039     99/13947        0     0.0003       0
+  kpiece       20/20      2.59/32.11/1139.50      37585      422   120.39        -      -    -0.0073    110/141916       0     0.0000       0
+  cbf-kpiece   20/20      3.10/30.25/230.93       11600      320   122.08   0.0510    24%    -0.0217    224/144405       0    -0.0030       5
+
+bookshelf_thin  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.25/1.56/9.43          1831       23    11.17        -      -    -0.0065     47/11699        0     0.0025       0
+  cbf-rrtc     20/20      0.12/0.53/3.93           171        8     8.28   0.0514    18%    -0.0036    143/10732        0     0.0025       0
+  vamp-rrtc    20/20      0.03/0.18/4.18          4589       25    13.93        -      -    -0.0031     38/14009        0     0.0004       0
+  kpiece       20/20      2.18/31.39/383.16       37672      413   157.59        -      -    -0.0058     82/175515       0     0.0000       0
+  cbf-kpiece   20/20      0.42/44.23/2640.54      18550      571   152.65   0.0585    28%    -0.0169    374/170384       0    -0.0077       4
+
+box  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.24/0.87/5.31          1031       14    10.65        -      -    -0.0022      4/11924        0     0.0025       0
+  cbf-rrtc     20/20      0.14/0.75/5.24           297       11     7.20   0.0448    19%    -0.0005     15/10316        0     0.0025       0
+  vamp-rrtc    20/20      0.02/0.06/0.51          1435       11    11.83        -      -    -0.0032     33/12586        0     0.0014       0
+  kpiece       20/20      0.27/17.46/68.49        21238      232   107.72        -      -    -0.0044     40/120158       0     0.0000       0
+  cbf-kpiece   20/20      0.68/17.27/72.69         6790      197   107.02   0.0561    26%    -0.0048    127/133006       0    -0.0106      17
+
+cage  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      5.02/57.41/250.14       62464      815    23.06        -      -    -0.0040     33/23070        0     0.0025       0
+  cbf-rrtc     20/20      3.97/21.13/45.01         7161      123    22.09   0.0263     4%    -0.0081     67/29908        0     0.0010       0
+  vamp-rrtc    20/20      0.14/2.88/251.23      115866      373    21.09        -      -    -0.0036     59/21310        0     0.0007       0
+  kpiece       11/20    206.96/4993.36/5000.09    5995113    64513   346.34        -      -    -0.0072    105/196380       0     0.0000       0
+  cbf-kpiece   20/20     24.48/171.54/338.10       67804     1999   261.88   0.0568    26%    -0.0283    285/301702       0    -0.0153      12
+
+table_pick  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.29/0.89/5.79          1051       11    10.11        -      -    -0.0046     57/10140        0     0.0025       0
+  cbf-rrtc     20/20      0.08/0.24/1.36            94        7     7.82   0.0763    42%    -0.0013     13/8815         0     0.0025       0
+  vamp-rrtc    20/20      0.02/0.06/0.31          1557       11    11.52        -      -    -0.0028     27/11106        0     0.0025       0
+  kpiece       20/20      1.38/13.19/49.97        16018      160   126.63        -      -    -0.0062     69/113434       0     0.0001       0
+  cbf-kpiece   20/20      0.14/12.40/55.56         5484      186   123.89   0.0660    33%    -0.0226    281/135108       0    -0.0009       1
+
+table_under_pick  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.34/0.91/1.75          1057       13    13.03        -      -    -0.0034     14/13573        0     0.0025       0
+  cbf-rrtc     20/20      0.43/2.50/20.14          910       29    14.32   0.0294     7%    -0.0014     77/18567        0     0.0025       0
+  vamp-rrtc    20/20      0.03/0.07/0.19          2925       15    14.31        -      -    -0.0050     55/14490        0     0.0013       0
+  kpiece       20/20      0.57/6.60/99.45         8001       90    79.18        -      -    -0.0061     63/90198        0     0.0003       0
+  cbf-kpiece   20/20      2.13/9.12/64.81         3796      115   110.68   0.0558    29%    -0.0123    134/118330       0     0.0010       0
+
+Endpoint clearance at zero margin -- min(start, goal) over all spheres.
+  scene                     min    median       max affordable   problems by margin
+  bookshelf_small        0.0027    0.0088    0.0126    0.0027   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_tall         0.0040    0.0075    0.0121    0.0040   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_thin         0.0045    0.0071    0.0122    0.0045   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  box                    0.0082    0.0127    0.0127    0.0082   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  cage                   0.0100    0.0127    0.0127    0.0100   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_pick             0.0085    0.0092    0.0101    0.0085   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_under_pick       0.0056    0.0090    0.0099    0.0056   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+
+all scenes  (140 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect  140/140     0.19/1.20/250.14        1392       18    13.03        -      -    -0.0065    233/98595        0     0.0025       0
+  cbf-rrtc    140/140     0.08/1.03/45.01          346       13    10.14   0.0367    11%    -0.0089    463/103559       0     0.0010       0
+  vamp-rrtc   140/140     0.02/0.11/251.23        3628       20    13.90        -      -    -0.0050    340/100916       0     0.0003       0
+  kpiece      131/140     0.27/21.67/5000.09      26290      300   120.39        -      -    -0.0073    599/974688       0     0.0000       0
+  cbf-kpiece  140/140     0.14/20.46/2640.54       8314      254   123.89   0.0558    27%    -0.0283   1595/1141161      0    -0.0153      45
+
+rollout early termination over 141716 rollouts: tiny-control 2, stalled 1581,
+call-budget 82441, abandoned-for-no-progress 2612
+
+"samples" is checked configurations for isSafe, barrier evaluations for
+bubbleCBF, and SIMD configuration lanes evaluated for VAMP. They measure
+sampling work, while wall time captures the very different per-sample costs.
+"unsafe/audited" evaluates exact primitive clearance at every state of the
+densified solution -- for cbf-rrtc that is the rollout the planner recorded
+for each edge, replayed, so it is the motion that would actually be executed,
+sampled inside each step rather than only at its boundaries. Non-zero unsafe
+invalidates a row however fast it was.
+"missed" counts solution edges that were not on file and had to be
+re-derived; it must be zero, or the audited motion is a different trajectory
+from the one the planner found.
+
+=== CBF profiler (wall time) ===
+  evaluate_screened    total=   5.7942s  calls= 4605584  avg=    1.258us
+  qp_solve             total=   2.5439s  calls= 4249558  avg=    0.599us
+  self_collision       total=   1.7857s  calls= 4605584  avg=    0.388us
+  certified_duration   total=   1.7364s  calls= 4605542  avg=    0.377us
+  sdf_query            total=   1.2157s  calls= 7625619  avg=    0.159us
+=== CBF filter stats ===
+  calls=4605584  unchanged=2029336 (44.1%)  filtered=2576206 (55.9%)  blocked=42 (0.0%)
+  active rows:       avg=20.95  max=120
+  zero-row fast path: 356026 (7.7%)
+  qp iterations:     avg=1.00  max=25
+  certified duration: avg=0.01696s  min=0.00000s  max=13.54893s  (over 4605542 non-blocked calls)
+  required gain:     avg=92163609423024.609/s  max=124565235260653920.000/s  p50=177.828/s  p90=inf/s  p99=inf/s  (over 4125572 calls, 479970 uncertified)

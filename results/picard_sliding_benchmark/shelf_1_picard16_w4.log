@@ -1,0 +1,58 @@
+scene shelf   grid /home/ax-ml-ubu24/ompl/results/picard_sliding_benchmark/shelf.grid
+field 155x155x158 nodes, voxel 0.0150 m, maxGradientNorm 1.6668
+margin 0.0600, interpolation buffer 0.0150, guarded margin 0.0750
+CBF kappa 19.800 /s, RRTConnect range 1.500 rad, min progress 0.10
+retain partial CBF steering: on
+rollout early termination: on, 40-call budget, 3 stalled steps
+parallel Picard on: 2 iterations, 16-step windows, 4 workers
+start barrier h = +0.0127 m
+
+goal                         row     solved  seconds   wpts  audited   unsafe     min h   evals rad/call coarse selfcoll  min self     len0     len1    cut%  cutms
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 28 states (18 start + 10 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 42 states (39 start + 3 goal)
+lower_bay_left               rrtc       yes 0.003009      7      346        0   +0.0011    3003        -      -        0   +0.0025    8.659    8.659    0.0%    0.0
+                             cbf        yes 0.026384     17      645        0   +0.0009   13868   0.0018     0%        0   +0.0025   10.594   10.594    0.0%    0.0
+    cbf planner: 26 recorded / 35 rollouts (74.3%), 9 abandoned, 26 ledger-served, 13868 filter calls
+    rollout early stops: 0 budget, 0 stalled, 0 tiny-control
+    parallel Picard: 33/35 proposals accepted, 2 fallbacks; 36/1074 windows converged (1073 map-certified), 13831 map + 2 verify filters, 0 verification failures, 26.316 ms total; 1038 partial slides, 1141 committed steps, 12273 reused guesses
+    productive samples: rrtc 37/298 (12.4%), cbf 10/10 (100.0%)
+    ! barrier mismatch at goal: exporter +0.0052, here +0.0201
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 16 states (10 start + 6 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 42 states (39 start + 3 goal)
+lower_bay_right              rrtc       yes 0.002827     10      533        0   +0.0003    2946        -      -        0   +0.0025   13.345   13.345    0.0%    0.0
+                             cbf        yes 0.011040     12      514        0   +0.0066    5554   0.0024     0%        0   +0.0025    8.642    8.642    0.0%    0.0
+    cbf planner: 14 recorded / 17 rollouts (82.4%), 3 abandoned, 14 ledger-served, 5554 filter calls
+    rollout early stops: 0 budget, 0 stalled, 0 tiny-control
+    parallel Picard: 16/17 proposals accepted, 1 fallbacks; 21/441 windows converged (441 map-certified), 5536 map + 0 verify filters, 0 verification failures, 11.020 ms total; 420 partial slides, 541 committed steps, 4838 reused guesses
+    productive samples: rrtc 38/222 (17.1%), cbf 4/4 (100.0%)
+    ! barrier mismatch at goal: exporter +0.0049, here +0.0199
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 18 states (7 start + 11 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 17 states (15 start + 2 goal)
+upper_bay_left               rrtc       yes 0.000879      9      422        0   +0.0079     925        -      -        0   +0.0025   10.563   10.563    0.0%    0.0
+                             cbf        yes 0.011451     13      654        0   +0.0010    6367   0.0023     0%        0   +0.0025   10.824   10.824    0.0%    0.0
+    cbf planner: 16 recorded / 20 rollouts (80.0%), 4 abandoned, 16 ledger-served, 6367 filter calls
+    rollout early stops: 1 budget, 0 stalled, 0 tiny-control
+    parallel Picard: 16/20 proposals accepted, 4 fallbacks; 23/481 windows converged (479 map-certified), 6297 map + 10 verify filters, 1 verification failures, 11.309 ms total; 457 partial slides, 620 committed steps, 5468 reused guesses
+    productive samples: rrtc 12/60 (20.0%), cbf 4/5 (80.0%)
+    ! barrier mismatch at goal: exporter +0.0049, here +0.0192
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 8 states (2 start + 6 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 7 states (5 start + 2 goal)
+upper_bay_right              rrtc       yes 0.000245      6      247        0   +0.0127     254        -      -        0   +0.0025    6.199    6.199    0.0%    0.0
+                             cbf        yes 0.002941      7      402        0   +0.0106    1362   0.0046     0%        0   +0.0025    6.323    6.323    0.0%    0.0
+    cbf planner: 6 recorded / 6 rollouts (100.0%), 0 abandoned, 6 ledger-served, 1362 filter calls
+    rollout early stops: 1 budget, 0 stalled, 0 tiny-control
+    parallel Picard: 5/6 proposals accepted, 1 fallbacks; 11/93 windows converged (91 map-certified), 1307 map + 9 verify filters, 1 verification failures, 2.825 ms total; 81 partial slides, 208 committed steps, 1057 reused guesses
+    productive samples: rrtc 2/2 (100.0%), cbf 1/1 (100.0%)
+    ! barrier mismatch at goal: exporter +0.0049, here +0.0192
+
+solved: rrtc 4/4, cbf 4/4   median ms over 1 trials: rrtc 2.827, cbf 11.451 (0.25x)
+path length over 4 goals both solved, radians: rrtc 38.766 -> 38.766, cbf 36.383 -> 36.383   cbf/rrtc before 0.94x, after 0.94x
+0 audited states below the audited margin (cbf row)

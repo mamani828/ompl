@@ -1,0 +1,71 @@
+
+MotionBenchMaker UR5, 689 problems loaded, up to 100 per scene
+voxel 0.030 m, margin 0.0040 m + 0.0000 m filter buffer, stepSize 0.050 s, range 2.00 rad, 5.0 s limit
+
+gamma 1.00, certified step uncapped, self-collision margin 0.0000 m over 303 pairs
+baseline segment: 0.001624 of extent = 0.0250 rad, rollout step 0.0250 rad (matched to the rollout)
+
+  planner       solved ms(min/med/max)          evals vertices rad/call coarse  worst clr unsafe/audited missed worst self collide
+wrote results/mbm_margin4mm_gamma1/mbm_margin4mm_gamma1.rrtc and results/mbm_margin4mm_gamma1/mbm_margin4mm_gamma1.cbf -- audit them against the meshes with
+  ur5_experiments/scripts/audit_self_collision.py --path results/mbm_margin4mm_gamma1/mbm_margin4mm_gamma1.cbf
+wrote results/mbm_margin4mm_gamma1/mbm_margin4mm_gamma1.csv -- one row per (scene, index, planner), including skipped problems
+
+bookshelf_small  (96 problems, 32 skipped: start or goal inside the margin)
+  rrtconnect   59/64      0.19/1.86/5000.06       1942       23        -      -    -0.0009      2/36947        0     0.0025       0
+  cbf-rrtc     59/64      0.07/0.55/5000.18        220        8   0.0448    16%    -0.0071   3806/31517        0     0.0025       0
+
+bookshelf_tall  (95 problems, 31 skipped: start or goal inside the margin)
+  rrtconnect   50/64      0.41/4.17/5000.06       4465       52        -      -    -0.0000      1/37597        0     0.0025       0
+  cbf-rrtc     50/64      0.09/1.54/5000.28        628       12   0.0331     7%    -0.0159   5439/34362        0     0.0025       0
+
+bookshelf_thin  (99 problems, 33 skipped: start or goal inside the margin)
+  rrtconnect   62/66      0.26/2.77/5000.03       3093       33        -      -    -0.0006      1/43073        0     0.0011       0
+  cbf-rrtc     62/66      0.09/0.54/5000.13        223        7   0.0419    13%    -0.0112   5694/36069        0     0.0022       0
+
+box  (100 problems, 0 skipped: start or goal inside the margin)
+  rrtconnect  100/100     0.25/0.81/5.27           855       13        -      -     0.0001      0/55637        0     0.0025       0
+  cbf-rrtc    100/100     0.12/0.48/5.16           205        7   0.0494    20%    -0.0165   2058/49118        0     0.0025       0
+
+cage  (100 problems, 2 skipped: start or goal inside the margin)
+  rrtconnect   98/98      3.32/49.42/921.08       50527      657        -      -    -0.0005      3/104960       0     0.0021       0
+  cbf-rrtc     98/98      0.54/10.09/52.43         4161       49   0.0283     5%    -0.0162  20330/122275       0     0.0010       0
+
+table_pick  (100 problems, 1 skipped: start or goal inside the margin)
+  rrtconnect   99/99      0.18/0.67/4.11           731       10        -      -    -0.0018      8/49890        0     0.0025       0
+  cbf-rrtc     99/99      0.06/0.16/3.76            83        7   0.0822    40%    -0.0147   4256/45878        0     0.0025       0
+
+table_under_pick  (99 problems, 28 skipped: start or goal inside the margin)
+  rrtconnect   58/71      0.42/0.96/5000.06       1014       14        -      -     0.0000      0/41522        0     0.0025       0
+  cbf-rrtc     58/71      0.14/2.39/5000.23        941       15   0.0302     6%    -0.0089   8329/47160        0     0.0025       0
+
+Endpoint clearance at zero margin -- min(start, goal) over all spheres.
+  scene                     min    median       max affordable   problems by margin
+  bookshelf_small       -0.0243    0.0062    0.0126   -0.0243   0: 70% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_tall        -0.0243    0.0053    0.0121   -0.0243   0: 69% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_thin        -0.0243    0.0059    0.0127   -0.0243   0: 68% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  box                    0.0074    0.0127    0.0127    0.0074   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  cage                   0.0012    0.0127    0.0127    0.0012   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_pick             0.0005    0.0093    0.0104    0.0005   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_under_pick      -0.0227    0.0087    0.0101   -0.0227   0: 73% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+
+all scenes  (689 problems, 127 skipped)
+  rrtconnect  526/562     0.18/1.54/5000.06       1682       20        -      -    -0.0018     15/369626       0     0.0011       0
+  cbf-rrtc    526/562     0.06/0.87/5000.28        365        9   0.0388    13%    -0.0165  49912/366379       0     0.0010       0
+
+"evals" is collision checks for rrtconnect and filter calls for cbf-rrtc.
+"unsafe/audited" evaluates the unbuffered barrier at every state of the
+densified solution -- for cbf-rrtc that is the rollout the planner recorded
+for each edge, replayed, so it is the motion that would actually be executed,
+sampled inside each step rather than only at its boundaries. Non-zero unsafe
+invalidates a row however fast it was.
+"missed" counts solution edges that were not on file and had to be
+re-derived; it must be zero, or the audited motion is a different trajectory
+from the one the planner found.
+
+=== CBF profiler (wall time) ===
+=== CBF filter stats ===
+  calls=0  unchanged=0 (0.0%)  filtered=0 (0.0%)  blocked=0 (0.0%)
+  active rows:       avg=0.00  max=0
+  zero-row fast path: 0 (0.0%)
+  qp iterations:     avg=0.00  max=0
+  certified duration: avg=0.00000s  min=0.00000s  max=0.00000s  (over 0 non-blocked calls)

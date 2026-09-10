@@ -1,0 +1,34 @@
+scene clutter   grid /home/ax-ml-ubu24/ompl/results/picard_sliding_benchmark/clutter.grid
+field 155x155x158 nodes, voxel 0.0150 m, maxGradientNorm 1.6590
+margin 0.0600, interpolation buffer 0.0150, guarded margin 0.0750
+CBF kappa 19.800 /s, RRTConnect range 1.500 rad, min progress 0.10
+retain partial CBF steering: on
+rollout early termination: on, 40-call budget, 3 stalled steps
+parallel Picard on: 2 iterations, 8-step windows, 1 workers
+start barrier h = +0.0127 m
+
+goal                         row     solved  seconds   wpts  audited   unsafe     min h   evals rad/call coarse selfcoll  min self     len0     len1    cut%  cutms
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 12 states (2 start + 10 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 8 states (6 start + 2 goal)
+high_forward                 rrtc       yes 0.000399      5      182        0   +0.0127     358        -      -        0   +0.0025    4.574    4.574    0.0%    0.0
+                             cbf        yes 0.001711     11      373        0   +0.0127     647   0.0087     0%        0   +0.0025    5.661    5.661    0.0%    0.0
+    cbf planner: 10 recorded / 10 rollouts (100.0%), 0 abandoned, 10 ledger-served, 647 filter calls
+    rollout early stops: 0 budget, 0 stalled, 0 tiny-control
+    parallel Picard: 5/10 proposals accepted, 5 fallbacks; 17/87 windows converged (86 map-certified), 629 map + 8 verify filters, 0 verification failures, 1.656 ms total; 70 partial slides, 184 committed steps, 442 reused guesses
+    productive samples: rrtc 3/16 (18.8%), cbf 1/1 (100.0%)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 33 states (18 start + 15 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 8 states (6 start + 2 goal)
+behind                       rrtc       yes 0.000378      5      237        0   +0.0127     385        -      -        0   +0.0025    5.930    5.930    0.0%    0.0
+                             cbf        yes 0.028024     11      663        0   +0.0010    9409   0.0036     0%        0   +0.0025   10.952   10.952    0.0%    0.0
+    cbf planner: 31 recorded / 46 rollouts (67.4%), 15 abandoned, 31 ledger-served, 9409 filter calls
+    rollout early stops: 3 budget, 2 stalled, 0 tiny-control
+    parallel Picard: 39/46 proposals accepted, 7 fallbacks; 74/1226 windows converged (1218 map-certified), 9097 map + 29 verify filters, 7 verification failures, 27.232 ms total; 1145 partial slides, 1507 committed steps, 7308 reused guesses
+    productive samples: rrtc 3/16 (18.8%), cbf 14/16 (87.5%)
+
+solved: rrtc 2/2, cbf 2/2   median ms over 1 trials: rrtc 0.399, cbf 28.024 (0.01x)
+path length over 2 goals both solved, radians: rrtc 10.504 -> 10.504, cbf 16.613 -> 16.613   cbf/rrtc before 1.58x, after 1.58x
+0 audited states below the audited margin (cbf row)

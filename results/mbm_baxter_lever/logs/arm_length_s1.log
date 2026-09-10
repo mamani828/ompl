@@ -1,0 +1,421 @@
+
+MotionBenchMaker Baxter, 1470 problems loaded, up to 10 per scene
+voxel 0.006 m, stepSize 0.010 s, range 0.50 rad, 5.0 s limit, seed 1
+audited margin 4.0 mm + one-voxel buffer, self margin 5.0 mm, kappa 30 /s
+75 spheres, 2061 self-pairs in the model
+hop certificate: safe (region), maxStepScale uncapped
+
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 25160 states (25146 start + 14 goal)
+Info:    ProblemDefinition: Adding approximate solution from planner RRTConnect
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 303 states (151 start + 152 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 303 states (151 start + 152 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 22432 states (22427 start + 5 goal)
+Info:    ProblemDefinition: Adding approximate solution from planner RRTConnect
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 51596 states (51590 start + 6 goal)
+Info:    ProblemDefinition: Adding approximate solution from planner RRTConnect
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 2202 states (2143 start + 59 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 486 states (259 start + 227 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 486 states (259 start + 227 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 17533 states (17366 start + 167 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1376 states (1317 start + 59 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1613 states (1565 start + 48 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 179 states (91 start + 88 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 476 states (246 start + 230 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 2828 states (2695 start + 133 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 2191 states (2146 start + 45 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1576 states (1531 start + 45 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1388 states (726 start + 662 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1388 states (726 start + 662 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 3708 states (3558 start + 150 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 5661 states (5572 start + 89 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 489 states (467 start + 22 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 160 states (80 start + 80 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 160 states (80 start + 80 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1714 states (1600 start + 114 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1718 states (1680 start + 38 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 24538 states (24531 start + 7 goal)
+Info:    ProblemDefinition: Adding approximate solution from planner RRTConnect
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1637 states (843 start + 794 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1637 states (843 start + 794 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 21897 states (21869 start + 28 goal)
+Info:    ProblemDefinition: Adding approximate solution from planner RRTConnect
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 32518 states (32460 start + 58 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 5419 states (5401 start + 18 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 71 states (35 start + 36 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 71 states (35 start + 36 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 15084 states (14912 start + 172 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 9193 states (9154 start + 39 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 2427 states (2399 start + 28 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 395 states (204 start + 191 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 395 states (204 start + 191 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1313 states (1250 start + 63 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1850 states (1795 start + 55 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 6872 states (6854 start + 18 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 118 states (58 start + 60 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 118 states (58 start + 60 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 10655 states (10474 start + 181 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 34805 states (34764 start + 41 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 2802 states (2771 start + 31 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 121 states (62 start + 59 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 215 states (107 start + 108 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 2701 states (2596 start + 105 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1852 states (1829 start + 23 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 5665 states (5608 start + 57 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 3849 states (2100 start + 1749 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 3849 states (2100 start + 1749 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 9303 states (8980 start + 323 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 2143 states (2056 start + 87 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 650 states (611 start + 39 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 128 states (66 start + 62 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 128 states (66 start + 62 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1416 states (1321 start + 95 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1062 states (1017 start + 45 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Warning: RRTConnect: Skipping invalid goal state (invalid bounds)
+         at line 311 in /home/ax-ml-ubu24/ompl/src/ompl/base/src/Planner.cpp
+Debug:   RRTConnect: Discarded goal state:
+RealVectorState [-0.856402 0.200245 -0.0383154 0.567743 3.05856 0.764229 -3.03673 1.01425 0.2951 3.05418 1.01702 -0.355769 -0.784304 -2.78658]
+
+Debug:   RRTConnect: Waiting for goal region samples ...
+Error:   RRTConnect: Unable to sample any valid states for goal tree
+         at line 283 in /home/ax-ml-ubu24/ompl/src/ompl/geometric/planners/rrt/src/RRTConnect.cpp
+Info:    RRTConnect: Created 1 states (1 start + 0 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Warning: RRTConnect: Skipping invalid goal state (invalid bounds)
+         at line 311 in /home/ax-ml-ubu24/ompl/src/ompl/base/src/Planner.cpp
+Debug:   RRTConnect: Discarded goal state:
+RealVectorState [-0.856402 0.200245 -0.0383154 0.567743 3.05856 0.764229 -3.03673 1.01425 0.2951 3.05418 1.01702 -0.355769 -0.784304 -2.78658]
+
+Debug:   RRTConnect: Waiting for goal region samples ...
+Error:   RRTConnect: Unable to sample any valid states for goal tree
+         at line 283 in /home/ax-ml-ubu24/ompl/src/ompl/geometric/planners/rrt/src/RRTConnect.cpp
+Info:    RRTConnect: Created 1 states (1 start + 0 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Warning: RRTConnect: Skipping invalid goal state (invalid bounds)
+         at line 311 in /home/ax-ml-ubu24/ompl/src/ompl/base/src/Planner.cpp
+Debug:   RRTConnect: Discarded goal state:
+RealVectorState [-0.856402 0.200245 -0.0383154 0.567743 3.05856 0.764229 -3.03673 1.01425 0.2951 3.05418 1.01702 -0.355769 -0.784304 -2.78658]
+
+Debug:   RRTConnect: Waiting for goal region samples ...
+Error:   RRTConnect: Unable to sample any valid states for goal tree
+         at line 283 in /home/ax-ml-ubu24/ompl/src/ompl/geometric/planners/rrt/src/RRTConnect.cpp
+Info:    RRTConnect: Created 1 states (1 start + 0 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Warning: RRTConnect: Skipping invalid goal state (invalid bounds)
+         at line 311 in /home/ax-ml-ubu24/ompl/src/ompl/base/src/Planner.cpp
+Debug:   RRTConnect: Discarded goal state:
+RealVectorState [-0.856402 0.200245 -0.0383154 0.567743 3.05856 0.764229 -3.03673 1.01425 0.2951 3.05418 1.01702 -0.355769 -0.784304 -2.78658]
+
+Debug:   RRTConnect: Waiting for goal region samples ...
+Error:   RRTConnect: Unable to sample any valid states for goal tree
+         at line 283 in /home/ax-ml-ubu24/ompl/src/ompl/geometric/planners/rrt/src/RRTConnect.cpp
+Info:    RRTConnect: Created 1 states (1 start + 0 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Warning: RRTConnect: Skipping invalid goal state (invalid bounds)
+         at line 311 in /home/ax-ml-ubu24/ompl/src/ompl/base/src/Planner.cpp
+Debug:   RRTConnect: Discarded goal state:
+RealVectorState [-0.856402 0.200245 -0.0383154 0.567743 3.05856 0.764229 -3.03673 1.01425 0.2951 3.05418 1.01702 -0.355769 -0.784304 -2.78658]
+
+Debug:   RRTConnect: Waiting for goal region samples ...
+Error:   RRTConnect: Unable to sample any valid states for goal tree
+         at line 283 in /home/ax-ml-ubu24/ompl/src/ompl/geometric/planners/rrt/src/RRTConnect.cpp
+Info:    RRTConnect: Created 1 states (1 start + 0 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 817 states (734 start + 83 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 5409 states (2771 start + 2638 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 5409 states (2771 start + 2638 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1061 states (797 start + 264 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1040 states (962 start + 78 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1866 states (1825 start + 41 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 342 states (186 start + 156 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 340 states (184 start + 156 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 5148 states (5062 start + 86 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 2024 states (1989 start + 35 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 415 states (395 start + 20 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 634 states (327 start + 307 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 634 states (327 start + 307 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 122 states (105 start + 17 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 464 states (440 start + 24 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 302 states (274 start + 28 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 790 states (413 start + 377 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 790 states (413 start + 377 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 663 states (578 start + 85 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 324 states (273 start + 51 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 12574 states (12510 start + 64 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1182 states (625 start + 557 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1182 states (625 start + 557 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 13736 states (13439 start + 297 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 29658 states (29604 start + 54 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 433 states (406 start + 27 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 586 states (303 start + 283 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 586 states (303 start + 283 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 408 states (323 start + 85 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 588 states (553 start + 35 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 5437 states (5388 start + 49 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1168 states (607 start + 561 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1168 states (607 start + 561 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 10089 states (9912 start + 177 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 7404 states (7336 start + 68 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 24722 states (24716 start + 6 goal)
+Info:    ProblemDefinition: Adding approximate solution from planner RRTConnect
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 451 states (235 start + 216 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 451 states (235 start + 216 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 19350 states (19346 start + 4 goal)
+Info:    ProblemDefinition: Adding approximate solution from planner RRTConnect
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 51351 states (51346 start + 5 goal)
+Info:    ProblemDefinition: Adding approximate solution from planner RRTConnect
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Warning: RRTConnect: Skipping invalid goal state (invalid bounds)
+         at line 311 in /home/ax-ml-ubu24/ompl/src/ompl/base/src/Planner.cpp
+Debug:   RRTConnect: Discarded goal state:
+RealVectorState [-0.812115 0.483679 -1.55725 0.994787 -2.59744 1.10829 -1.8641 0.939712 0.950737 3.05418 1.77602 -0.307616 -0.854355 -2.8762]
+
+Debug:   RRTConnect: Waiting for goal region samples ...
+Error:   RRTConnect: Unable to sample any valid states for goal tree
+         at line 283 in /home/ax-ml-ubu24/ompl/src/ompl/geometric/planners/rrt/src/RRTConnect.cpp
+Info:    RRTConnect: Created 1 states (1 start + 0 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Warning: RRTConnect: Skipping invalid goal state (invalid bounds)
+         at line 311 in /home/ax-ml-ubu24/ompl/src/ompl/base/src/Planner.cpp
+Debug:   RRTConnect: Discarded goal state:
+RealVectorState [-0.812115 0.483679 -1.55725 0.994787 -2.59744 1.10829 -1.8641 0.939712 0.950737 3.05418 1.77602 -0.307616 -0.854355 -2.8762]
+
+Debug:   RRTConnect: Waiting for goal region samples ...
+Error:   RRTConnect: Unable to sample any valid states for goal tree
+         at line 283 in /home/ax-ml-ubu24/ompl/src/ompl/geometric/planners/rrt/src/RRTConnect.cpp
+Info:    RRTConnect: Created 1 states (1 start + 0 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Warning: RRTConnect: Skipping invalid goal state (invalid bounds)
+         at line 311 in /home/ax-ml-ubu24/ompl/src/ompl/base/src/Planner.cpp
+Debug:   RRTConnect: Discarded goal state:
+RealVectorState [-0.812115 0.483679 -1.55725 0.994787 -2.59744 1.10829 -1.8641 0.939712 0.950737 3.05418 1.77602 -0.307616 -0.854355 -2.8762]
+
+Debug:   RRTConnect: Waiting for goal region samples ...
+Error:   RRTConnect: Unable to sample any valid states for goal tree
+         at line 283 in /home/ax-ml-ubu24/ompl/src/ompl/geometric/planners/rrt/src/RRTConnect.cpp
+Info:    RRTConnect: Created 1 states (1 start + 0 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Warning: RRTConnect: Skipping invalid goal state (invalid bounds)
+         at line 311 in /home/ax-ml-ubu24/ompl/src/ompl/base/src/Planner.cpp
+Debug:   RRTConnect: Discarded goal state:
+RealVectorState [-0.812115 0.483679 -1.55725 0.994787 -2.59744 1.10829 -1.8641 0.939712 0.950737 3.05418 1.77602 -0.307616 -0.854355 -2.8762]
+
+Debug:   RRTConnect: Waiting for goal region samples ...
+Error:   RRTConnect: Unable to sample any valid states for goal tree
+         at line 283 in /home/ax-ml-ubu24/ompl/src/ompl/geometric/planners/rrt/src/RRTConnect.cpp
+Info:    RRTConnect: Created 1 states (1 start + 0 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Warning: RRTConnect: Skipping invalid goal state (invalid bounds)
+         at line 311 in /home/ax-ml-ubu24/ompl/src/ompl/base/src/Planner.cpp
+Debug:   RRTConnect: Discarded goal state:
+RealVectorState [-0.812115 0.483679 -1.55725 0.994787 -2.59744 1.10829 -1.8641 0.939712 0.950737 3.05418 1.77602 -0.307616 -0.854355 -2.8762]
+
+Debug:   RRTConnect: Waiting for goal region samples ...
+Error:   RRTConnect: Unable to sample any valid states for goal tree
+         at line 283 in /home/ax-ml-ubu24/ompl/src/ompl/geometric/planners/rrt/src/RRTConnect.cpp
+Info:    RRTConnect: Created 1 states (1 start + 0 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1537 states (1496 start + 41 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 115 states (55 start + 60 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 115 states (55 start + 60 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 7223 states (6779 start + 444 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1710 states (1616 start + 94 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 708 states (687 start + 21 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 114 states (55 start + 59 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 114 states (55 start + 59 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 703 states (609 start + 94 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 723 states (704 start + 19 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 3739 states (3704 start + 35 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 417 states (219 start + 198 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 417 states (219 start + 198 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1192 states (1147 start + 45 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 8046 states (7999 start + 47 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 2221 states (2164 start + 57 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 2791 states (1467 start + 1324 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 2792 states (1467 start + 1325 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 863 states (822 start + 41 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1513 states (1475 start + 38 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 471 states (448 start + 23 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 524 states (264 start + 260 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 524 states (264 start + 260 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 2190 states (2067 start + 123 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 571 states (547 start + 24 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1340 states (1308 start + 32 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1230 states (634 start + 596 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1230 states (634 start + 596 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1191 states (1153 start + 38 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1935 states (1901 start + 34 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 981 states (937 start + 44 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 487 states (247 start + 240 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 487 states (247 start + 240 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 1041 states (938 start + 103 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 881 states (854 start + 27 goal)
+bookshelf_tall_both_arms_easy  (10 problems)
+  planner      solved   ms(min/med/max)          samples vertices    path rad/call coarse  worst clr unsafe/audited missed worst self collide
+  rrtconnect    8/10      74.88/  339.13/  1162.65    232080   7309   19.18   0.0000     0%    -0.0000       1/7667          0    0.0083      0
+  cbf-rrtc     10/10      34.81/  115.28/  1054.52     16294    485   16.57   0.0160     2%     0.0002       0/12178         0    0.0050      0
+  cbf-nocert   10/10      34.65/  165.62/  1072.30     18374    524   16.91   0.0151     0%     0.0002       0/12702         0    0.0050      0
+  qp-free       8/10     295.56/  474.27/  3836.50    238244   9986   26.25   0.0201     0%     0.0063       0/16152         0    0.0068      0
+  vamp-rrtc     9/10      12.66/   22.06/  2324.97    641939  14276   24.28   0.0000     0%    -0.0040     523/10923         0    0.0006      0
+
+bookshelf_tall_both_arms_hard  (9 problems)
+  planner      solved   ms(min/med/max)          samples vertices    path rad/call coarse  worst clr unsafe/audited missed worst self collide
+  rrtconnect    7/9       70.61/  207.45/   603.18    125657   3968   20.16   0.0000     0%    -0.0000       2/7052          0    0.0124      0
+  cbf-rrtc      8/9       63.40/  279.48/  1792.02     23071    681   16.22   0.0135     2%    -0.0062       6/9457          0    0.0050      0
+  cbf-nocert    8/9       65.43/  284.32/  1856.86     24033    681   16.22   0.0130     0%    -0.0063       8/9771          0    0.0050      0
+  qp-free       7/9      135.30/  186.21/  1295.54     88914   3750   20.40   0.0178     0%     0.0064       0/10700         0    0.0151      0
+  vamp-rrtc     7/9        4.02/   13.20/   177.09    319680   7414   18.36   0.0000     0%    -0.0039     318/6420          0    0.0025      0
+
+bookshelf_tall_both_arms_medium  (10 problems)
+  planner      solved   ms(min/med/max)          samples vertices    path rad/call coarse  worst clr unsafe/audited missed worst self collide
+  rrtconnect    9/10      45.26/  126.32/  2241.11     89389   2816   20.67   0.0000     0%    -0.0004       3/9300          0    0.0102      0
+  cbf-rrtc      9/10     103.64/  523.87/  3080.10     48065   1408   20.58   0.0140     2%     0.0001       0/13836         0    0.0050      0
+  cbf-nocert    9/10     106.48/  536.09/  3182.19     50204   1408   20.58   0.0133     0%     0.0001       0/14049         0    0.0050      0
+  qp-free       9/10      27.24/  296.20/  2825.47     99633   4194   22.15   0.0182     0%     0.0063       0/15640         0    0.0082      0
+  vamp-rrtc     9/10       1.86/    8.97/  1576.30    198150   4470   21.37   0.0000     0%    -0.0038     360/9612          0    0.0007      0
+
+all scenes  (29 problems, 1 skipped: endpoint inside the guarded margin)
+endpoint clearance over 30 problems: min 9.6, p50 12.8, max 17.9 mm; ineligible at a guarded margin of 5/10/20/34 mm: 0%/3%/100%/100%
+  planner      solved   ms(min/med/max)          samples vertices    path rad/call coarse  worst clr unsafe/audited missed worst self collide
+  rrtconnect   24/29      45.26/  239.71/  2241.11    149848   4723   20.03   0.0000     0%    -0.0004       6/24019         0    0.0083      0
+  cbf-rrtc     27/29      34.81/  291.03/  3080.10     29353    864   17.80   0.0145     2%    -0.0062       6/35471         0    0.0050      0
+  cbf-nocert   27/29      34.65/  303.99/  3182.19     31106    878   17.93   0.0138     0%    -0.0063       8/36522         0    0.0050      0
+  qp-free      24/29      27.24/  365.87/  3836.50    144104   6054   23.01   0.0187     0%     0.0063       0/42492         0    0.0068      0
+  vamp-rrtc    25/29       1.86/   17.84/  2324.97    388897   8765   21.57   0.0000     0%    -0.0040    1201/26955         0    0.0006      0
+
+"unsafe/audited" evaluates exact primitive clearance at every state of the
+densified solution -- for the CBF row that is the rollout the planner recorded,
+replayed. Non-zero unsafe invalidates a row however fast it was.

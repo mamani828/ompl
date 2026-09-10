@@ -1,0 +1,41 @@
+scene corridor   grid /home/ax-ml-ubu24/ompl/results/picard_sliding_benchmark/corridor.grid
+field 155x155x158 nodes, voxel 0.0150 m, maxGradientNorm 1.7169
+margin 0.0600, interpolation buffer 0.0150, guarded margin 0.0750
+CBF kappa 19.800 /s, RRTConnect range 1.500 rad, min progress 0.10
+retain partial CBF steering: on
+rollout early termination: on, 40-call budget, 3 stalled steps
+start barrier h = +0.0127 m
+
+goal                         row     solved  seconds   wpts  audited   unsafe     min h   evals rad/call coarse selfcoll  min self     len0     len1    cut%  cutms
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 7 states (2 start + 5 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 9 states (6 start + 3 goal)
+corridor_entrance_from_above rrtc       yes 0.000370      7      300        0   +0.0127     372        -      -        0   +0.0025    7.507    7.507    0.0%    0.0
+                             cbf        yes 0.000350      6      282        0   +0.0127     106   0.0515    28%        0   +0.0025    5.455    5.455    0.0%    0.0
+    cbf planner: 5 recorded / 5 rollouts (100.0%), 0 abandoned, 5 ledger-served, 106 filter calls
+    rollout early stops: 2 budget, 0 stalled, 0 tiny-control
+    productive samples: rrtc 4/6 (66.7%), cbf 1/1 (100.0%)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 15 states (5 start + 10 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 143 states (138 start + 5 goal)
+under_the_ceiling            rrtc       yes 0.011303     13      714        0   +0.0064   11354        -      -        0   +0.0025   17.872   17.872    0.0%    0.0
+                             cbf        yes 0.001217     11      511        0   +0.0127     481   0.0249     9%        0   +0.0025    8.817    8.817    0.0%    0.0
+    cbf planner: 13 recorded / 15 rollouts (86.7%), 2 abandoned, 13 ledger-served, 481 filter calls
+    rollout early stops: 10 budget, 1 stalled, 0 tiny-control
+    productive samples: rrtc 140/1636 (8.6%), cbf 3/3 (100.0%)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 28 states (17 start + 11 goal)
+Info:    RRTConnect: Starting planning with 1 states already in datastructure
+Info:    RRTConnect: Created 78 states (74 start + 4 goal)
+far_end_under_the_ceiling    rrtc       yes 0.005898      8      416        0   +0.0081    6131        -      -        0   +0.0025   10.419   10.419    0.0%    0.0
+                             cbf        yes 0.003173     16      713        0   +0.0117    1213   0.0229     4%        0   +0.0025   12.437   12.437    0.0%    0.0
+    cbf planner: 26 recorded / 39 rollouts (66.7%), 13 abandoned, 26 ledger-served, 1213 filter calls
+    rollout early stops: 16 budget, 5 stalled, 0 tiny-control
+    productive samples: rrtc 74/844 (8.8%), cbf 13/14 (92.9%)
+    ! barrier mismatch at goal: exporter +0.0075, here +0.0227
+
+solved: rrtc 3/3, cbf 3/3   median ms over 1 trials: rrtc 5.898, cbf 1.217 (4.85x)
+path length over 3 goals both solved, radians: rrtc 35.798 -> 35.798, cbf 26.710 -> 26.710   cbf/rrtc before 0.75x, after 0.75x
+0 audited states below the audited margin (cbf row)

@@ -4,6 +4,11 @@
 *.dylib
 *.egg-info
 *.log
+# ...but a benchmark run log under results/ is a result, not build noise: it holds
+# the config header, the per-scene summary table and the hop disposition, and the
+# run READMEs cite them alongside their CSVs. Re-included rather than force-added
+# so new runs track without anyone remembering `git add -f`.
+!results/**/*.log
 *.pcd
 *.pyc
 *.pyi

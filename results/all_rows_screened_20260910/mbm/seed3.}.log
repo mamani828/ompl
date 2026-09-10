@@ -1,0 +1,957 @@
+
+MotionBenchMaker UR5, 140 problems loaded, up to 20 per scene
+voxel 0.030 m, margin 0.0040 m + 0.0050 m filter buffer, stepSize 0.010 s, range 1.00 rad, 10.0 s limit
+
+hop certificates: old L1 Lipschitz region and new hold-time bound
+Picard: off; trajectory prefixes: 0; sequential rollout budget: 40 calls
+kappa 20.00 /s, certified step uncapped, self-collision margin 0.0000 m over 303 pairs
+baseline segment: 0.000325 of extent = 0.0050 rad, rollout step 0.0050 rad (matched to the rollout)
+rope shortcut off, all rows unsimplified
+
+seed 3
+  planner       solved ms(min/med/max)        samples vertices     path rad/call coarse  worst clr unsafe/audited missed worst self collide
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+
+bookshelf_small  (20 problems, 10 skipped: 10 clearance, 0 self-collision)
+  rrtconnect   10/10      0.91/6.56/76.87         7568       39    12.04        -      -    -0.0026     24/5914         0     0.0025       0
+      primary samples 116, productive 34 (29.3%), vertices/sample 0.406
+  qp-fixed     10/10      0.85/5.13/37.76         3300       50     8.48   0.0067     0%    -0.0025     55/12334        0     0.0025       0
+      primary samples 38, productive 23 (60.5%), vertices/sample 1.346
+  qp-adapt     10/10      0.22/4.04/74.58         1864       33     8.88   0.0103    11%    -0.0015     29/9977         0     0.0025       0
+      primary samples 26, productive 14 (53.8%), vertices/sample 1.750
+  qp-free      10/10      1.26/9.84/38.65         8479      121    12.75   0.0070     0%     0.0032      0/15527        0     0.0025       0
+      primary samples 403, productive 112 (27.8%), vertices/sample 0.316
+  qp-env       10/10      0.22/3.93/82.33         1728       39     9.70   0.0131     5%    -0.0015     33/8737         0     0.0025       0
+      primary samples 26, productive 14 (53.8%), vertices/sample 2.571
+
+bookshelf_tall  (20 problems, 13 skipped: 13 clearance, 0 self-collision)
+  rrtconnect    7/7       2.58/4.74/17.35         5480       29    14.56        -      -    -0.0007     12/5041         0     0.0025       0
+      primary samples 71, productive 20 (28.2%), vertices/sample 0.408
+  qp-fixed      7/7      16.28/23.07/105.66       13866      132    14.18   0.0061     0%    -0.0017     14/12961        0     0.0025       0
+      primary samples 218, productive 110 (50.5%), vertices/sample 0.606
+  qp-adapt      7/7      14.09/18.76/40.67         8896       91    15.21   0.0089     8%    -0.0045     25/9755         0     0.0025       0
+      primary samples 154, productive 76 (49.4%), vertices/sample 0.671
+  qp-free       7/7       5.20/9.69/40.59         8297      133    13.49   0.0070     0%     0.0033      0/13031        0     0.0025       0
+      primary samples 340, productive 114 (33.5%), vertices/sample 0.412
+  qp-env        7/7      10.78/12.09/59.06         5298       68    15.42   0.0099     4%    -0.0005      6/8639         0     0.0025       0
+      primary samples 94, productive 47 (50.0%), vertices/sample 0.638
+
+bookshelf_thin  (20 problems, 17 skipped: 17 clearance, 0 self-collision)
+  rrtconnect    3/3       1.36/3.39/5.22          3916       22     9.92        -      -    -0.0001      1/1277         0     0.0025       0
+      primary samples 66, productive 16 (24.2%), vertices/sample 0.333
+  qp-fixed      3/3       1.17/5.44/9.78          3521       41     5.18   0.0063     0%    -0.0003      2/3174         0     0.0025       0
+      primary samples 52, productive 28 (53.8%), vertices/sample 0.974
+  qp-adapt      3/3       2.49/4.51/5.57          2093       32     9.62   0.0124     9%    -0.0003      2/2115         0     0.0025       0
+      primary samples 29, productive 17 (58.6%), vertices/sample 1.448
+  qp-free       3/3       7.39/10.10/21.77         8989      148     7.66   0.0070     0%     0.0047      0/3524         0     0.0025       0
+      primary samples 472, productive 130 (27.5%), vertices/sample 0.314
+  qp-env        3/3       4.06/4.86/5.84          2068       38     9.30   0.0131     6%    -0.0004      8/2433         0     0.0025       0
+      primary samples 28, productive 19 (67.9%), vertices/sample 1.357
+
+box  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      0.83/3.58/12.51         4069       22    10.61        -      -     0.0001      0/10758        0     0.0025       0
+      primary samples 44, productive 17 (38.6%), vertices/sample 0.600
+  qp-fixed     20/20      1.40/8.05/48.29         5058       68    10.01   0.0064     0%    -0.0009     33/28188        0     0.0025       0
+      primary samples 66, productive 40 (60.6%), vertices/sample 1.041
+  qp-adapt     20/20      0.19/3.69/17.74         1834       35    10.01   0.0112    12%    -0.0026     57/17402        0     0.0025       0
+      primary samples 27, productive 16 (59.3%), vertices/sample 1.261
+  qp-free      20/20      0.95/9.23/26.63         8049      133     9.95   0.0071     0%     0.0055      0/29821        0     0.0025       0
+      primary samples 249, productive 110 (44.2%), vertices/sample 0.550
+  qp-env       20/20      0.16/3.69/14.39         1641       35     9.89   0.0124     8%    -0.0016     25/16316        0     0.0025       0
+      primary samples 22, productive 16 (72.7%), vertices/sample 1.615
+
+cage  (20 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   20/20      9.22/107.87/437.80      120242      587    18.34        -      -    -0.0035     54/18815        0     0.0025       0
+      primary samples 3308, productive 578 (17.5%), vertices/sample 0.177
+  qp-fixed     20/20     54.56/196.05/515.42      111330      764    20.39   0.0056     0%    -0.0017     44/54674        0     0.0025       0
+      primary samples 2026, productive 680 (33.6%), vertices/sample 0.388
+  qp-adapt     20/20     34.46/105.60/362.15       47266      407    22.32   0.0085     7%    -0.0031     45/39903        0     0.0025       0
+      primary samples 880, productive 329 (37.4%), vertices/sample 0.479
+  qp-free      20/20     56.08/211.82/413.67      166607     2109    22.93   0.0068     0%     0.0034      0/58749        0     0.0025       0
+      primary samples 10311, productive 2056 (19.9%), vertices/sample 0.203
+  qp-env       20/20     35.48/100.08/242.45       42921      381    19.68   0.0090     3%    -0.0030     96/35054        0     0.0025       0
+      primary samples 816, productive 314 (38.5%), vertices/sample 0.501
+
+table_pick  (20 problems, 9 skipped: 9 clearance, 0 self-collision)
+  rrtconnect   11/11      0.67/2.57/12.84         2919       17     8.91        -      -    -0.0041     66/4849         0     0.0025       0
+      primary samples 34, productive 10 (29.4%), vertices/sample 0.500
+  qp-fixed     11/11      0.44/3.13/7.00          2657       37     7.37   0.0064     0%    -0.0013     11/11758        0     0.0025       0
+      primary samples 33, productive 20 (60.6%), vertices/sample 1.121
+  qp-adapt     11/11      0.13/2.10/5.37          1005       18     9.02   0.0173    18%    -0.0015     15/6444         0     0.0025       0
+      primary samples 13, productive 8 (61.5%), vertices/sample 2.154
+  qp-free      11/11      1.42/5.56/26.09         5210      110    12.33   0.0070     0%     0.0031      0/15597        0     0.0025       0
+      primary samples 243, productive 97 (39.9%), vertices/sample 0.350
+  qp-env       11/11      0.16/0.81/7.31           325       12     9.00   0.0269    13%    -0.0033     31/6126         0     0.0025       0
+      primary samples 6, productive 3 (50.0%), vertices/sample 2.308
+
+table_under_pick  (20 problems, 11 skipped: 11 clearance, 0 self-collision)
+  rrtconnect    9/9       2.16/3.48/6.60          4004       22    12.71        -      -    -0.0038     16/5377         0     0.0025       0
+      primary samples 37, productive 15 (40.5%), vertices/sample 0.652
+  qp-fixed      9/9       2.40/6.22/37.97         3757       49    11.83   0.0063     0%    -0.0017     33/13586        0     0.0025       0
+      primary samples 57, productive 30 (52.6%), vertices/sample 0.782
+  qp-adapt      9/9       2.59/4.46/14.80         2148       39    10.94   0.0106    13%    -0.0025    104/8998         0     0.0025       0
+      primary samples 27, productive 20 (74.1%), vertices/sample 1.107
+  qp-free       9/9       4.08/8.95/15.40         7957      127    15.25   0.0071     0%     0.0038      0/15656        0     0.0025       0
+      primary samples 309, productive 115 (37.2%), vertices/sample 0.390
+  qp-env        9/9       1.15/4.18/14.00         1875       36    10.90   0.0130     6%    -0.0027     40/8508         0     0.0025       0
+      primary samples 27, productive 20 (74.1%), vertices/sample 1.246
+
+Hop disposition -- what set the hop's length, median over problems.
+  row         floored(<1 step)    at region   edge-limited
+  qp-fixed            100.0%         0.0%           0.0%
+  qp-adapt             91.1%         8.7%           0.3%
+  qp-free             100.0%         0.0%           0.0%
+  qp-env               94.6%         5.1%           0.5%
+
+Endpoint clearance at zero margin -- min(start, goal) over all spheres.
+  scene                     min    median       max affordable   problems by margin
+  bookshelf_small        0.0027    0.0088    0.0126    0.0027   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_tall         0.0040    0.0075    0.0121    0.0040   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_thin         0.0045    0.0071    0.0122    0.0045   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  box                    0.0082    0.0127    0.0127    0.0082   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  cage                   0.0100    0.0127    0.0127    0.0100   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_pick             0.0085    0.0092    0.0101    0.0085   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_under_pick       0.0056    0.0090    0.0099    0.0056   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+
+all scenes  (140 problems, 60 skipped: 60 clearance, 0 self-collision)
+  rrtconnect   80/80      0.67/5.22/437.80        5983       31    12.71        -      -    -0.0041    173/52031        0     0.0025       0
+      primary samples 87, productive 26 (29.9%), vertices/sample 0.383
+  qp-fixed     80/80      0.44/12.16/515.42        8118       93    12.41   0.0062     0%    -0.0025    192/136675       0     0.0025       0
+      primary samples 109, productive 64 (58.7%), vertices/sample 0.806
+  qp-adapt     80/80      0.13/7.61/362.15        3778       50    11.18   0.0100     9%    -0.0045    277/94594        0     0.0025       0
+      primary samples 56, productive 35 (62.5%), vertices/sample 0.980
+  qp-free      80/80      0.95/10.49/413.67        9251      150    14.02   0.0070     0%     0.0031      0/151905       0     0.0025       0
+      primary samples 402, productive 133 (33.1%), vertices/sample 0.350
+  qp-env       80/80      0.16/5.42/242.45        2402       43    11.46   0.0113     6%    -0.0033    239/85813        0     0.0025       0
+      primary samples 37, productive 21 (56.8%), vertices/sample 1.129
+
+"samples" is checked configurations for isSafe, barrier evaluations for
+the three CBF rows, and SIMD configuration lanes evaluated for VAMP. They measure
+sampling work, while wall time captures the very different per-sample costs.
+"unsafe/audited" evaluates exact primitive clearance at every state of the
+densified solution -- for each CBF row that is the rollout the planner recorded
+for each edge, replayed, so it is the motion that would actually be executed,
+sampled inside each step rather than only at its boundaries. Non-zero unsafe
+invalidates a row however fast it was.
+"missed" counts solution edges that were not on file and had to be
+re-derived; it must be zero, or the audited motion is a different trajectory
+from the one the planner found.
+
+
+envelope hop: 42236 filter calls, 1.749 hold queries/call, 9.8% saturated, 100.0% longer than L1, past one step 94.6% (L1 alone 64.4%), gated 96.2%, empty-active 13.0%, screen-escalated 57.9%
+envelope bottleneck: world 90.6%, self-collision 8.7%, unbound 0.7% (horizon or screen clip), blocked 0.0%, joint-limit clamped 0.0%
+envelope binding term:
+  world rows       L1 0.0%, local-L1 2.7%, speed-capped 2.0%, isotropic-anchored 95.3% (of 38267 bound calls)
+  self-pair rows   L1 0.0%, local-L1 0.0%, speed-capped 0.0%, normal-anchored 100.0% (of 3656 bound calls)
+local-lever screen: 324626 of 586282 expensive world rows settled before the envelope (55.4%)
+span handed to the rollout, in controller steps (1120177 calls):
+                   <1      1-2      2-4      4-8       8+
+  L1 only      97.57%     0.76%     0.49%     0.36%     0.82%
+  envelope     96.43%     0.83%     0.79%     0.55%     1.40%
+=== CBF profiler (wall time) ===
+=== CBF filter stats ===
+  calls=0  unchanged=0 (0.0%)  filtered=0 (0.0%)  blocked=0 (0.0%)
+  active rows:       avg=0.00  max=0
+  zero-row fast path: 0 (0.0%)
+  qp iterations:     avg=0.00  max=0
+  certified duration: avg=0.00000s  min=0.00000s  max=0.00000s  (over 0 non-blocked calls)
+  required gain:     avg=0.000/s  max=0.000/s  p50=0.000/s  p90=0.000/s  p99=0.000/s  (over 0 calls, 0 uncertified)
