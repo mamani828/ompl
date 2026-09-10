@@ -187,6 +187,7 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     // thing a caller that has just been refused actually wants to know.
     if (diagnostics.wantRegion)
         diagnostics.region = barrier_.certifiedRegion(evaluation);
+    diagnostics.evaluation = diagnostics.wantEvaluation ? &evaluation : nullptr;
     diagnostics.worstValue = evaluation.values[static_cast<Eigen::Index>(evaluation.worst)];
     diagnostics.worstSphere = evaluation.worst;
     diagnostics.worstSelfValue =

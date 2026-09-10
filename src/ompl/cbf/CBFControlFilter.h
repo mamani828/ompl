@@ -227,6 +227,17 @@ namespace ompl::cbf
             /// on wherever the certificates are actually used, which is exactly the hot
             /// path.
             bool wantRegion{false};
+            /// Set this before the call to have `evaluation` point at the barrier
+            /// evaluation this call made, rather than nothing. Off by default.
+            bool wantEvaluation{false};
+            /// The evaluation, borrowed. It lives in the filter's own scratch, so it is
+            /// valid until the next call on this filter and must not outlive it. This
+            /// exists so a caller that wants to reason further about the same
+            /// configuration -- how far a certificate reaches from it, say -- can read
+            /// the forward kinematics, the sphere centres and the barrier values that
+            /// were just computed instead of computing them again. Null unless
+            /// `wantEvaluation` was set.
+            const ClearanceBarrier::Evaluation *evaluation{nullptr};
             /// The certified region at the configuration this call evaluated, filled only
             /// when `wantRegion` was set. Otherwise left invalid, so a caller that forgot
             /// the flag reads a region certifying nothing rather than a stale one. A

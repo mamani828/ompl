@@ -144,6 +144,14 @@ namespace ompl::cbf
 
         struct Evaluation
         {
+            /// The chain and the 40 sphere centres this evaluation walked to get its
+            /// values. Kept rather than discarded because they cost forward kinematics
+            /// to rebuild, and a caller that reasons about the *motion* from here --
+            /// a hold-time certificate does -- would otherwise walk the chain a second
+            /// time for geometry that was in hand a microsecond ago. Writing them here
+            /// instead of into locals costs nothing.
+            Robot::Kinematics kin;
+            Robot::SphereCenters centers;
             Values values;                ///< h_i(q), always for every constraint
             /// How far sphere i's centre may travel before leaving the SDF's box, always
             /// for every sphere -- or infinity when the box provably encloses everywhere
@@ -290,7 +298,8 @@ namespace ompl::cbf
         void evaluateScreened(const Configuration &q, const Values &threshold, ActiveSet *active,
                               Evaluation &out) const
         {
-            const Robot::Kinematics kin = robot_.kinematics(q);
+            robot_.kinematics(q, out.kin);
+            const Robot::Kinematics &kin = out.kin;
 
             out.inBounds = true;
             out.worst = 0;
@@ -300,7 +309,7 @@ namespace ompl::cbf
             // Centres are kept because the survivors need them again for the gradient
             // query, and because every pair value is a subtraction between two of them.
             // Forward kinematics is not worth repeating.
-            Robot::SphereCenters centers;
+            Robot::SphereCenters &centers = out.centers;
             Eigen::Matrix<double, nSpheres, 1> distances;
             Eigen::Matrix<double, 3, nSpheres> gradients;
 
@@ -731,36 +740,12 @@ namespace ompl::cbf
         /// is cheaper to obtain than the call that produces one.
         CertifiedRegion certifiedRegion(const Configuration &q) const
         {
-            const Robot::Kinematics kin = robot_.kinematics(q);
-
-            Robot::SphereCenters centers;
-            Eigen::Matrix<double, nSpheres, 1> distances;
-            Eigen::Matrix<double, nSpheres, 1> boundary;
+            WorldRegion world;
+            worldRegion(q, world);
 
             CertifiedRegion region;
-            region.valid = true;
-            for (std::size_t i = 0; i < Robot::nSpheres; ++i)
-            {
-                const Eigen::Index index = static_cast<Eigen::Index>(i);
-                const Eigen::Vector3d center = Robot::sphereCenter(kin, i);
-                centers.col(index) = center;
-                region.valid = region.valid && field_.inBounds(center);
-                boundary[index] = boundaryClearance(center);
-            }
-
-            {
-                ScopedTimer timer("sdf_query");
-                field_.distanceBatch(centers, distances);
-            }
-
-            const double lipschitz = std::max(field_.maxGradientNorm(), 1.0);
-            const auto &allSpheres = Robot::spheres();
-            for (std::size_t i = 0; i < Robot::nSpheres; ++i)
-            {
-                const Eigen::Index index = static_cast<Eigen::Index>(i);
-                const double h = distances[index] - allSpheres[i].radius - margin_;
-                region.slack[index] = std::max(std::min(h / lipschitz, boundary[index]), 0.0);
-            }
+            region.valid = world.valid;
+            region.slack.head<nSpheres>() = world.slack;
 
             {
                 ScopedTimer selfTimer("self_collision");
@@ -769,11 +754,75 @@ namespace ompl::cbf
                 {
                     const Eigen::Index pair = static_cast<Eigen::Index>(p);
                     region.slack[nSpheres + pair] =
-                        std::max(Robot::selfPairClearance(centers, p) - margins[pair] - selfMargin_,
+                        std::max(Robot::selfPairClearance(world.centers, p) - margins[pair] -
+                                     selfMargin_,
                                  0.0);
                 }
             }
             return region;
+        }
+
+        /// The world half of `certifiedRegion(q)`, handing back the forward kinematics
+        /// and the sphere centres it had to compute anyway.
+        ///
+        /// A caller that reasons about the self-collision rows itself -- the hold-time
+        /// certificate does, because it needs each pair's *displacement*, not only its
+        /// clamped slack -- otherwise pays for the 303 pair distances twice and for the
+        /// forward kinematics twice, once here and once in its own geometry pass. This
+        /// exists so it pays once. The world arithmetic is character-for-character the
+        /// same as `certifiedRegion(const Configuration &)`'s, so the two agree bit for
+        /// bit on `slack.head<nSpheres>()` and on `valid`.
+        struct WorldRegion
+        {
+            Robot::Kinematics kin;         ///< the chain, walked once
+            Robot::SphereCenters centers;  ///< the 40 centres, built once
+            /// `certifiedRegion()`'s `slack.head<nSpheres>()`, and nothing else.
+            Eigen::Matrix<double, nSpheres, 1> slack;
+            bool valid{false};
+        };
+
+        /// `certifiedRegion(evaluation).slack.head<nSpheres>()`, without materialising
+        /// the 343-row region a caller reading only the world half would throw away.
+        /// Character-for-character the same arithmetic, so the two agree bit for bit.
+        void worldSlack(const Evaluation &evaluation,
+                        Eigen::Matrix<double, nSpheres, 1> &out) const
+        {
+            const double lipschitz = std::max(field_.maxGradientNorm(), 1.0);
+            out = (evaluation.values.template head<nSpheres>() / lipschitz)
+                      .cwiseMin(evaluation.boundary)
+                      .cwiseMax(0.0);
+        }
+
+        void worldRegion(const Configuration &q, WorldRegion &out) const
+        {
+            robot_.kinematics(q, out.kin);
+
+            Eigen::Matrix<double, nSpheres, 1> distances;
+            Eigen::Matrix<double, nSpheres, 1> boundary;
+
+            out.valid = true;
+            for (std::size_t i = 0; i < Robot::nSpheres; ++i)
+            {
+                const Eigen::Index index = static_cast<Eigen::Index>(i);
+                const Eigen::Vector3d center = Robot::sphereCenter(out.kin, i);
+                out.centers.col(index) = center;
+                out.valid = out.valid && field_.inBounds(center);
+                boundary[index] = boundaryClearance(center);
+            }
+
+            {
+                ScopedTimer timer("sdf_query");
+                field_.distanceBatch(out.centers, distances);
+            }
+
+            const double lipschitz = std::max(field_.maxGradientNorm(), 1.0);
+            const auto &allSpheres = Robot::spheres();
+            for (std::size_t i = 0; i < Robot::nSpheres; ++i)
+            {
+                const Eigen::Index index = static_cast<Eigen::Index>(i);
+                const double h = distances[index] - allSpheres[i].radius - margin_;
+                out.slack[index] = std::max(std::min(h / lipschitz, boundary[index]), 0.0);
+            }
         }
 
         /// Is `q + delta` certified collision-free by \p region? One matvec, no
@@ -1137,14 +1186,15 @@ namespace ompl::cbf
         /// Barrier values and constraint rows at \p q.
         void evaluate(const Configuration &q, Evaluation &out) const
         {
-            const Robot::Kinematics kin = robot_.kinematics(q);
+            robot_.kinematics(q, out.kin);
+            const Robot::Kinematics &kin = out.kin;
 
             out.inBounds = true;
             out.worst = 0;
             out.worstPair = 0;
             out.active = nConstraints;
 
-            Robot::SphereCenters centers;
+            Robot::SphereCenters &centers = out.centers;
             Eigen::Matrix<double, nSpheres, 1> distances;
             Eigen::Matrix<double, 3, nSpheres> gradients;
 
@@ -1267,6 +1317,15 @@ namespace ompl::cbf
         void setMargin(double margin)
         {
             margin_ = margin;
+        }
+
+        /// Does the baked box provably contain everywhere the arm can reach? When it
+        /// does, no sphere centre can leave the field however far it travels, so the
+        /// box-exit term drops out of every slack and a caller may reason about
+        /// clearance alone.
+        bool enclosesReach() const
+        {
+            return enclosesReach_;
         }
 
         double selfMargin() const

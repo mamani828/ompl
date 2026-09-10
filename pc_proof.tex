@@ -1,0 +1,503 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+
+\newtheorem{assumption}{Assumption}
+\newtheorem{proposition}{Proposition}
+\newtheorem{lemma}{Lemma}
+\newtheorem{theorem}{Theorem}
+\newtheorem{corollary}{Corollary}
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\F}{\mathcal{F}}
+\newcommand{\Nb}{\mathcal{N}}
+\newcommand{\U}{\mathcal{U}}
+\newcommand{\C}{\mathcal{C}}
+\newcommand{\Ts}{\mathcal{T}_{\mathrm{s}}}
+\newcommand{\Tg}{\mathcal{T}_{\mathrm{g}}}
+\newcommand{\Steer}{\operatorname{Steer}_{\mathrm{CBF}}}
+\newcommand{\Nearest}{\operatorname{Nearest}}
+\newcommand{\interior}{\operatorname{int}}
+\newcommand{\pospart}[1]{\left[#1\right]_{+}}
+\newcommand{\rcert}{r_{\mathrm{cert}}}
+\newcommand{\kreq}{\kappa_{\mathrm{req}}}
+\newcommand{\unom}{u_{\mathrm{nom}}}
+\newcommand{\kmax}{\kappa_{\max}}
+
+\title{Probabilistic Completeness of CBF-Steered RRTConnect\\
+\large A Local-Transparency Proof}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We prove probabilistic completeness for an RRTConnect planner whose local steering
+primitive is filtered by control barrier function (CBF) constraints. The argument is
+local: around any positive-clearance solution path there is a neighborhood of uniformly
+positive radius in which sufficiently short nominal steering commands are CBF-feasible and
+therefore traverse the quadratic-program filter unchanged. Inside that neighborhood CBF
+steering coincides exactly with geometric steering, so the ball-covering argument for
+geometric RRT applies verbatim. We further show that treating the CBF gain as a decision
+variable---minimizing it lexicographically subject to a cap---does not change the control
+the filter returns, so the adaptive-gain and fixed-gain planners are the same planner and
+admit a single completeness theorem rather than a theorem and a corollary. Two hypotheses
+are isolated as the ones an implementation can violate: the steering primitive must impose
+no positive lower bound on extension length, and the safety certificate rather than the
+constraint gradients must carry collision-freeness.
+\end{abstract}
+
+\section{Preliminaries}
+\label{sec:prelim}
+
+\subsection{Configuration space}
+
+Let $Q\subset\R^d$ be a bounded configuration space. Unless stated otherwise $\|\cdot\|$
+is the Euclidean norm and $\|\cdot\|_\infty$ the maximum norm; $B_r(q)$ is the open
+Euclidean ball of radius $r$ about $q$, $\interior A$ the interior of $A$, $\mu$ Lebesgue
+measure, and $[a]_+:=\max\{a,0\}$. A path is a continuous map $\pi:[0,1]\to Q$; its image
+$\pi([0,1])$ is compact.
+
+\subsection{Barrier-defined free space}
+
+Let $h_i:Q\to\R$, $i=1,\dots,M$, be barrier functions encoding workspace collision,
+self-collision, and any further validity constraints, and set
+\begin{equation}
+\F:=\{q\in\interior Q: h_i(q)>0,\ i=1,\dots,M\}.
+\label{eq:free-space}
+\end{equation}
+The inequality is strict because the argument requires an interior solution path. A typical
+workspace barrier is $h_i(q)=d(p_i(q))-r_i-m_i$ for a sphere center $p_i(q)$, a
+signed-distance field $d$, a collision radius $r_i$ and a safety margin $m_i\ge 0$; self-collision
+barriers are the analogous pairwise separations. Nothing below depends on these forms.
+Where margins are used, $\F$ is understood throughout as the \emph{margin-inflated} free
+space that the filter actually enforces, and Assumption~\ref{as:clearance} is a statement
+about that set rather than about geometric contact.
+
+We deliberately do \emph{not} assume $h_i\in C^1$. Interpolated grid distance fields, the
+common implementation, are Lipschitz but only piecewise differentiable, and the proof does
+not need more than the following.
+
+\begin{assumption}[Filter data]
+\label{as:filter-data}
+For each $i$ the filter evaluates at $q$ a constraint vector $g_i(q)\in\R^d$ and the value
+$h_i(q)$, and imposes the row $g_i(q)^\top u+\kappa h_i(q)\ge 0$. The map $q\mapsto h_i(q)$
+is continuous and $g_i$ is bounded on bounded sets.
+\end{assumption}
+
+When $h_i$ is differentiable, $g_i=\nabla h_i$; the weaker statement is what the proof
+consumes. Note that $g_i$ enters only through the question of whether a nominal command is
+CBF-feasible. Collision-freeness is established separately, by the certificate of
+Section~\ref{sec:certificate}, and never by the rows. This separation is what allows the
+regularity hypothesis to be this weak.
+
+\subsection{Steering, controls, and the CBF program}
+
+$\Ts$ and $\Tg$ denote the start and goal trees, $\eta>0$ the maximum extension range, and
+$x_{\mathrm{near}}=\Nearest(\mathcal T,x_{\mathrm{rand}})$ a nearest tree vertex. Let
+$\Delta t>0$ be the integration step and $\bar v_k>0$ the componentwise speed limits. The
+admissible control set is state dependent, since a step must respect the configuration
+limits it ends in:
+\begin{equation}
+\U(q):=\bigl\{u\in\R^d:\ |u_k|\le\bar v_k\ \ \forall k,\ \ q+\Delta t\,u\in Q\bigr\}.
+\label{eq:control-set}
+\end{equation}
+For a one-step extension toward $z$ the nominal command is $\unom=(z-q)/\Delta t$. We write
+$\Steer(q,z)$ for the endpoint the CBF steering routine returns when asked to steer from
+$q$ toward $z$.
+
+Given a gain $\kappa\ge 0$ and a weight $W\succ 0$, the CBF quadratic program at $q$ is
+\begin{equation}
+\min_{u\in\U(q)}\ \tfrac12(u-\unom)^\top W(u-\unom)
+\quad\text{s.t.}\quad
+g_i(q)^\top u+\kappa h_i(q)\ge 0,\ \ i=1,\dots,M.
+\label{eq:qp}
+\end{equation}
+For $q\in\F$ define the \emph{required gain} of a command $u$,
+\begin{equation}
+\kreq(q,u):=\max_{i=1,\dots,M}\pospart{-\frac{g_i(q)^\top u}{h_i(q)}},
+\label{eq:kreq}
+\end{equation}
+which is well defined because $h_i(q)>0$ there.
+
+\subsection{Probabilistic completeness}
+
+Let $S_N$ be the event that the planner has returned a valid solution by the end of outer
+iteration $N$. The planner is probabilistically complete on the class of instances
+considered here if $\Pr(S_N)\to 1$ as $N\to\infty$ for every feasible instance satisfying
+the hypotheses below. The only sampling property used is that every open ball in a
+neighborhood of the reference path carries strictly positive sampling probability; a
+sufficient condition is a sampling density bounded below by some $f_{\min}>0$ there.
+
+\section{Setup}
+\label{sec:setup}
+
+\begin{assumption}[Positive-clearance solution]
+\label{as:clearance}
+There is a path $\pi:[0,1]\to\F$ with $\pi(0)=q_{\mathrm s}$ and $\pi(1)=q_{\mathrm g}$
+whose image lies in the interior of every validity domain the collision representation
+requires, including the domain of the distance field and the configuration limits.
+\end{assumption}
+
+\begin{lemma}[Compact tube]
+\label{lem:tube}
+Under Assumptions~\ref{as:filter-data} and~\ref{as:clearance} there exist $\delta_U>0$,
+$\underline h>0$, $G<\infty$ and $b>0$ such that the open tube
+\begin{equation}
+\Nb:=\bigcup_{t\in[0,1]}B_{\delta_U}\bigl(\pi(t)\bigr)
+\label{eq:tube}
+\end{equation}
+has compact closure $\overline\Nb\subset\F$ and satisfies, for all $q\in\overline\Nb$ and
+all $i$,
+\begin{equation}
+h_i(q)\ge\underline h,
+\qquad
+\|g_i(q)\|\le G,
+\qquad
+\operatorname{dist}_\infty(q,\partial Q)\ge b.
+\label{eq:tube-bounds}
+\end{equation}
+\end{lemma}
+
+\begin{proof}
+$\pi([0,1])$ is compact and each $h_i$ is continuous, so
+$h_0:=\min\{h_i(\pi(t)):t\in[0,1],\,i\le M\}>0$. The set
+$V:=\{q\in\interior Q: h_i(q)>h_0/2\ \forall i\}$ is open and contains $\pi([0,1])$, so by
+compactness some $\delta_U>0$ makes the closed $\delta_U$-neighborhood of $\pi([0,1])$ a
+subset of $V$. Take $\Nb$ as in \eqref{eq:tube} and $\underline h:=h_0/2$. Since $Q$ is
+bounded, $\overline\Nb$ is compact; $G$ then exists by Assumption~\ref{as:filter-data} and
+$b>0$ because $\overline\Nb$ is a compact subset of the open set $\interior Q$.
+\end{proof}
+
+Taking these bounds over the compact closure $\overline\Nb$ rather than over the open tube
+is what makes them attained and hence uniform; this is used at every point below.
+
+\section{The Certified Local Free Region}
+\label{sec:certificate}
+
+Suppose that for every $q\in\overline\Nb$ there are constants $\Lambda_{i,k}\ge0$, uniform
+in $q$, with
+\begin{equation}
+\|p_i(q+\Delta q)-p_i(q)\|\ \le\ \sum_{k=1}^{d}\Lambda_{i,k}|\Delta q_k|=:A_i(\Delta q)
+\qquad\text{for all }\Delta q,
+\label{eq:lever}
+\end{equation}
+and let $s_i(q)>0$ be the clearance available to row $i$. For a distance field with
+Lipschitz constant $L$ one may take $s_i(q)$ to be $h_i(q)/L$ intersected with the
+remaining travel before $p_i(q)$ leaves the field's domain; for a self-collision row it is
+the pairwise separation, with no Lipschitz factor. Define
+\begin{equation}
+\C(q):=\{\Delta q: A_i(\Delta q)\le s_i(q),\ i=1,\dots,M\},
+\qquad
+\rcert(q):=\min_i\frac{s_i(q)}{\sum_{k}\Lambda_{i,k}},
+\label{eq:cert}
+\end{equation}
+rows with zero denominator being omitted from the minimum. Each $A_i$ is positively
+homogeneous, $A_i(\tau\Delta q)=\tau A_i(\Delta q)$ for $\tau\in[0,1]$, so membership of
+$\Delta q$ in $\C(q)$ certifies the whole segment $q+\tau\Delta q$ and not merely its
+endpoint. Consequently
+\begin{equation}
+\|\Delta q\|_\infty<\rcert(q)
+\quad\Longrightarrow\quad
+[q,q+\Delta q]\subset\F.
+\label{eq:cert-segment}
+\end{equation}
+Because the $\Lambda_{i,k}$ are uniform and $s_i$ is bounded below on $\overline\Nb$---by
+$\underline h/L$ from Lemma~\ref{lem:tube} together with the domain clearance guaranteed by
+Assumption~\ref{as:clearance}---the infimum
+\begin{equation}
+r_0:=\inf_{q\in\overline\Nb}\rcert(q)>0
+\label{eq:r0}
+\end{equation}
+is strictly positive.
+
+That \eqref{eq:cert-segment} bounds a whole segment, and does so without reference to any
+$g_i$, is the reason the regularity hypothesis of Assumption~\ref{as:filter-data} suffices:
+the rows decide feasibility, the certificate decides safety, and only the latter must hold
+between sample points.
+
+\section{The Gain Is Not a Degree of Freedom}
+\label{sec:gain}
+
+It is natural to treat $\kappa$ as a decision variable rather than a constant, preferring
+among least-deviating controls the one demanding the smallest allowance to spend clearance.
+Written out, with a cap $\kmax>0$, this is the lexicographic program
+\begin{equation}
+\operatorname*{lexmin}_{u,\kappa}\ \Bigl(\tfrac12(u-\unom)^\top W(u-\unom),\ \kappa\Bigr)
+\quad\text{s.t.}\quad
+g_i(q)^\top u+\kappa h_i(q)\ge 0\ \forall i,
+\quad u\in\U(q),
+\quad 0\le\kappa\le\kmax.
+\label{eq:lex}
+\end{equation}
+The following proposition shows that \eqref{eq:lex} is not a different filter from
+\eqref{eq:qp}, and it is what collapses the adaptive and fixed-gain cases into one theorem.
+
+\begin{proposition}[Gain reduction]
+\label{prop:reduction}
+Let $q\in\F$, $W\succ0$ and $\kmax>0$, and suppose the feasible set of \eqref{eq:lex} is
+nonempty. Then its optimal control $u^\ast$ is exactly the unique solution of the
+fixed-gain program \eqref{eq:qp} at $\kappa=\kmax$, and the optimal gain is
+$\kappa^\ast=\kreq(q,u^\ast)$.
+\end{proposition}
+
+\begin{proof}
+Write $\mathrm{Feas}(\kappa):=\{u\in\U(q): g_i(q)^\top u+\kappa h_i(q)\ge0\ \forall i\}$.
+Because $h_i(q)>0$ for $q\in\F$, row $i$ is equivalent to
+$\kappa\ge-g_i(q)^\top u/h_i(q)$, so $\mathrm{Feas}$ is nondecreasing in $\kappa$ and a
+control $u$ is feasible for \emph{some} $\kappa\in[0,\kmax]$ if and only if
+$u\in\mathrm{Feas}(\kmax)$. The projection onto $u$ of the feasible set of \eqref{eq:lex}
+is therefore $\mathrm{Feas}(\kmax)$, and the primary objective of \eqref{eq:lex} is
+minimized over exactly the feasible set of \eqref{eq:qp} at $\kappa=\kmax$. That objective
+is strictly convex because $W\succ0$, so its minimizer $u^\ast$ is unique. The secondary
+objective then minimizes $\kappa$ over the singleton $\{u^\ast\}$, giving
+$\kappa^\ast=\max\{0,\kreq(q,u^\ast)\}=\kreq(q,u^\ast)$.
+\end{proof}
+
+\begin{corollary}
+\label{cor:same-planner}
+The adaptive-gain filter \eqref{eq:lex} and the fixed-gain filter \eqref{eq:qp} with
+$\kappa=\kmax$ return the same control at every configuration, hence induce the same
+steering map $\Steer$ and the same planner. Any completeness statement for one is a
+completeness statement for the other.
+\end{corollary}
+
+Accordingly we fix a gain $\kappa>0$ for the remainder, understanding it as $\kmax$ when
+the lexicographic form is used. The minimized gain $\kappa^\ast$ retains an independent
+purpose: it certifies that along the returned control every barrier obeys
+$h_i(t)\ge h_i(0)e^{-\kappa^\ast t}$, an envelope tighter than the cap promises. It is a
+certificate, not a control law.
+
+\begin{lemma}[Transparency condition]
+\label{lem:transparency-cond}
+Let $q\in\F$ and suppose $\unom\in\U(q)$ and $\kreq(q,\unom)\le\kappa$. Then the solution
+of \eqref{eq:qp} is $u^\ast=\unom$.
+\end{lemma}
+
+\begin{proof}
+By \eqref{eq:kreq} and $h_i(q)>0$, the hypothesis $\kreq(q,\unom)\le\kappa$ states exactly
+that $\unom$ satisfies every row at gain $\kappa$; with $\unom\in\U(q)$ it is feasible. The
+objective then attains its global minimum value $0$, and since $W\succ0$ it does so only at
+$u=\unom$.
+\end{proof}
+
+\begin{remark}[Computable surrogates]
+\label{rem:surrogate}
+Lemma~\ref{lem:transparency-cond} is monotone in its hypothesis: any
+$\widehat\kappa\ge\kreq(q,\unom)$ with $\widehat\kappa\le\kappa$ certifies the same
+conclusion. An implementation may therefore substitute any computable upper bound on
+$\kreq$---for instance one read off the certificate region of
+Section~\ref{sec:certificate}, which requires no $g_i$ at all---without affecting
+soundness. A loose surrogate shrinks the radius $\rho_\kappa$ of Lemma~\ref{lem:transparency}
+by the same factor and so degrades the rate constant of Theorem~\ref{thm:pc}, but cannot
+destroy positivity and hence cannot affect completeness.
+\end{remark}
+
+\section{Local Transparency}
+\label{sec:local}
+
+\begin{lemma}[Uniform transparent neighborhood]
+\label{lem:transparency}
+There exists $\rho>0$ such that for every $q\in\Nb$ and every $z$ with $\|z-q\|<\rho$,
+\begin{equation}
+\Steer(q,z)=z,
+\label{eq:transparent}
+\end{equation}
+and the entire steering segment $[q,z]$ lies in $\F$.
+\end{lemma}
+
+\begin{proof}
+Put $\delta:=z-q$ and $\bar v_{\min}:=\min_k\bar v_k>0$, and set
+\begin{equation}
+\rho:=\tfrac12\min\Bigl\{\,r_0,\ \ \Delta t\,\bar v_{\min},\ \ b,\ \
+\frac{\kappa\,\Delta t\,\underline h}{G}\,\Bigr\}>0,
+\label{eq:rho}
+\end{equation}
+which is positive because each of the four quantities is, by \eqref{eq:r0} and
+Lemma~\ref{lem:tube}. Assume $\|\delta\|<\rho$; we verify the three hypotheses of
+Lemma~\ref{lem:transparency-cond} in turn and then the segment claim.
+
+\emph{One step, within the speed box.} Since $\|\delta\|_\infty\le\|\delta\|<\Delta t\,\bar
+v_{\min}\le\Delta t\,\bar v_k$ for every $k$, the request is met in a single integration
+step and the nominal command $\unom=\delta/\Delta t$ satisfies $|(\unom)_k|<\bar v_k$.
+
+\emph{Admissibility.} $\|\delta\|_\infty<b$ and $q\in\Nb$ give
+$z=q+\Delta t\,\unom\in\interior Q$ by \eqref{eq:tube-bounds}, so $\unom\in\U(q)$.
+
+\emph{Gain headroom.} By Cauchy--Schwarz and the bounds of Lemma~\ref{lem:tube},
+\begin{equation}
+\kreq(q,\unom)
+=\max_i\pospart{-\frac{g_i(q)^\top\delta}{\Delta t\,h_i(q)}}
+\le\frac{G}{\Delta t\,\underline h}\,\|\delta\|
+<\frac{G}{\Delta t\,\underline h}\cdot\frac{\kappa\,\Delta t\,\underline h}{G}
+=\kappa .
+\label{eq:kreq-bound}
+\end{equation}
+Lemma~\ref{lem:transparency-cond} therefore applies and yields $u^\ast=\unom$, so the
+executed step is
+\[
+q^+=q+\Delta t\,u^\ast=q+\Delta t\,\frac{z-q}{\Delta t}=z .
+\]
+
+\emph{Safety of the segment.} Finally $\|\delta\|_\infty\le\|\delta\|<r_0\le\rcert(q)$, so
+\eqref{eq:cert-segment} gives $[q,z]\subset\F$.
+\end{proof}
+
+\begin{remark}[No lower bound on extension length]
+\label{rem:no-floor}
+Lemma~\ref{lem:transparency} asserts transparency on a \emph{ball}, not an annulus: the
+conclusion must hold for arbitrarily short requests. This is a genuine obligation on the
+steering primitive and not a formality, because
+Theorem~\ref{thm:pc} covers the path in balls and requires the tree to be extendable to a
+sample lying anywhere inside one, however close that sample falls to the vertex it grows
+from. Implementations that abandon a rollout whose applied control is small in magnitude
+violate it, since a short request has a small nominal command by construction---$\unom$
+scales with $\|z-q\|$---so such a test refuses precisely the short extensions the argument
+depends on, and imposes a positive floor on extension length. Any work limit of this kind
+must therefore be conditioned on the step failing to complete the request, not on the
+magnitude of the command alone.
+\end{remark}
+
+\begin{remark}
+Lemma~\ref{lem:transparency} does not claim the CBF steer is globally straight. Long
+extensions, or extensions near $\partial\F$, may be deflected, truncated, or refused.
+Completeness needs only a uniformly positive neighborhood of a positive-clearance path in
+which exact steering is recovered.
+\end{remark}
+
+\section{Probabilistic Completeness}
+\label{sec:pc}
+
+\begin{theorem}[Probabilistic completeness of CBF-RRTConnect]
+\label{thm:pc}
+Let Assumptions~\ref{as:filter-data} and~\ref{as:clearance} hold, together with the
+certificate hypothesis \eqref{eq:lever}, and suppose
+\begin{enumerate}[label=(\roman*)]
+\item samples are drawn independently from a distribution whose density is bounded below by
+      $f_{\min}>0$ on $\Nb$;
+\item RRTConnect has maximum extension range $\eta>0$;
+\item the goal tree contains $q_{\mathrm g}$;
+\item every local extension of either tree uses $\Steer$, with a fixed gain $\kappa>0$ or,
+      equivalently by Corollary~\ref{cor:same-planner}, with the lexicographic gain capped
+      at $\kmax=\kappa$.
+\end{enumerate}
+Then $\Pr(S_N)\to1$ as $N\to\infty$.
+\end{theorem}
+
+\begin{proof}
+Let $\rho>0$ be the radius of Lemma~\ref{lem:transparency} and choose
+\begin{equation}
+0<\nu<\min\Bigl\{\eta,\ \delta_U,\ \tfrac53\rho\Bigr\}.
+\label{eq:nu}
+\end{equation}
+
+\emph{Waypoints.} $\pi$ is continuous on the compact interval $[0,1]$, hence uniformly
+continuous, so there is $\omega>0$ with $\|\pi(t)-\pi(t')\|\le\nu/5$ whenever
+$|t-t'|\le\omega$. Put $m:=\lceil1/\omega\rceil$ and $x_j:=\pi(j/m)$ for $j=0,\dots,m$.
+Then $x_0=q_{\mathrm s}$, $x_m=q_{\mathrm g}$ and $\|x_{j+1}-x_j\|\le\nu/5$. (Uniform
+continuity is used here in place of rectifiability, which a merely continuous path need not
+possess.) Set $B_j:=B_{\nu/5}(x_j)$.
+
+\emph{Advancement.} Suppose $\Ts$ contains some $x_j'\in B_j$ and the next sample satisfies
+$x_{\mathrm{rand}}\in B_{j+1}$. Let $x_{\mathrm{near}}$ be the tree vertex nearest
+$x_{\mathrm{rand}}$. Nearest-neighbor optimality and the triangle inequality give
+\begin{equation}
+\|x_{\mathrm{near}}-x_{\mathrm{rand}}\|
+\le\|x_j'-x_{\mathrm{rand}}\|
+\le\|x_j'-x_j\|+\|x_j-x_{j+1}\|+\|x_{j+1}-x_{\mathrm{rand}}\|
+<\tfrac{3\nu}{5}<\rho,
+\label{eq:three-fifths}
+\end{equation}
+where the last inequality is \eqref{eq:nu}. Since $3\nu/5<\nu<\eta$ the extension is not
+truncated by the range. Moreover
+\begin{equation}
+\|x_{\mathrm{near}}-x_j\|
+\le\|x_{\mathrm{near}}-x_{\mathrm{rand}}\|+\|x_{\mathrm{rand}}-x_j\|
+<\tfrac{3\nu}{5}+\tfrac{2\nu}{5}=\nu<\delta_U,
+\label{eq:near-in-tube}
+\end{equation}
+so $x_{\mathrm{near}}\in\Nb$. Lemma~\ref{lem:transparency} thus applies to the pair
+$(x_{\mathrm{near}},x_{\mathrm{rand}})$ and yields
+$\Steer(x_{\mathrm{near}},x_{\mathrm{rand}})=x_{\mathrm{rand}}$ along a segment in $\F$.
+The sampled state is therefore inserted, and
+\begin{equation}
+\Ts\cap B_j\neq\varnothing\ \wedge\ x_{\mathrm{rand}}\in B_{j+1}
+\quad\Longrightarrow\quad
+\Ts^{\mathrm{new}}\cap B_{j+1}\neq\varnothing,
+\label{eq:advance}
+\end{equation}
+which is the local advancement property of the geometric RRT proof. We note that
+\eqref{eq:three-fifths} uses only that the nearest vertex is no farther than $x_j'$, so the
+property is unaffected if the filter also inserts additional vertices elsewhere---for
+instance the endpoints of deflected or truncated extensions---since a nearest-neighbor
+distance over a superset of vertices can only decrease.
+
+\emph{Iteration count.} Each $B_j\subset\Nb$ is an open ball of positive volume, so
+$\Pr[x_{\mathrm{rand}}\in B_j]\ge f_{\min}\mu(B_{\nu/5})=:p>0$, and only the finite number
+$m$ of advancements is required. Tree vertices are never removed, so once $\Ts$ meets $B_j$
+it continues to. RRTConnect alternates which tree receives the random extension, so after
+$N$ outer iterations $\Ts$ has had at least $n_N:=\lfloor N/2\rfloor$ opportunities, and by
+\eqref{eq:advance} each succeeds with conditional probability at least $p$. Stochastic
+domination by a binomial then gives
+\begin{equation}
+\Pr\bigl[\Ts\text{ has not reached }B_m\bigr]
+\le\sum_{j=0}^{m-1}\binom{n_N}{j}p^{\,j}(1-p)^{\,n_N-j}\xrightarrow[N\to\infty]{}0
+\label{eq:binomial}
+\end{equation}
+for fixed $m$ and $p>0$.
+
+\emph{Connection.} The goal tree contains $q_{\mathrm g}=x_m$. Once $\Ts$ acquires a vertex
+$y\in B_m$ we have $\|y-q_{\mathrm g}\|<\nu/5<\rho$, and $y\in\Nb$ by
+\eqref{eq:near-in-tube}. Lemma~\ref{lem:transparency} is stated for every $q\in\Nb$ and
+every target within $\rho$, so it applies whichever of the two endpoints the
+implementation steers \emph{from}; this matters because RRTConnect validates goal-tree
+edges in the reverse direction, rolling out from the sampled state toward the tree vertex.
+Either orientation yields exact arrival, the trees connect, and a solution is returned.
+Combining with \eqref{eq:binomial} gives $\Pr(S_N)\to1$.
+\end{proof}
+
+\begin{corollary}[Adaptive gain]
+\label{cor:adaptive}
+Under the hypotheses of Theorem~\ref{thm:pc}, the planner steered by the lexicographic
+program \eqref{eq:lex} with cap $\kmax>0$ is probabilistically complete.
+\end{corollary}
+
+\begin{proof}
+Immediate from Corollary~\ref{cor:same-planner} and Theorem~\ref{thm:pc} with
+$\kappa=\kmax$.
+\end{proof}
+
+\begin{remark}[Role of the gain]
+\label{rem:gain-role}
+Decreasing $\kappa$ shrinks $\rho_\kappa=\kappa\Delta t\,\underline h/G$ and hence, through
+\eqref{eq:rho} and \eqref{eq:nu}, the favorable sampling probability $p$; it never
+eliminates the radius. The gain therefore governs the convergence rate this sufficient
+condition certifies, not completeness itself. By Corollary~\ref{cor:same-planner} an
+adaptive gain does not enlarge the set of preserved nominal commands relative to a fixed
+gain at the same cap, so it is neither required for the guarantee nor able to improve it;
+its value lies in the tighter decay envelope it certifies after the fact.
+\end{remark}
+
+\begin{remark}[Rate constants]
+\label{rem:rate}
+The bound \eqref{eq:binomial} is honest but severe. In a typical manipulator instance the
+binding term of \eqref{eq:rho} is the one-step speed bound $\Delta t\,\bar v_{\min}$, some
+two orders below the planner range $\eta$, and $p$ scales as $(\rho/\operatorname{diam}Q)^d$.
+The theorem should accordingly be read as establishing that the guarantee is not forfeited
+by the filter, with empirical evidence carrying the practical rate.
+\end{remark}
+
+\section*{Reference}
+
+Kleinbort, M., Solovey, K., Littlefield, Z., Bekris, K.~E., and Halperin, D.
+``Probabilistic Completeness of RRT for Geometric and Kinodynamic Planning with Forward
+Propagation.'' arXiv:1809.07051.
+
+\end{document}

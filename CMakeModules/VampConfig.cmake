@@ -49,6 +49,13 @@ function(configure_vamp)
     # Configure VAMP targets
     configure_vamp_targets()
 
+    # Hand the SIMD flags back to the caller. They are not VAMP's private business:
+    # everything compiled after this point gets them, so anything compiled *before*
+    # -- the ompl library itself -- disagrees with the demos about how wide a SIMD
+    # register is, and therefore about how Eigen aligns a fixed-size matrix. See the
+    # note where the caller applies them.
+    set(VAMP_SIMD_FLAGS "${VAMP_SIMD_FLAGS}" PARENT_SCOPE)
+
     set(OMPL_HAVE_VAMP TRUE CACHE BOOL "Whether VAMP integration is available" FORCE)
     message(STATUS "VAMP integration configured successfully")
 endfunction()

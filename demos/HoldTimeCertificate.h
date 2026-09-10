@@ -7,6 +7,11 @@
 #include <Eigen/Geometry>
 #include <algorithm>
 #include <cmath>
+#include <chrono>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <limits>
 
 namespace holdtime
@@ -17,7 +22,121 @@ using Configuration = Robot::Configuration;
 using Vec3 = Eigen::Vector3d;
 static constexpr int NJ = 6;
 
+// -------------------------------------------------------------- instrumentation
+
+/// Wall time spent inside the hold query, process-wide, for answering "how much of
+/// the planner's time is the certificate?". Off unless OMPL_HOLD_TIMING is set,
+/// because a clock read is a few percent of a query this size.
+struct HoldTiming
+{
+    double seconds{0.0};
+    std::size_t calls{0};
+    std::size_t selfRows{0}, worldRows{0};
+};
+
+inline HoldTiming &holdTiming()
+{
+    static HoldTiming t;
+    return t;
+}
+
+inline bool holdTimingEnabled()
+{
+    static const bool on = []
+    {
+        const char *v = std::getenv("OMPL_HOLD_TIMING");
+        return v != nullptr && std::strcmp(v, "0") != 0;
+    }();
+    return on;
+}
+#ifdef HOLDTIME_COUNTERS
+struct Counters
+{
+    std::size_t queries{0};
+    std::size_t fk{0}, centers{0}, sdfBatch{0};
+    std::size_t selfDistances{0}, selfSqrt{0}, worldRows{0};
+    std::size_t cacheBuilds{0}, framePrefix{0}, endpointEnvelopes{0};
+    std::size_t selfExpensive{0}, worldExpensive{0};
+    std::size_t normalRoots{0}, isoRoots{0}, rootIterations{0};
+    std::size_t candidates{0}, zeroReturns{0};
+    std::size_t seedWorld{0}, noSeed{0}, worldCandidates{0}, selfCandidates{0};
+    std::size_t trigPairs{0}, anchorEnvelopes{0}, emptyActive{0};
+};
+inline Counters &counters()
+{
+    static Counters c;
+    return c;
+}
+#define HT_COUNT(field, n) (holdtime::counters().field += (n))
+#else
+#define HT_COUNT(field, n) ((void)0)
+#endif
+
+/// How many queries were answered by the empty-screened-set shortcut. Always
+/// compiled: the envelope filter reports it whether or not the counters are on.
+inline std::size_t &emptyActiveTally()
+{
+    static std::size_t n = 0;
+    return n;
+}
+inline std::size_t emptyActiveCount()
+{
+    return emptyActiveTally();
+}
+
+inline void resetCounters()
+{
+#ifdef HOLDTIME_COUNTERS
+    counters() = Counters();
+#endif
+}
+
+inline void reportCounters(std::FILE *out)
+{
+#ifdef HOLDTIME_COUNTERS
+    const Counters &c = counters();
+    const double n = c.queries > 0 ? static_cast<double>(c.queries) : 1.0;
+    std::fprintf(out, "\noptimized per-query counters (%zu engine calls)\n", c.queries);
+    std::fprintf(out, "  forward kinematics        %8.3f\n", c.fk / n);
+    std::fprintf(out, "  sphere-centre builds      %8.3f\n", c.centers / n);
+    std::fprintf(out, "  SDF batch calls           %8.3f\n", c.sdfBatch / n);
+    std::fprintf(out, "  self pair distances       %8.3f\n", c.selfDistances / n);
+    std::fprintf(out, "  self pair square roots    %8.3f\n", c.selfSqrt / n);
+    std::fprintf(out, "  world L1 rows processed   %8.3f\n", c.worldRows / n);
+    std::fprintf(out, "  HoldCache builds          %8.3f\n", c.cacheBuilds / n);
+    std::fprintf(out, "  frame-prefix builds       %8.3f\n", c.framePrefix / n);
+    std::fprintf(out, "  endpoint envelopes        %8.3f\n", c.endpointEnvelopes / n);
+    std::fprintf(out, "  ...of which anchored      %8.3f\n", c.anchorEnvelopes / n);
+    std::fprintf(out, "  expensive self rows       %8.3f\n", c.selfExpensive / n);
+    std::fprintf(out, "  expensive world rows      %8.3f\n", c.worldExpensive / n);
+    std::fprintf(out, "  normal root solves        %8.3f\n", c.normalRoots / n);
+    std::fprintf(out, "  isotropic root solves     %8.3f\n", c.isoRoots / n);
+    std::fprintf(out, "  root iterations           %8.3f\n", c.rootIterations / n);
+    std::fprintf(out, "  candidates after seed     %8.3f\n", c.candidates / n);
+    std::fprintf(out, "  blocked (returned zero)   %8.3f\n", c.zeroReturns / n);
+    std::fprintf(out, "  world-seeded / unseeded   %8.3f %.3f\n", c.seedWorld / n,
+                 c.noSeed / n);
+    std::fprintf(out, "  candidates self / world   %8.3f %.3f\n", c.selfCandidates / n,
+                 c.worldCandidates / n);
+    std::fprintf(out, "  envelope sin/cos pairs    %8.3f\n", c.trigPairs / n);
+#else
+    (void)out;
+#endif
+}
+
+
 // ---------------------------------------------------------------- scalar roots
+
+/// sin and cos of the same argument in one call where the toolchain offers it.
+static inline void sinCos(double x, double &s, double &c)
+{
+#if defined(__GNUC__) && !defined(__clang__)
+    __builtin_sincos(x, &s, &c);
+#else
+    s = std::sin(x);
+    c = std::cos(x);
+#endif
+}
 
 static inline double speedCappedTime(double d0, double S, double C, double V)
 {
@@ -67,7 +186,9 @@ static int kBisect = 12;
 // first t in [0,T] where prefixMaxNorm(t,u,a) + H t^3/6 reaches d0
 static inline double anchoredTime(double d0, const Vec3 &u, const Vec3 &a, double H, double T)
 {
+    HT_COUNT(isoRoots, 1);
     if (prefixMaxNorm(T, u, a) + H * T * T * T / 6.0 <= d0) return T;
+    HT_COUNT(rootIterations, kBisect);
     double lo = 0.0, hi = T;
     for (int i = 0; i < kBisect; ++i)
     {
@@ -80,7 +201,9 @@ static inline double anchoredTime(double d0, const Vec3 &u, const Vec3 &a, doubl
 // same, projected onto the contact normal: b = n.u0, c = n.a0
 static inline double normalAnchoredTime(double d0, double b, double c, double H, double T)
 {
+    HT_COUNT(normalRoots, 1);
     if (prefixMaxQuad(T, b, c) + H * T * T * T / 6.0 <= d0) return T;
+    HT_COUNT(rootIterations, kBisect);
     double lo = 0.0, hi = T;
     for (int i = 0; i < kBisect; ++i)
     {
@@ -102,10 +225,45 @@ struct HoldCache
     Vec3 cumU[NJ][NJ + 1], cumA[NJ][NJ + 1];
     double segLen[NJ];
     Vec3 seg[NJ];
+    bool frameReady_[NJ]{};
+    const Robot::Kinematics *kin_{nullptr};
+    Configuration v_{Configuration::Zero()};
 
     // One O(n^2) pass. Pairwise cosines are frame-invariant, so this serves
     // EVERY frame window -- all 303 pairs read out of it.
-    void build(const Robot::Kinematics &kin, const Configuration &v, double T)
+    //
+    // \p bases is the largest chain-base frame any consumer will ask about. The
+    // prefix blocks below are per base frame and independent of each other, and the
+    // UR5's pair table only ever bases a window at frames 0 to 3, so building 4 of
+    // them rather than 6 is a third of this loop that nothing was going to read.
+    /// Everything, eagerly: what `pairHold()` and `holdWorldScale()` below expect.
+    void build(const Robot::Kinematics &kin, const Configuration &v, double T, int bases = NJ - 1)
+    {
+        buildLazy(kin, v, T);
+        for (int f = 0; f <= bases; ++f)
+            ensureFrame(f);
+    }
+
+    /// The frame-independent half. The prefix block for a chain-base frame is then
+    /// built on first use: the blocks are independent of each other and a query reads
+    /// two or three of the four the UR5's pair table can ask for, so building them on
+    /// demand keeps the rest off the hot path.
+    void buildLazy(const Robot::Kinematics &kin, const Configuration &v, double T)
+    {
+        kin_ = &kin;
+        v_ = v;
+        for (int f = 0; f < NJ; ++f)
+            frameReady_[f] = false;
+        buildShared(kin, v, T);
+    }
+
+    void ensureFrame(int f)
+    {
+        if (!frameReady_[f])
+            buildFrame(f);
+    }
+
+    void buildShared(const Robot::Kinematics &kin, const Configuration &v, double T)
     {
         double cos0[NJ][NJ], sin0[NJ][NJ];
         for (int k = 0; k < NJ; ++k)
@@ -134,7 +292,11 @@ struct HoldCache
                     // cos/sin(theta0 +/- w) without acos: the sign of the sine
                     // says whether the angle ran past pi (or below 0), which is
                     // where the cosine endpoint has to clamp.
-                    const double cw = std::cos(w), sw = std::sin(w);
+                    HT_COUNT(trigPairs, 1);
+                    // One sine-cosine pair, not two library calls on the same
+                    // argument: the envelope build is almost entirely this.
+                    double sw, cw;
+                    sinCos(w, sw, cw);
                     const double cp = c * cw - s * sw, sp = s * cw + c * sw;
                     const double cm = c * cw + s * sw, sm = s * cw - c * sw;
                     L = sp < 0.0 ? -1.0 : cp;
@@ -153,9 +315,16 @@ struct HoldCache
             segLen[j] = seg[j].norm();
         }
 
-        // Prefix quantities depend only on the BASE frame f, so six of these
-        // cover all 21 possible frame windows.
-        for (int f = 0; f < NJ; ++f)
+    }
+
+    // Prefix quantities depend only on the BASE frame f, so six of these
+    // cover all 21 possible frame windows.
+    void buildFrame(int f)
+    {
+        HT_COUNT(framePrefix, 1);
+        frameReady_[f] = true;
+        const Robot::Kinematics &kin = *kin_;
+        const Configuration &v = v_;
         {
             for (int j = f; j < NJ; ++j) Om[f][j] = std::sqrt(Q[f][j]);
             chi[f][f] = 0.0;
@@ -236,15 +405,23 @@ struct SelfPairStatic
     int f[Robot::nSelfPairs], g[Robot::nSelfPairs];
     std::size_t a[Robot::nSelfPairs], b[Robot::nSelfPairs];
     bool active[Robot::nSelfPairs];
+    /// The same endpoints one byte wide. The screening sweep walks all 303 rows and
+    /// touches five other 303-entry arrays on the way, so the 4.8 KB of `size_t`
+    /// indices is cache the sweep cannot spare; 40 spheres fit in a byte.
+    std::uint8_t ca[Robot::nSelfPairs], cb[Robot::nSelfPairs];
+    int maxBaseFrame{0};
     SelfPairStatic()
     {
         for (std::size_t p = 0; p < Robot::nSelfPairs; ++p)
         {
             const auto &pr = Robot::selfPairs()[p];
             a[p] = pr.a; b[p] = pr.b;
+            ca[p] = static_cast<std::uint8_t>(pr.a);
+            cb[p] = static_cast<std::uint8_t>(pr.b);
             f[p] = static_cast<int>(Robot::spheres()[pr.a].frame);
             g[p] = static_cast<int>(Robot::spheres()[pr.b].frame);
             active[p] = g[p] > f[p];
+            maxBaseFrame = std::max(maxBaseFrame, f[p]);
         }
     }
 };
@@ -344,9 +521,10 @@ struct WorldStatic
 };
 static const WorldStatic WS;
 
+template <typename TravelVector>
 static double holdWorldScale(const Robot::Kinematics &kin, const Robot::SphereCenters &centers,
                              const Barrier::CertifiedRegion &region,
-                             const Barrier::Values &travelUnit, double horizon,
+                             const TravelVector &travelUnit, double horizon,
                              const HoldCache &cache, long *evaluated)
 {
     if (!region.valid) return 0.0;
@@ -393,6 +571,641 @@ static double holdWorldScale(const Robot::Kinematics &kin, const Robot::SphereCe
         best = std::min(best, one(i));
     }
     *evaluated += n;
+    return std::min(best, horizon);
+}
+
+
+// ===========================================================================
+// The fused query the rollout actually wants.
+// ===========================================================================
+//
+// `holdSelfScale` and `holdWorldScale` above answer two questions the caller
+// then takes a minimum of. The caller does not want two answers, and paying for
+// two costs more than the second answer is worth:
+//
+//   - the geometry is computed three times over. `ClearanceBarrier::
+//     certifiedRegion()` walks the chain, builds the 40 centres and measures all
+//     303 pair distances; the caller then walks the chain and builds the centres
+//     again for the certificate; `holdSelfScale` measures the 303 distances
+//     again; and the diagnostic `repoSelfScale` measures them a third time.
+//   - the two branch-and-bound searches do not see each other. Each starts its
+//     running bound at the horizon, so a world row that has already pinned the
+//     answer to 3 mm cannot stop the self search from evaluating pairs worth
+//     20 mm, and vice versa.
+//
+// `HoldEngine` is the same certificate -- same spheres, same pair table, same
+// SDF, same margins, same L1 rows, same speed-capped and normal-anchored terms,
+// same clipping and the same min/max ordering -- computed once, with one shared
+// bound. Everything it prunes is provably unable to lower the answer, because
+// every row's certificate is at least that row's own L1 time.
+
+
+// --------------------------------------------------- anchored roots, fast form
+//
+// Both anchored certificates bisect a monotone predicate, and both spent almost
+// all of their time re-deriving, at every step, structure that is fixed for the
+// row: the interior maximiser of the prefix envelope, and the square roots the
+// comparison does not need.
+//
+//   - the maximiser is a property of (b, c) or of (u0, a0). It is found once.
+//   - the predicate `sqrt(M(t)) + H t^3/6 <= d0` is equivalent, for the only t
+//     where it can be true, to `M(t) <= (d0 - H t^3/6)^2` -- a squaring instead
+//     of a square root, and none of the three vector norms the old form took per
+//     step.
+//
+// The squared comparison carries a downward safety factor, so where rounding
+// could make the two forms disagree the fast one refuses: the root it returns is
+// never past the root the exact predicate would give. Certificate equation,
+// envelope and clipping are untouched; only the arithmetic that finds the root
+// of that equation is.
+static constexpr double kRootSafety = 1.0 - 1e-14;
+
+/// max_{0<=s<=t} (b s + c s^2/2) plus H t^3/6, against d0 -- with the interior
+/// maximiser of the quadratic found once instead of once per bisection step.
+struct NormalAnchor
+{
+    double b, c, H6, d0, sStar, pStar;
+
+    NormalAnchor(double bb, double cc, double H, double dd)
+      : b(bb), c(cc), H6(H * (1.0 / 6.0)), d0(dd), sStar(-1.0), pStar(0.0)
+    {
+        if (c < 0.0)
+        {
+            const double s = -b / c;
+            // The vertex value -b^2/(2c) written as b*s/2, which needs no second
+            // division.
+            if (s > 0.0) { sStar = s; pStar = 0.5 * b * s; }
+        }
+    }
+
+    double prefix(double t) const
+    {
+        double m = t * (b + 0.5 * c * t);
+        if (m < 0.0) m = 0.0;
+        if (sStar > 0.0 && sStar < t && pStar > m) m = pStar;
+        return m;
+    }
+
+    /// Is the whole of [0, t] certified?
+    bool holds(double t) const
+    {
+        HT_COUNT(rootIterations, 1);
+        return prefix(t) + H6 * t * t * t <= d0 * kRootSafety;
+    }
+
+    double solve(double T) const
+    {
+        HT_COUNT(normalRoots, 1);
+        if (holds(T)) return T;
+        double lo = 0.0, hi = T;
+        for (int i = 0; i < kBisect; ++i)
+        {
+            const double m = 0.5 * (lo + hi);
+            if (holds(m)) lo = m; else hi = m;
+        }
+        return lo;
+    }
+};
+
+/// max_{0<=s<=t} |s u0 + s^2 a0/2| plus H t^3/6, against d0, in squared form.
+struct IsoAnchor
+{
+    double uu, ua, qa, H6, d0, rStar, pStar;
+
+    IsoAnchor(const Vec3 &u0, const Vec3 &a0, double H, double dd)
+      : uu(u0.squaredNorm())
+      , ua(u0.dot(a0))
+      , qa(0.25 * a0.squaredNorm())
+      , H6(H * (1.0 / 6.0))
+      , d0(dd)
+      , rStar(-1.0)
+      , pStar(0.0)
+    {
+        const double aa = 4.0 * qa;
+        if (aa > 0.0)
+        {
+            const double disc = 9.0 * ua * ua - 8.0 * aa * uu;
+            if (disc >= 0.0)
+            {
+                // psi' = s (aa s^2 + 3 ua s + 2 uu) with uu, aa >= 0: the smaller
+                // root is the local maximum and the larger is the local minimum,
+                // and a minimum can never set a prefix maximum. So one root, not
+                // two, and one square root per row rather than one per step.
+                const double r = (-3.0 * ua - std::sqrt(disc)) / (2.0 * aa);
+                if (r > 0.0) { rStar = r; pStar = psi(r); }
+            }
+        }
+    }
+
+    /// |t u0 + t^2 a0/2|^2, in Horner form.
+    double psi(double t) const { return t * t * (uu + t * (ua + t * qa)); }
+
+    double reach2(double t) const
+    {
+        double m = psi(t);
+        if (rStar > 0.0 && rStar < t && pStar > m) m = pStar;
+        return m;
+    }
+
+    bool holds(double t) const
+    {
+        HT_COUNT(rootIterations, 1);
+        const double rhs = d0 - H6 * t * t * t;
+        if (rhs < 0.0)
+            return false;
+        return reach2(t) <= rhs * rhs * kRootSafety;
+    }
+
+    double solve(double T) const
+    {
+        HT_COUNT(isoRoots, 1);
+        if (holds(T)) return T;
+        double lo = 0.0, hi = T;
+        for (int i = 0; i < kBisect; ++i)
+        {
+            const double m = 0.5 * (lo + hi);
+            if (holds(m)) lo = m; else hi = m;
+        }
+        return lo;
+    }
+};
+
+/// Everything the certificate asks of one (chain-base frame, sphere) endpoint. It
+/// depends on the base frame and on that one sphere -- never on the sphere at the
+/// other end of a pair.
+///
+/// Built in two halves, because most rows only need the first. `S`, `C` and `V`
+/// settle the speed-capped term, and a row whose speed-capped term already exceeds
+/// the running bound is finished: it never asks for `a0` or `H`, which is where the
+/// second cross product and the third prefix sum live.
+///
+/// Several pair rows *can* share an endpoint, and memoizing them on `(frame,
+/// sphere)` was tried: about 12 distinct endpoints serve about 13 rows per query, so
+/// it saved roughly one build and cost a 240-slot table in L1. Measured, that was a
+/// 10% loss. The endpoint is built on the stack instead.
+struct Endpoint
+{
+    Vec3 last, u0, a0;
+    double S, C, V, H;
+};
+
+/// One fused hold-time query, with every table it needs sized at compile time.
+class HoldEngine
+{
+public:
+    static constexpr int NS = static_cast<int>(Robot::nSpheres);
+    static constexpr int NP = static_cast<int>(Robot::nSelfPairs);
+
+    /// What the query found, for callers keeping diagnostics.
+    struct Report
+    {
+        /// The pure-L1 answer over the self rows -- `repoSelfScale()`'s number. Filled
+        /// only when a self row bound the answer, which is where the original measured
+        /// it too; the screen no longer produces it for free, because it rejects most
+        /// rows without ever taking their square root.
+        double selfL1{0.0};
+        /// Whether a self-pair row, rather than a world sphere row, set the answer.
+        bool selfBinding{false};
+        std::size_t selfEvaluated{0};   ///< self rows whose expensive certificate ran
+        std::size_t worldEvaluated{0};  ///< world rows whose expensive certificate ran
+    };
+
+    explicit HoldEngine(const Barrier &barrier) : barrier_(barrier)
+    {
+        refreshMargin();
+    }
+
+    /// Reproduce the pre-optimization arithmetic exactly: the original bisection, no
+    /// early exit on the anchored term. For validation only -- it is slower and no
+    /// safer, and the rollout never asks for it.
+    void setLegacyRoots(bool legacy) const { fastRoots_ = !legacy; }
+
+    /// The certified arc length along `q + t u`, `t` in `[0, horizon]`: the smallest
+    /// hold time over the 40 world sphere rows and the 303 self-pair rows, clipped to
+    /// the horizon. Zero means blocked.
+    double holdScale(const Configuration &q, const Configuration &u, double horizon) const
+    {
+        return query(q, u, horizon, nullptr);
+    }
+
+    double query(const Configuration &q, const Configuration &u, double horizon,
+                 Report *report) const
+    {
+        barrier_.worldRegion(q, geo_);
+        HT_COUNT(fk, 1);
+        HT_COUNT(centers, 1);
+        HT_COUNT(sdfBatch, 1);
+        return queryAt(geo_.kin, geo_.centers, geo_.slack.data(), geo_.valid, u, horizon, report);
+    }
+
+    /// The same query against geometry the caller already has.
+    ///
+    /// A CBF-QP filter has just walked the chain, built the 40 sphere centres and
+    /// queried the field to solve for its control; asking it how long that control may
+    /// be held should not repeat any of that. `Evaluation` keeps what it built, so this
+    /// takes it and starts at the screening pass.
+    double holdScaleFrom(const Barrier::Evaluation &evaluation, const Configuration &u,
+                         double horizon) const
+    {
+        barrier_.worldSlack(evaluation, borrowedSlack_);
+        pairSubsetCount_ = -1;
+        worldSubsetCount_ = -1;
+        return queryAt(evaluation.kin, evaluation.centers, borrowedSlack_.data(),
+                       evaluation.inBounds, u, horizon, nullptr);
+    }
+
+    /// As above, sweeping only the self-collision pairs the caller's own screening kept.
+    ///
+    /// \p screenHorizon is the span that screening was done at: a pair it dropped has
+    /// `h_ab > (bound on |dh_ab/dt| over the whole control box) * screenHorizon`, so it
+    /// cannot reach zero within that span under *any* admissible control -- and the
+    /// control being certified here is admissible. Clipping the answer to
+    /// \p screenHorizon therefore makes the minimum over the kept pairs equal to the
+    /// minimum over all 303, and the sweep collapses to the handful the QP was already
+    /// looking at. In the rollout `screenHorizon` is `max(dt, 1/kappa)`, far longer than
+    /// any hop, so the clip costs nothing.
+    ///
+    /// The 40 world rows are deliberately *not* restricted this way. Their slack is the
+    /// smaller of clearance and distance-to-the-baked-box, and screening looks only at
+    /// the first, so a row it dropped could still bind through the second. Forty rows
+    /// are cheap; the 303 are what this is for.
+    double holdScaleFrom(const Barrier::Evaluation &evaluation, const Configuration &u,
+                         double horizon, double screenHorizon) const
+    {
+        // The world rows can join the restriction only when the baked box provably
+        // contains the arm's reach. Otherwise their slack is the smaller of clearance
+        // and distance-to-the-box, screening looks only at the first, and a row it
+        // dropped could still bind through the second.
+        const bool worldToo = barrier_.enclosesReach();
+        int nw = 0, np = 0;
+        for (int r = 0; r < evaluation.active; ++r)
+        {
+            const int constraint = evaluation.constraint[r];
+            if (constraint >= NS)
+                pairSubset_[np++] = constraint - NS;
+            else if (worldToo)
+                worldSubset_[nw++] = constraint;
+        }
+
+        // Nothing survived screening: no constraint of either family can reach zero
+        // inside the screening horizon, so the whole of it is certified and there is
+        // no geometry, no envelope and no row to look at.
+        if (worldToo && nw == 0 && np == 0)
+        {
+            HT_COUNT(queries, 1);
+            HT_COUNT(emptyActive, 1);
+            ++emptyActiveTally();
+            return std::min(horizon, screenHorizon);
+        }
+
+        barrier_.worldSlack(evaluation, borrowedSlack_);
+        pairSubsetCount_ = np;
+        worldSubsetCount_ = worldToo ? nw : -1;
+        const double span =
+            queryAt(evaluation.kin, evaluation.centers, borrowedSlack_.data(),
+                    evaluation.inBounds, u, std::min(horizon, screenHorizon), nullptr);
+        pairSubsetCount_ = -1;
+        worldSubsetCount_ = -1;
+        return span;
+    }
+
+    double queryAt(const Robot::Kinematics &kin, const Robot::SphereCenters &centres,
+                   const double *worldSlack, bool valid, const Configuration &u, double horizon,
+                   Report *report) const;
+
+private:
+    /// The envelope at (base frame f, sphere s), built where it is needed. It pulls
+    /// the frame's prefix block into existence on first use.
+    void endpoint(int f, int s, Endpoint &e) const
+    {
+        HT_COUNT(endpointEnvelopes, 1);
+        cache_.ensureFrame(f);
+        const int j = static_cast<int>(Robot::spheres()[s].frame) - 1;
+        e.last = centers_->col(s) - kin_->jointOrigin[j];
+        const double L = e.last.norm();
+        const double o = cache_.Om[f][j], a2 = cache_.A[f][j];
+        e.C = cache_.cumC[f][j] + L * (a2 + o * o);
+        e.u0 = cache_.cumU[f][j] + cache_.omega[f][j].cross(e.last);
+        e.S = e.u0.norm();
+        e.V = std::max(cache_.cumV[f][j] + L * o, e.S);
+    }
+
+    /// The half only an anchored certificate needs.
+    void anchorEndpoint(Endpoint &e, int f, int s) const
+    {
+        HT_COUNT(anchorEnvelopes, 1);
+        const int j = static_cast<int>(Robot::spheres()[s].frame) - 1;
+        const double L = e.last.norm();
+        const double o = cache_.Om[f][j], a2 = cache_.A[f][j];
+        e.H = cache_.cumH[f][j] + L * (cache_.W[f][j] + 3.0 * a2 * o + o * o * o);
+        e.a0 = cache_.cumA[f][j] + cache_.alpha[f][j].cross(e.last) +
+               cache_.omega[f][j].cross(cache_.omega[f][j].cross(e.last));
+    }
+
+    /// Pair row p's certified time, or any value at or above \p best when the row
+    /// provably cannot lower the bound.
+    ///
+    /// The row is `max(L1, speed-capped, normal-anchored)`, and the first two are
+    /// closed form. So the root solve -- the expensive part -- runs only when the
+    /// cheap terms have failed to settle the row, and even then only after one
+    /// evaluation of the anchored predicate at `best` has shown that the anchored
+    /// term is not itself already past the bound. A root is computed only where its
+    /// value actually moves the answer.
+    double selfRow(int p, double T, double l1, double best) const
+    {
+        ++selfEvaluated_;
+        HT_COUNT(selfExpensive, 1);
+        const int f = SP.f[p], b = static_cast<int>(SP.b[p]);
+        Endpoint e;
+        endpoint(f, b, e);
+        const double d0 = slack_[p];
+        double t = std::max(std::min(T, l1), std::min(T, speedCappedTime(d0, e.S, e.C, e.V)));
+        if (fastRoots_ && t >= best)
+            return t;
+        anchorEndpoint(e, f, b);
+        const Vec3 w = centers_->col(static_cast<Eigen::Index>(SP.a[p])) -
+                       centers_->col(static_cast<Eigen::Index>(SP.b[p]));
+        // The distance is already in hand from the screening pass; dividing by it is
+        // the whole of what the normal costs here.
+        const Vec3 n = w / dist_[p];
+        const double bb = n.dot(e.u0), cc = n.dot(e.a0);
+        if (!fastRoots_)
+            return std::max(t, normalAnchoredTime(d0, bb, cc, e.H, T));
+        const NormalAnchor anchor(bb, cc, e.H, d0);
+        if (anchor.holds(best))
+            return best;   // the anchored term alone already exceeds the bound
+        return std::max(t, anchor.solve(T));
+    }
+
+    /// World row i's certificate, same shape. No contact normal is available -- the
+    /// SDF is not convex -- so the anchored term stays isotropic, exactly as before.
+    double worldRow(int i, double T, double l1, double best) const
+    {
+        ++worldEvaluated_;
+        HT_COUNT(worldExpensive, 1);
+        Endpoint e;
+        endpoint(0, i, e);
+        const double d0 = worldSlack_[i];
+        double t = std::max(std::min(T, l1), std::min(T, speedCappedTime(d0, e.S, e.C, e.V)));
+        if (fastRoots_ && t >= best)
+            return t;
+        anchorEndpoint(e, 0, i);
+        if (!fastRoots_)
+            return std::max(t, anchoredTime(d0, e.u0, e.a0, e.H, T));
+        const IsoAnchor anchor(e.u0, e.a0, e.H, d0);
+        if (anchor.holds(best))
+            return best;
+        return std::max(t, anchor.solve(T));
+    }
+
+    void refreshMargin() const
+    {
+        selfMargin_ = barrier_.selfMargin();
+        const auto &radii = Robot::selfPairRadii();
+        const auto &marg = Robot::selfPairMargins();
+        for (int p = 0; p < NP; ++p)
+            offset_[p] = radii[p] + marg[p] + selfMargin_;
+    }
+
+    const Barrier &barrier_;
+    mutable bool fastRoots_{true};
+    mutable double selfMargin_{0.0};
+    mutable double offset_[NP];
+    mutable Barrier::WorldRegion geo_;   ///< scratch for the self-computing path
+    mutable Eigen::Matrix<double, NS, 1> borrowedSlack_;
+    mutable const Robot::Kinematics *kin_{nullptr};
+    mutable const Robot::SphereCenters *centers_{nullptr};
+    mutable const double *worldSlack_{nullptr};
+    mutable int pairSubset_[NP];
+    mutable int pairSubsetCount_{-1};   ///< -1 sweeps all 303
+    mutable int worldSubset_[NS];
+    mutable int worldSubsetCount_{-1};  ///< -1 sweeps all 40
+    mutable HoldCache cache_;
+    mutable Eigen::Matrix<double, NS, 1> worldRate_;
+    mutable Eigen::Matrix<double, NP, 1> selfSpeed_;
+    mutable double slack_[NP];
+    mutable double dist_[NP];
+    mutable std::size_t selfEvaluated_{0};
+    mutable std::size_t worldEvaluated_{0};
+};
+
+inline double HoldEngine::queryAt(const Robot::Kinematics &kin,
+                                  const Robot::SphereCenters &centres, const double *worldSlack,
+                                  bool valid, const Configuration &u, double horizon,
+                                  Report *report) const
+{
+    HT_COUNT(queries, 1);
+    if (selfMargin_ != barrier_.selfMargin())
+        refreshMargin();
+    selfEvaluated_ = 0;
+    worldEvaluated_ = 0;
+    kin_ = &kin;
+    centers_ = &centres;
+    worldSlack_ = worldSlack;
+
+    if (report != nullptr)
+    {
+        report->selfL1 = horizon;
+        report->selfBinding = false;
+        report->selfEvaluated = 0;
+        report->worldEvaluated = 0;
+    }
+    if (!valid)
+    {
+        HT_COUNT(zeroReturns, 1);
+        return 0.0;   // holdWorldScale()'s answer for an out-of-box region
+    }
+
+    const Configuration au = u.cwiseAbs();
+    if (worldSubsetCount_ < 0)
+        worldRate_.noalias() = Robot::leverArmBounds() * au;
+    else
+        for (int wk = 0; wk < worldSubsetCount_; ++wk)
+            worldRate_[worldSubset_[wk]] = Robot::leverArmBounds().row(worldSubset_[wk]) * au;
+
+    // ------------------------------------------------------- world rows, L1 first
+    //
+    // The 40 world rows are screened before the 303 pair rows, and not for symmetry:
+    // one of them is the globally tightest row about seven times in ten, and its
+    // certificate is what gives the pair sweep a bound worth screening against. A
+    // minimum of ratios needs no ratio per row -- `slack/rate` can only lower the
+    // running best where `slack < rate * best` -- so this costs 40 multiplies and a
+    // handful of divisions.
+    double worldMin = horizon;
+    int worldArg = -1;
+    const int worldSweep = worldSubsetCount_ < 0 ? NS : worldSubsetCount_;
+    for (int wk = 0; wk < worldSweep; ++wk)
+    {
+        const int i = worldSubsetCount_ < 0 ? wk : worldSubset_[wk];
+        const double rate = worldRate_[i];
+        if (rate <= 0.0 || WS.frame[i] == 0)
+            continue;
+        HT_COUNT(worldRows, 1);
+        const double slack = worldSlack[i];
+        if (slack <= 0.0)
+        {
+            HT_COUNT(zeroReturns, 1);
+            return 0.0;
+        }
+        if (slack < rate * worldMin)
+        {
+            worldMin = slack / rate;
+            worldArg = i;
+        }
+    }
+
+    double best = horizon;
+    bool selfBound = false;
+    if (worldArg >= 0)
+    {
+        // The envelope -- the one genuinely superlinear piece of this query -- is
+        // built here and only here, the first time a row actually asks for it.
+        cache_.buildLazy(*kin_, u, horizon);
+        HT_COUNT(cacheBuilds, 1);
+        HT_COUNT(seedWorld, 1);
+        best = worldRow(worldArg, horizon, worldMin, horizon);
+    }
+
+    // ---------------------------------------------------- self pairs, screened hard
+    //
+    // With a bound in hand the pair sweep needs neither a square root nor a division
+    // for the rows it is going to reject, and it rejects almost all of them. Pair p
+    // can only lower the bound if
+    //
+    //     |p_a - p_b|  <  radii + margins + speed * best
+    //
+    // and both sides are non-negative, so the test is a comparison of squares: one
+    // multiply-add, one multiply, one branch. A row that fails it is *also* proved
+    // clear -- the right-hand side exceeds the radii sum outright -- so nothing that
+    // could block the motion escapes the screen.
+    constexpr double kScreenSlack = 1.0 + 4e-16;
+    struct Candidate
+    {
+        double l1;
+        int row;   // p for self pair p, NP + i for world sphere i
+    };
+    Candidate candidates[NP + NS];
+    int n = 0;
+
+    // One 303 x 6 contraction is cheaper than 303 strided row dots, but not cheaper
+    // than a handful of them: with a subset in hand, only those rows are contracted.
+    if (pairSubsetCount_ < 0)
+        selfSpeed_.noalias() = Robot::selfPairLeverArms() * au;
+    else
+        for (int k = 0; k < pairSubsetCount_; ++k)
+            selfSpeed_[pairSubset_[k]] = Robot::selfPairLeverArms().row(pairSubset_[k]) * au;
+    const Robot::SphereCenters &centers = centres;
+    const auto &radii = Robot::selfPairRadii();
+    const auto &marg = Robot::selfPairMargins();
+    const double reach = best * kScreenSlack;
+    const int sweep = pairSubsetCount_ < 0 ? NP : pairSubsetCount_;
+    for (int k = 0; k < sweep; ++k)
+    {
+        const int p = pairSubsetCount_ < 0 ? k : pairSubset_[k];
+        const double speed = selfSpeed_[p];
+        if (speed <= 0.0)
+            continue;
+        HT_COUNT(selfDistances, 1);
+        const double d2 = (centers.col(static_cast<Eigen::Index>(SP.ca[p])) -
+                           centers.col(static_cast<Eigen::Index>(SP.cb[p])))
+                              .squaredNorm();
+        // A non-positive bound means the radii-plus-margin offset is itself negative
+        // -- the benchmark's "pair rows off" setting drives it to -1e6 -- and then no
+        // separation can be short enough to matter. Squaring would lose that sign.
+        const double bound = offset_[p] + speed * reach;
+        if (bound <= 0.0 || d2 >= bound * bound)
+            continue;
+        HT_COUNT(selfSqrt, 1);
+        const double d = std::sqrt(d2);
+        const double slack = d - radii[p] - marg[p] - selfMargin_;
+        if (slack <= 0.0)
+        {
+            HT_COUNT(zeroReturns, 1);
+            return 0.0;
+        }
+        const double l1 = slack / speed;
+        if (l1 < best)
+        {
+            dist_[p] = d;
+            slack_[p] = slack;
+            candidates[n++] = {l1, p};
+        }
+    }
+    HT_COUNT(selfCandidates, static_cast<std::size_t>(n));
+    [[maybe_unused]] const int selfCandidateCount = n;
+
+    // The remaining world rows, under the same rule.
+    for (int wk = 0; wk < worldSweep; ++wk)
+    {
+        const int i = worldSubsetCount_ < 0 ? wk : worldSubset_[wk];
+        const double rate = worldRate_[i];
+        if (rate <= 0.0 || WS.frame[i] == 0 || i == worldArg)
+            continue;
+        if (worldSlack[i] >= rate * reach)
+            continue;
+        const double l1 = worldSlack[i] / rate;
+        if (l1 < best)
+            candidates[n++] = {l1, NP + i};
+    }
+    HT_COUNT(worldCandidates, static_cast<std::size_t>(n - selfCandidateCount));
+    HT_COUNT(candidates, static_cast<std::size_t>(n));
+
+    if (n > 0 && worldArg < 0)
+    {
+        cache_.buildLazy(*kin_, u, horizon);
+        HT_COUNT(cacheBuilds, 1);
+    }
+    if (n == 0 && worldArg < 0)
+        HT_COUNT(noSeed, 1);
+
+    // Rows are worth evaluating in increasing L1 order, and only until the next one
+    // cannot beat the bound. Index order is the wrong order: a self pair worth 20 mm
+    // evaluated before the world sphere worth 3 mm pays for a certificate that was
+    // never going to bind. The candidate set is what survives the seed -- a couple of
+    // dozen of 343 rows -- so ordering it costs a sort over that, not over the table.
+    std::sort(candidates, candidates + n,
+              [](const Candidate &x, const Candidate &y) { return x.l1 < y.l1; });
+
+    for (int k = 0; k < n; ++k)
+    {
+        // Every remaining row has an L1 at least this one's, and every row's
+        // certificate is at least its own L1, so nothing left can lower the bound.
+        if (candidates[k].l1 >= best)
+            break;
+        const int row = candidates[k].row;
+        if (row < NP)
+        {
+            const double value = std::min(horizon, selfRow(row, horizon, candidates[k].l1, best));
+            if (value < best)
+            {
+                best = value;
+                selfBound = true;
+            }
+        }
+        else
+        {
+            const int i = row - NP;
+            const double value = worldRow(i, horizon, candidates[k].l1, best);
+            if (value < best)
+            {
+                best = value;
+                selfBound = false;
+            }
+        }
+    }
+
+    if (report != nullptr)
+    {
+        report->selfBinding = selfBound;
+        report->selfEvaluated = selfEvaluated_;
+        report->worldEvaluated = worldEvaluated_;
+        // The pure-L1 answer over the pair rows, which the screen no longer produces
+        // for free: it rejects most rows without ever taking their square root. It is
+        // a diagnostic and only a self-binding step reports it, so it is measured
+        // here, where the original measured it, and at the same rate.
+        if (selfBound)
+            report->selfL1 = repoSelfScale(centers, au, horizon, selfMargin_);
+    }
     return std::min(best, horizon);
 }
 

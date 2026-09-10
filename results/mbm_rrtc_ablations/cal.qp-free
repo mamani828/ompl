@@ -1,0 +1,2 @@
+# audited joint-space motions, one configuration per line, 0.02 rad spacing
+# each motion begins with a '# motion <scene> <index>' marker

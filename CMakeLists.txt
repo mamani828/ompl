@@ -94,6 +94,22 @@ if(OMPL_BUILD_VAMP)
         # Top level install requires this file so we add a dummy one
         file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/external/vamp/cmake_install.cmake" "# skipped for SKBUILD")
     endif()
+    # The same SIMD flags on the library, and this is a correctness fix rather than a
+    # performance one.
+    #
+    # VAMP appends `-march=native -mavx2` to the global flags, and `demos/` is
+    # configured after that while `src/` is configured before it. Eigen sizes its
+    # static alignment from the widest available SIMD register, so a fixed-size matrix
+    # whose length is a multiple of the AVX packet -- `ClearanceBarrier::Rows` at
+    # 343x6, `Robot::SphereCenters` at 3x40 -- is 32-byte aligned in a demo and
+    # 16-byte aligned in the library. A struct containing one then has *different
+    # member offsets* on the two sides, so passing it across the boundary silently
+    # reads the wrong memory: same type name, two layouts, one definition rule
+    # violated. Nothing caught it because no such struct crossed until now.
+    if(OMPL_HAVE_VAMP AND VAMP_SIMD_FLAGS)
+        target_compile_options(ompl PUBLIC ${VAMP_SIMD_FLAGS})
+        message(STATUS "Applied VAMP SIMD flags to ompl for a consistent Eigen ABI")
+    endif()
     message(STATUS "VAMP integration enabled via OMPL_BUILD_VAMP=ON")
 else()
     set(OMPL_HAVE_VAMP FALSE CACHE BOOL "Whether VAMP integration is available" FORCE)

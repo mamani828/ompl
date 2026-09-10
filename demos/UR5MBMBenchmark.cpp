@@ -95,6 +95,7 @@
 
 #include "UR5SelfCollisionAudit.h"
 #include "UR5QPFreeGate.h"
+#include "EnvelopeHoldFilter.h"
 #include "HoldTimeRegionRollout.h"
 
 #ifdef OMPL_MBM_HAVE_VAMP
@@ -122,8 +123,9 @@ namespace
     constexpr int qpLipschitzRow = 3;
     constexpr int qpSafeRow = 4;
     constexpr int qpFreeRow = 5;
-    constexpr int vampRow = 6;
-    constexpr int comparisonRows = 7;
+    constexpr int qpEnvelopeRow = 6;
+    constexpr int vampRow = 7;
+    constexpr int comparisonRows = 8;
 
     /// Joint-space spacing all rows are audited at, in radians. Finer than the rollout
     /// step so the audit is not merely re-reading the filter's own decisions.
@@ -183,6 +185,32 @@ namespace
             };
         }
     };
+
+    /// Which comparison rows to run, so a study of a subset does not pay for the rest.
+    /// `OMPL_MBM_ROWS=isSafe,qpAdaptive,qpEnvelope`; unset runs everything, which is the
+    /// behaviour every earlier result was produced with.
+    bool wantRow(const char *name)
+    {
+        static const std::string selection = []
+        {
+            const char *v = std::getenv("OMPL_MBM_ROWS");
+            return v != nullptr ? std::string(v) : std::string();
+        }();
+        if (selection.empty())
+            return true;
+        const std::string needle(name);
+        std::size_t at = selection.find(needle);
+        while (at != std::string::npos)
+        {
+            const bool leftOk = at == 0 || selection[at - 1] == ',';
+            const std::size_t end = at + needle.size();
+            const bool rightOk = end == selection.size() || selection[end] == ',';
+            if (leftOk && rightOk)
+                return true;
+            at = selection.find(needle, at + 1);
+        }
+        return false;
+    }
 
     Eigen::Matrix3d rotationOf(double x, double y, double z, double w)
     {
@@ -1107,6 +1135,9 @@ int main(int argc, char **argv)
         const Filter fixedFilter(guard, fixedParameters);
         const Filter lipschitzFilter(guard, parameters);
         const ompl::demo::UR5QPFreeGate qpFreeGate(guard, parameters);
+        // Row 5 of the planner comparison: the same QP as `qpAdaptive`, hopping on the
+        // motion-envelope certificate instead of the L1 lever-arm one. One object apart.
+        const ompl::demo::EnvelopeHoldFilter envelopeFilter(guard, parameters);
         const ompl::cbf::CertifiedRegionRollout oldCertificate(guard);
         const HoldTimeRegionRollout newCertificate(guard, robot, true);
         const Space::RolloutPlanner oldCertificatePlanner = oldCertificate.planner();
@@ -1164,6 +1195,7 @@ int main(int argc, char **argv)
             writeCsvRow(csvOut, seed, problem, "l1Old", false, skipped);
             writeCsvRow(csvOut, seed, problem, "holdNew", false, skipped);
             writeCsvRow(csvOut, seed, problem, "qpFreeGate", false, skipped);
+            writeCsvRow(csvOut, seed, problem, "qpEnvelope", false, skipped);
 #ifdef OMPL_MBM_HAVE_VAMP
             writeCsvRow(csvOut, seed, problem, "VAMP", false, skipped);
 #endif
@@ -1171,37 +1203,55 @@ int main(int argc, char **argv)
         }
 
         std::vector<UR5::Configuration> checkedPath, fixedPath, lipschitzPath, rolledPath, gatePath;
-        const Result checked = runCollisionChecked(problem, audited, range, timeLimit,
-                                                   segmentFraction, shortcutDelta, sampleSeed,
-                                                   pathPrefix.empty() ? nullptr : &checkedPath);
-        const Result fixed = runFiltered(problem, audited, fixedFilter, stepSize, range,
-                                         timeLimit, 1.0, shortcutDelta, false,
-                                         picardIterations, picardWindow, picardWorkers,
-                                         trajectoryPrefixes, rolloutCallBudget, sampleSeed,
-                                         pathPrefix.empty() ? nullptr : &fixedPath);
+        const Result checked =
+            wantRow("isSafe") ? runCollisionChecked(problem, audited, range, timeLimit,
+                                                    segmentFraction, shortcutDelta, sampleSeed,
+                                                    pathPrefix.empty() ? nullptr : &checkedPath)
+                              : Result();
+        const Result fixed =
+            wantRow("qpFixed")
+                ? runFiltered(problem, audited, fixedFilter, stepSize, range, timeLimit, 1.0,
+                              shortcutDelta, false, picardIterations, picardWindow, picardWorkers,
+                              trajectoryPrefixes, rolloutCallBudget, sampleSeed,
+                              pathPrefix.empty() ? nullptr : &fixedPath)
+                : Result();
         // Same QP controller as qpFixed, but allow the filter's certified duration
         // to hold the solved control beyond one integration step.
-        const Result qpAdaptive = runFiltered(
-            problem, audited, lipschitzFilter, stepSize, range, timeLimit, maxStepScale,
-            shortcutDelta, true, picardIterations, picardWindow, picardWorkers,
-            trajectoryPrefixes, rolloutCallBudget, sampleSeed, nullptr);
-        const Result oldLipschitz = runFiltered(problem, audited, lipschitzFilter, stepSize, range,
-                                          timeLimit, maxStepScale, shortcutDelta, false,
-                                          picardIterations, picardWindow, picardWorkers,
-                                          trajectoryPrefixes, rolloutCallBudget, sampleSeed,
-                                          pathPrefix.empty() ? nullptr : &lipschitzPath,
-                                          &oldCertificatePlanner);
-        const Result rolled = runFiltered(problem, audited, lipschitzFilter, stepSize, range,
-                                          timeLimit, maxStepScale, shortcutDelta, true,
-                                          picardIterations, picardWindow, picardWorkers,
-                                          trajectoryPrefixes, rolloutCallBudget, sampleSeed,
-                                          pathPrefix.empty() ? nullptr : &rolledPath,
-                                          &newCertificatePlanner);
-        const Result gated = runFiltered(problem, audited, qpFreeGate, stepSize, range,
-                                         timeLimit, 1.0, shortcutDelta, false,
-                                         0, picardWindow, picardWorkers, trajectoryPrefixes,
-                                         rolloutCallBudget, sampleSeed,
-                                         pathPrefix.empty() ? nullptr : &gatePath);
+        const Result qpAdaptive =
+            wantRow("qpAdaptive")
+                ? runFiltered(problem, audited, lipschitzFilter, stepSize, range, timeLimit,
+                              maxStepScale, shortcutDelta, true, picardIterations, picardWindow,
+                              picardWorkers, trajectoryPrefixes, rolloutCallBudget, sampleSeed,
+                              nullptr)
+                : Result();
+        const Result oldLipschitz =
+            wantRow("l1Old")
+                ? runFiltered(problem, audited, lipschitzFilter, stepSize, range, timeLimit,
+                              maxStepScale, shortcutDelta, false, picardIterations, picardWindow,
+                              picardWorkers, trajectoryPrefixes, rolloutCallBudget, sampleSeed,
+                              pathPrefix.empty() ? nullptr : &lipschitzPath, &oldCertificatePlanner)
+                : Result();
+        const Result rolled =
+            wantRow("holdNew")
+                ? runFiltered(problem, audited, lipschitzFilter, stepSize, range, timeLimit,
+                              maxStepScale, shortcutDelta, true, picardIterations, picardWindow,
+                              picardWorkers, trajectoryPrefixes, rolloutCallBudget, sampleSeed,
+                              pathPrefix.empty() ? nullptr : &rolledPath, &newCertificatePlanner)
+                : Result();
+        const Result envelope =
+            wantRow("qpEnvelope")
+                ? runFiltered(problem, audited, envelopeFilter, stepSize, range, timeLimit,
+                              maxStepScale, shortcutDelta, true, picardIterations, picardWindow,
+                              picardWorkers, trajectoryPrefixes, rolloutCallBudget, sampleSeed,
+                              nullptr)
+                : Result();
+        const Result gated =
+            wantRow("qpFreeGate")
+                ? runFiltered(problem, audited, qpFreeGate, stepSize, range, timeLimit, 1.0,
+                              shortcutDelta, false, 0, picardWindow, picardWorkers,
+                              trajectoryPrefixes, rolloutCallBudget, sampleSeed,
+                              pathPrefix.empty() ? nullptr : &gatePath)
+                : Result();
 #ifdef OMPL_MBM_HAVE_VAMP
         std::vector<UR5::Configuration> vampPath;
         const Result vamp = runVamp(problem, audited, range, timeLimit, shortcutDelta, sampleSeed,
@@ -1217,18 +1267,21 @@ int main(int argc, char **argv)
         tally.add(qpLipschitzRow, oldLipschitz);
         tally.add(qpSafeRow, rolled);
         tally.add(qpFreeRow, gated);
+        tally.add(qpEnvelopeRow, envelope);
         overall.add(checkedRow, checked);
         overall.add(qpFixedRow, fixed);
         overall.add(qpAdaptiveRow, qpAdaptive);
         overall.add(qpLipschitzRow, oldLipschitz);
         overall.add(qpSafeRow, rolled);
         overall.add(qpFreeRow, gated);
+        overall.add(qpEnvelopeRow, envelope);
         writeCsvRow(csvOut, seed, problem, "isSafe", true, checked);
         writeCsvRow(csvOut, seed, problem, "qpFixed", true, fixed);
         writeCsvRow(csvOut, seed, problem, "qpAdaptive", true, qpAdaptive);
         writeCsvRow(csvOut, seed, problem, "l1Old", true, oldLipschitz);
         writeCsvRow(csvOut, seed, problem, "holdNew", true, rolled);
         writeCsvRow(csvOut, seed, problem, "qpFreeGate", true, gated);
+        writeCsvRow(csvOut, seed, problem, "qpEnvelope", true, envelope);
 #ifdef OMPL_MBM_HAVE_VAMP
         tally.add(vampRow, vamp);
         overall.add(vampRow, vamp);
@@ -1260,6 +1313,7 @@ int main(int argc, char **argv)
         reportRow("l1-old", tally, qpLipschitzRow);
         reportRow("hold-new", tally, qpSafeRow);
         reportRow("qp-free", tally, qpFreeRow);
+        reportRow("qp-env", tally, qpEnvelopeRow);
 #ifdef OMPL_MBM_HAVE_VAMP
         reportRow("vamp-rrtc", tally, vampRow);
 #endif
@@ -1298,6 +1352,7 @@ int main(int argc, char **argv)
     reportRow("l1-old", overall, qpLipschitzRow);
     reportRow("hold-new", overall, qpSafeRow);
     reportRow("qp-free", overall, qpFreeRow);
+    reportRow("qp-env", overall, qpEnvelopeRow);
 #ifdef OMPL_MBM_HAVE_VAMP
     reportRow("vamp-rrtc", overall, vampRow);
 #endif
@@ -1313,6 +1368,36 @@ int main(int argc, char **argv)
                 "re-derived; it must be zero, or the audited motion is a different trajectory\n"
                 "from the one the planner found.\n");
     std::printf("\n");
+    {
+        const auto &e = ompl::demo::EnvelopeHoldFilter::aggregate();
+        if (e.calls > 0)
+        {
+            const double n = static_cast<double>(e.calls);
+            std::printf("\nenvelope hop: %zu filter calls, %.3f hold queries/call, "
+                        "%.1f%% saturated, mean span gain %.3fx over L1, "
+                        "%.1f%% longer than L1, past one step %.1f%% (L1 alone %.1f%%), "
+                        "gated %.1f%%, empty-active %.1f%%\n",
+                        e.calls, e.queries / n, 100.0 * e.saturated / e.queries,
+                        e.gainCalls > 0 ? e.gain / static_cast<double>(e.gainCalls) : 0.0,
+                        100.0 * e.longer / n, 100.0 * e.pastStep / n,
+                        100.0 * e.pastStepL1 / n,
+                        100.0 * e.gated / static_cast<double>(e.gated + e.calls),
+                        e.queries > 0 ? 100.0 * e.emptyActive / static_cast<double>(e.queries)
+                                      : 0.0);
+        }
+    }
+    if (holdtime::holdTimingEnabled())
+    {
+        const holdtime::HoldTiming &t = holdtime::holdTiming();
+        std::printf("\nhold certificate: %zu queries, %.3f s total, %.3f us/query, "
+                    "%.2f self + %.2f world expensive rows/query\n",
+                    t.calls, t.seconds,
+                    t.calls > 0 ? 1e6 * t.seconds / static_cast<double>(t.calls) : 0.0,
+                    t.calls > 0 ? static_cast<double>(t.selfRows) / static_cast<double>(t.calls)
+                                : 0.0,
+                    t.calls > 0 ? static_cast<double>(t.worldRows) / static_cast<double>(t.calls)
+                                : 0.0);
+    }
     ompl::cbf::Profiler::instance().report(stdout);
     ompl::cbf::FilterStats::instance().report(stdout);
     return 0;
