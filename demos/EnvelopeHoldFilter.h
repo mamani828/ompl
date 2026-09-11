@@ -356,6 +356,14 @@ namespace ompl::demo
             return status;
         }
 
+        /// The wrapped QP is the only thing here that assembles rows or calls a
+        /// solver, so the honest count is its own -- reporting this wrapper's would
+        /// read zero and make the envelope look like it skipped work it did pay for.
+        const Counters &counters() const override
+        {
+            return inner_.counters();
+        }
+
         const char *name() const override
         {
             return "cbf-qp + envelope hold";

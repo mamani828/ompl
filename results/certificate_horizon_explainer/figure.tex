@@ -1,0 +1,56 @@
+% Requires \usepackage{amsmath,graphicx}.
+% Adjust the graphics path if this file is moved into the paper repository.
+
+The two certificates can also be viewed as radial subsets of configuration
+space.  Fix the initial configuration $q_0$, clearance row $i$, and control
+speed $\bar u$.  For each direction $u$ with $\lVert u\rVert_2=\bar u$, let
+$\tau_{\mathrm{lip}}(q_0,u)$ and $\tau_{\mathrm{disp}}(q_0,u)$ denote the
+times at which the corresponding displacement bounds first consume the
+available clearance.  The regions plotted below are
+\begin{align}
+  \mathcal C_{\mathrm{lip}}(q_0)
+  &= \bigl\{q_0+t u:
+      \lVert u\rVert_2=\bar u,\ 0\le t\le
+      \tau_{\mathrm{lip}}(q_0,u)\bigr\}, \\
+  \mathcal C_{\mathrm{disp}}(q_0)
+  &= \bigl\{q_0+t u:
+      \lVert u\rVert_2=\bar u,\ 0\le t\le
+      \tau_{\mathrm{disp}}(q_0,u)\bigr\}.
+  \label{eq:radial-certificate-regions}
+\end{align}
+Thus, membership certifies the radial segment from $q_0$ to that configuration;
+it does not assert that an arbitrary curve contained in the plotted set is
+certified by a single held control.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{%
+    results/certificate_horizon_explainer/certificate_horizons.pdf}
+  \caption{Geometric comparison of the jointwise and motion-dependent
+  certificates for a two-link planar arm.  (a)~A spherical point on the arm has
+  initial clearance $h_i(q_0)$ and moves under the held control $u^\star$;
+  ghosted poses show the resulting motion.  (b)~Evaluating each certificate over
+  all control directions gives the weighted-$\ell_1$ region
+  $\mathcal C_{\mathrm{lip}}(q_0)$ and the larger motion-dependent region
+  $\mathcal C_{\mathrm{disp}}(q_0)$.  The shaded set
+  $\mathcal C_{\mathrm{obs}}$ is the exact configuration obstacle for the
+  spherical clearance row.  The highlighted ray is the particular trajectory
+  $q(t)=q_0+t u^\star$.  (c)~Along that ray, the jointwise bound consumes the
+  available clearance at $\tau_{\mathrm{lip}}$, whereas the integrated
+  motion-dependent bound crosses it later at $\tau_{\mathrm{disp}}$.}
+  \label{fig:certificate-regions}
+\end{figure}
+
+Figure~\ref{fig:certificate-regions} makes the source of the improvement
+explicit.  The jointwise certificate charges the maximum displacement induced
+by every joint independently, producing a weighted-$\ell_1$ diamond.  The
+motion-dependent certificate retains the velocity induced by the particular
+joint combination and bounds its growth along the held-control trajectory.  In
+the illustrated direction,
+\begin{equation}
+  L_d D_{\mathrm{disp}}(t) \le D_{\mathrm{lip}}(t),
+  \qquad
+  \tau_{\mathrm{disp}} \ge \tau_{\mathrm{lip}},
+\end{equation}
+so the same state, control, and initial clearance certify a longer continuous
+trajectory segment without an intermediate collision evaluation.

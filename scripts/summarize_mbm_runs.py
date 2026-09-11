@@ -13,17 +13,42 @@ import statistics
 import sys
 from collections import defaultdict
 
-LABEL = [("isSafe", "rrtconnect"), ("qpFixed", "qp-fixed"), ("qpAdaptive", "qp-adapt (L1)"),
-         ("qpFreeGate", "qp-free (no QP)"), ("qpEnvelope", "qp-env")]
+LABEL = [("isSafe", "rrtconnect"), ("qpPlain", "qp-plain"), ("qpFixed", "qp-fixed"),
+         ("qpAdaptive", "qp-adapt (L1)"), ("qpFreeGate", "qp-free (no QP)"),
+         ("qpEnvelope", "qp-env")]
 
-PAIRS = [("qpAdaptive", "qpEnvelope"), ("qpFixed", "qpAdaptive"), ("isSafe", "qpEnvelope"),
-         ("isSafe", "qpAdaptive"), ("qpFreeGate", "qpEnvelope")]
+# Ordered as a ladder, each pair adding one mechanism: our QP-side work, then the L1 hold
+# certificate, then the envelope. The last two put the whole stack against its baselines.
+PAIRS = [("qpPlain", "qpFixed"), ("qpFixed", "qpAdaptive"), ("qpAdaptive", "qpEnvelope"),
+         ("qpFreeGate", "qpEnvelope"), ("isSafe", "qpEnvelope")]
 
 NAME = dict(LABEL)
 
 
 def med(values):
     return statistics.median(values) if values else float("nan")
+
+
+def qp_rows_per_call(records):
+    """Median constraint-row count of the QP the filter assembled, per call.
+
+    The median is over *problems*, not over calls: one hard problem makes orders of
+    magnitude more filter calls than an easy one, so pooling the totals would report
+    that problem's QP instead of the row's. `qp_rows` is summed over calls by the
+    benchmark, hence the division here.
+
+    Blank for a row that builds no QP -- `isSafe` and `qpFreeGate` leave the counters at
+    zero -- and for a CSV written before the counters existed, which is not the same
+    thing as a row that assembled nothing.
+    """
+    if not records or "qp_calls" not in records[0]:
+        return float("nan")
+    return med([int(r["qp_rows"]) / int(r["qp_calls"]) for r in records
+                if int(r["qp_calls"]) > 0])
+
+
+def cell(value, fmt=".1f"):
+    return "--" if value != value else format(value, fmt)
 
 
 def table(headers, rows, aligns=None, rule_between=True):
@@ -99,12 +124,13 @@ def main(path):
             f"{med([float(r['samples']) for r in ok]):,.0f}",
             f"{med([float(r['vertices']) for r in ok]):.0f}",
             f"{med([float(r['path_length']) for r in ok if float(r['path_length']) > 0]):.2f}",
+            cell(qp_rows_per_call(ok)),
             f"{unsafe:,}/{audited:,}",
             signed(min(clearance, default=float('nan'))),
             f"{dirty}/{len(ok)}",
         ])
     print(table(["row", "solved", "med ms", "evaluations", "vertices", "path",
-                 "unsafe/audited", "worst clr", "dirty"], body))
+                 "qp rows", "unsafe/audited", "worst clr", "dirty"], body))
 
     every = [k for k, v in by_problem.items()
              if all(m in v and v[m]["solved"] == "1" for m, _ in LABEL)]
@@ -125,14 +151,17 @@ def main(path):
             y = med([factor * float(by_problem[k][b][column]) for k in both])
             delta = 1e2 * (y - x) / x if x else float("nan")
             cells.append(f"{format(x, fmt)} → {format(y, fmt)}  {delta:+.1f}%")
+        x = qp_rows_per_call([by_problem[k][a] for k in both])
+        y = qp_rows_per_call([by_problem[k][b] for k in both])
+        cells.append(f"{cell(x)} → {cell(y)}" if x == x or y == y else "--")
         ratios = sorted(float(by_problem[k][b]["samples"]) / float(by_problem[k][a]["samples"])
                         for k in both if float(by_problem[k][a]["samples"]) > 0)
         cells.append(f"{sum(1 for r in ratios if r < 1)}/{len(ratios)}")
         cells.append(f"{med(ratios):.3f}")
         paired.append(cells)
     print(table(["comparison", "n", "evaluations", "med ms", "vertices", "path",
-                 "2nd lower on", "ratio"], paired,
-                aligns=["l", "r", "r", "r", "r", "r", "r", "r"]))
+                 "qp rows", "2nd lower on", "ratio"], paired,
+                aligns=["l", "r", "r", "r", "r", "r", "r", "r", "r"]))
 
 
 if __name__ == "__main__":

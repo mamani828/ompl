@@ -1,0 +1,21 @@
+\begin{table}[t]
+  \centering
+  \caption{Median QP constraint rows assembled per filter call; rows that solve no QP are marked --. Medians are over each row's own solved problems.}
+  \label{tab:mbm-per-scene-qprows}
+  \small
+  \begin{tabular}{lrrrrrrr}
+    \toprule
+    Scene & Elig. & RRT-Connect & CBF-RRT & Adaptive (Fixed) & Adaptive (Lipschitz) & CBF-RRT (No QP) & Adaptive (Envelope) \\
+    \midrule
+    Small Bookshelf & 62 & -- & 343 & 268 & 287 & -- & 290 \\
+    Tall Bookshelf & 60 & -- & 343 & 278 & 295 & -- & 295 \\
+    Narrow Bookshelf & 61 & -- & 343 & 261 & 261 & -- & 260 \\
+    Box & 100 & -- & 343 & 259 & 272 & -- & 274 \\
+    Cage & 99 & -- & 343 & 269 & 270 & -- & 269 \\
+    Tabletop Pick & 100 & -- & 343 & 246 & 272 & -- & 275 \\
+    Under-Table Pick & 71 & -- & 343 & 275 & 280 & -- & 280 \\
+    \midrule
+    \textbf{All} & 553 & -- & 343 & 264 & 273 & -- & 274 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

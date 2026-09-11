@@ -1,0 +1,21 @@
+\begin{table}[t]
+  \centering
+  \caption{Median filter evaluations (collision checks for RRT-Connect). Medians are over each row's own solved problems.}
+  \label{tab:mbm-per-scene-evaluations}
+  \small
+  \begin{tabular}{lrrrrrrr}
+    \toprule
+    Scene & Elig. & RRT-Connect & CBF-RRT & Adaptive (Fixed) & Adaptive (Lipschitz) & CBF-RRT (No QP) & Adaptive (Envelope) \\
+    \midrule
+    Small Bookshelf & 62 & 4,238 & 720 & 720 & 326 & 7,072 & 233 \\
+    Tall Bookshelf & 60 & 4,638 & 1,715 & 1,715 & 1,097 & 10,120 & 716 \\
+    Narrow Bookshelf & 61 & 5,342 & 846 & 846 & 532 & 14,250 & 383 \\
+    Box & 100 & 2,314 & 674 & 674 & 303 & 7,818 & 158 \\
+    Cage & 99 & 111,838 & 17,033 & 17,033 & 12,858 & 387,434 & 9,856 \\
+    Tabletop Pick & 100 & 1,668 & 645 & 645 & 148 & 6,606 & 87 \\
+    Under-Table Pick & 71 & 2,296 & 2,112 & 2,112 & 1,404 & 7,980 & 1,042 \\
+    \midrule
+    \textbf{All} & 553 & 3,312 & 1,214 & 1,214 & 651 & 11,741 & 428 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

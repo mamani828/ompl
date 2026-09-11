@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <limits>
 
 #include <Eigen/Core>
@@ -125,8 +126,32 @@ namespace ompl::cbf
             return status;
         }
 
+        /// Per-call work counters, in the units an ablation table prices a filter in.
+        ///
+        /// Separate from `FilterStats`, which is process-wide, mutex-guarded and
+        /// opt-in: these are three unsynchronised increments on the filter object
+        /// itself, cheap enough to leave on, and scoped to one filter so a benchmark
+        /// can read them per problem without resetting a global. A filter that does
+        /// not reach a QP -- the passthrough, the no-QP gate -- leaves them at zero.
+        struct Counters
+        {
+            std::size_t calls{0};   ///< `filter()` invocations
+            std::size_t rows{0};    ///< constraint rows assembled, summed over calls
+            std::size_t solves{0};  ///< calls that reached the QP solver
+        };
+
+        /// This filter's counters. A wrapper that delegates to an inner filter should
+        /// override this to report the inner one's, so the wrapped QP is priced once.
+        virtual const Counters &counters() const
+        {
+            return counters_;
+        }
+
         /// Human-readable name, for logging and benchmark labels.
         virtual const char *name() const = 0;
+
+    protected:
+        mutable Counters counters_;
     };
 
     /// A filter that does nothing. This is the A/B baseline: dropped into the same

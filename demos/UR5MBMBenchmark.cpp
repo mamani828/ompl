@@ -126,10 +126,32 @@ namespace
     constexpr int qpFreeRow = 5;
     constexpr int qpEnvelopeRow = 6;
     constexpr int vampRow = 7;
-    constexpr int comparisonRows = 8;
+    /// The unassisted QP: `qpFixed`'s controller with every QP-side optimization off.
+    constexpr int qpPlainRow = 8;
+    constexpr int comparisonRows = 9;
 
     /// Joint-space spacing all rows are audited at, in radians. Finer than the rollout
     /// step so the audit is not merely re-reading the filter's own decisions.
+    /// The goal region's radius, in radians. The baseline and VAMP rows have always used
+    /// 0.05 and the filtered rows 0.1 -- a filtered rollout cannot land exactly on a
+    /// target, so it was given slack. That slack is an asymmetry in the CBF rows' favour
+    /// on both solve time and path length, so it is overridable: set
+    /// `OMPL_MBM_GOAL_TOLERANCE` to charge every row the same radius.
+    double goalTolerance(double fallback)
+    {
+        static const double override_ = []
+        {
+            if (const char *v = std::getenv("OMPL_MBM_GOAL_TOLERANCE"))
+            {
+                const double parsed = std::atof(v);
+                if (parsed > 0.0)
+                    return parsed;
+            }
+            return -1.0;
+        }();
+        return override_ > 0.0 ? override_ : fallback;
+    }
+
     /// Overridable because the audit's own spacing bounds what the audit can say. At
     /// 0.02 rad a sample is up to ~2 cm of workspace motion at a 1 m lever arm -- an
     /// order of magnitude more than the millimetre-scale margins under test -- so
@@ -215,10 +237,17 @@ namespace
     /// It cannot be zero or unbounded. `FilteredStateSpace` rejects non-positive entries,
     /// and the QP's control box is what makes its feasible set bounded. Raising it is
     /// therefore how "no velocity limit" is expressed, and it moves three things at once:
-    /// the QP's box, `decreaseRates` (so every certificate length), and -- because
-    /// `FilteredStateSpace` measures distance in *seconds* -- the meaning of the planner's
-    /// range. Pass an explicit `segmentFraction` alongside it, or the baseline's
-    /// collision-check spacing is derived from this and silently coarsens with it.
+    /// the QP's box and `decreaseRates`, and so every certificate length. It does *not*
+    /// change what the planner's range means: `Operations::distance` takes a speed
+    /// argument and discards it, returning radians, so `range` is radians for every row;
+    /// `Operations::duration` is the seconds-valued one and only sets a rollout's
+    /// horizon. It does change `defaultReachTolerance`, which is `maxSpeed.norm() *
+    /// stepSize` -- at 10 rad/s and a 10 ms step that is 0.245 rad of slack on "did the
+    /// rollout arrive", and the audit failure it caused (worst clearance -34.8 mm) is why
+    /// a run that raises this should set the tolerance explicitly.
+    ///
+    /// Pass an explicit `segmentFraction` alongside it, or the baseline's collision-check
+    /// spacing is derived from this and silently coarsens with it.
     const UR5::Configuration &effectiveMaxSpeed()
     {
         static const UR5::Configuration value = []
@@ -242,7 +271,7 @@ namespace
     /// deselected row is absent from both, rather than present as a line of zeros that
     /// reads as a row which ran and solved nothing. Names are the CSV's own `method`
     /// values -- `isSafe`, `qpFixed`, `qpAdaptive`, `l1Old`, `holdNew`, `qpFreeGate`,
-    /// `qpEnvelope`, `VAMP`.
+    /// `qpEnvelope`, `VAMP`, `qpPlain`.
     bool wantRow(const char *name)
     {
         static const std::string selection = []
@@ -365,6 +394,17 @@ namespace
         std::size_t unsafeStates{0};
         std::size_t auditedStates{0};
         std::size_t misses{0};  ///< solution edges re-derived rather than replayed
+        /// QP work this row actually did, as deltas over its own planning call -- see
+        /// ControlFilter::Counters. `qpRows` is summed over calls, so `qpRows / qpCalls`
+        /// is the program size the filter assembled per call, which is the quantity
+        /// screening and the active-set pair traversal are supposed to move; and
+        /// `qpSolves / qpCalls` is the share of calls that got past the feasibility
+        /// bypass and the closed-form projection to reach qpmad. A row that never builds
+        /// a QP -- `isSafe`, `qpFreeGate` -- leaves all three at zero, which is the
+        /// honest reading of "no QP" rather than a missing measurement.
+        std::size_t qpCalls{0};
+        std::size_t qpRows{0};
+        std::size_t qpSolves{0};
         /// Joint-space radians per filter call, and the share of calls that ran past
         /// stepSize on a certificate. Meaningless for the baseline, whose "evaluation"
         /// is a collision check at a fixed resolution rather than a step.
@@ -505,7 +545,7 @@ namespace
             goal[j] = problem.goal[j];
         }
         auto pdef = std::make_shared<ob::ProblemDefinition>(si);
-        pdef->setStartAndGoalStates(start, goal, 0.05);
+        pdef->setStartAndGoalStates(start, goal, goalTolerance(0.05));
 
         Result result;
         // Re-seed the global seed generator immediately before the planner is built.
@@ -680,7 +720,7 @@ namespace
             goal[j] = problem.goal[j];
         }
         auto pdef = std::make_shared<ob::ProblemDefinition>(si);
-        pdef->setStartAndGoalStates(start, goal, 0.05);
+        pdef->setStartAndGoalStates(start, goal, goalTolerance(0.05));
         // Re-seed the global seed generator immediately before the planner is built.
         // `RRTConnect` holds its own `RNG`, which draws `nextSeed()` from that generator
         // at construction, so without this a planner's stream depends on how many RNGs
@@ -789,7 +829,7 @@ namespace
         auto pdef = std::make_shared<ob::ProblemDefinition>(si);
         // A rollout cannot be asked to land on an exact state next to an obstacle, so the
         // goal gets a tolerance. Kept small enough that "solved" still means solved.
-        pdef->setStartAndGoalStates(start, goal, 0.1);
+        pdef->setStartAndGoalStates(start, goal, goalTolerance(0.1));
 
         Result result;
         // Re-seed the global seed generator immediately before the planner is built.
@@ -822,11 +862,20 @@ namespace
         planner->setProblemDefinition(pdef);
         planner->setup();
 
+        // Cumulative on the filter object, and `lipschitzFilter` is handed to three
+        // rows, so a row's own QP work is the delta across its solve rather than the
+        // running total. Copied, not bound: `counters()` returns a reference into the
+        // live filter, which the solve below is about to advance.
+        const ompl::cbf::ControlFilter::Counters qpBefore = filter.counters();
         const ompl::time::point begin = ompl::time::now();
         const ob::PlannerStatus status = planner->solve(ob::timedPlannerTerminationCondition(timeLimit));
         result.seconds = ompl::time::seconds(ompl::time::now() - begin);
         result.solved = (status == ob::PlannerStatus::EXACT_SOLUTION);
         result.evaluations = space->statistics().steps;
+        const ompl::cbf::ControlFilter::Counters &qpAfter = filter.counters();
+        result.qpCalls = qpAfter.calls - qpBefore.calls;
+        result.qpRows = qpAfter.rows - qpBefore.rows;
+        result.qpSolves = qpAfter.solves - qpBefore.solves;
         if (picard)
         {
             result.picardAttempts = picard->statistics().attempts;
@@ -898,6 +947,11 @@ namespace
         std::array<std::vector<double>, rows> radPerCall;
         std::array<std::vector<double>, rows> coarse;
         std::array<std::vector<double>, rows> hopFloored, hopAtRegion, hopEdgeLimited;
+        /// Per-problem QP program size and solver-hit rate, pushed only by rows that
+        /// build a QP, so a row without one reports an empty distribution rather than a
+        /// zero that reads as "assembled nothing" next to rows that assembled plenty.
+        std::array<std::vector<double>, rows> qpRowsPerCall, qpSolveShare;
+        std::array<std::size_t, rows> qpCalls{};
         std::array<std::size_t, rows> unsafe{};
         std::array<std::size_t, rows> audited{};
         std::array<std::size_t, rows> misses{};
@@ -930,6 +984,13 @@ namespace
             hopFloored[row].push_back(result.hopFloored);
             hopAtRegion[row].push_back(result.hopAtRegion);
             hopEdgeLimited[row].push_back(result.hopEdgeLimited);
+            qpCalls[row] += result.qpCalls;
+            if (result.qpCalls > 0)
+            {
+                const double calls = static_cast<double>(result.qpCalls);
+                qpRowsPerCall[row].push_back(static_cast<double>(result.qpRows) / calls);
+                qpSolveShare[row].push_back(static_cast<double>(result.qpSolves) / calls);
+            }
             unsafe[row] += result.unsafeStates;
             audited[row] += result.auditedStates;
             misses[row] += result.misses;
@@ -1015,6 +1076,14 @@ namespace
         std::printf("      primary samples %.0f, productive %.0f (%.1f%%), vertices/sample %.3f\n",
                     primary, productive, primary > 0.0 ? 1e2 * productive / primary : 0.0,
                     median(tally.verticesPerSample[row]));
+        // Medians of per-problem ratios, not ratios of totals: a single hard problem
+        // makes far more filter calls than an easy one, and a pooled ratio would report
+        // that problem's QP rather than the row's.
+        if (tally.qpCalls[row] > 0)
+            std::printf("      qp %.1f rows/call, %.0f%% of calls reached the solver,"
+                        " %zu calls\n",
+                        median(tally.qpRowsPerCall[row]),
+                        1e2 * median(tally.qpSolveShare[row]), tally.qpCalls[row]);
     }
 
     void writeCsvRow(std::ofstream &out, unsigned long seed, const Problem &problem,
@@ -1034,7 +1103,8 @@ namespace
                     : 0.0)
             << ',' << result.picardAttempts << ',' << result.picardAccepted << ','
             << result.picardFallbacks << ',' << result.hopFloored << ','
-            << result.hopAtRegion << ',' << result.hopEdgeLimited << '\n';
+            << result.hopAtRegion << ',' << result.hopEdgeLimited << ',' << result.qpCalls
+            << ',' << result.qpRows << ',' << result.qpSolves << '\n';
     }
 }  // namespace
 
@@ -1178,6 +1248,20 @@ int main(int argc, char **argv)
     // isolates the effect of additionally constraining one Euler step inside the QP.
     if (const char *v = std::getenv("OMPL_CBF_JOINT_LIMITS"))
         parameters.respectJointLimits = std::atoi(v) != 0;
+    // On for the QP rows -- `qpFixed`, `qpAdaptive` and `qpEnvelope`. `qpPlain` keeps it
+    // off along with the rest of the QP-side work, so it stays the unassisted reference.
+    //
+    // Unlike screening this is *not* solution-preserving: it caps the certificate at
+    // `pairRelevance * max(dt, 1/kappa)`, so it moves the certificate rows' results and
+    // not merely their speed. Against the arm-length L1 table the cap barely bites
+    // (`qpAdaptive` 1,523 to 1,525); against the tightened lever-arm table it does
+    // (1,482 to 1,495), so a sweep using it has to say which L1 it ran. It is sound with
+    // the envelope: a dropped pair is proven clear for `relevance * scale` while
+    // `EnvelopeHoldFilter` clips at `1 * scale`, which is conservative.
+    //
+    // `qpFreeGate` is unaffected either way -- it never touches the QP solver, so it
+    // reads none of this.
+    parameters.activePairs = true;
     // Process-isolated ablation switch for the active-set pair traversal, in the style
     // of OMPL_UR5_LEVER_BOUNDS. See ClearanceBarrier::ActiveSet.
     if (const char *v = std::getenv("OMPL_CBF_ACTIVE_PAIRS"))
@@ -1210,6 +1294,22 @@ int main(int argc, char **argv)
 
     Filter::Parameters fixedParameters = parameters;
     fixedParameters.certificates = false;
+
+    // The unassisted reference: `qpFixed`'s controller -- fixed step, no hold certificate
+    // -- solved by qpmad with none of this repository's QP-side work. `plainSolve` drops
+    // the feasibility bypass, the closed-form one-row projection and the pre-inverted
+    // Cholesky factor; `screening` drops the row screen, so every sphere and pair
+    // contributes a constraint whether or not it could bind; `activePairs` drops the
+    // active-set pair traversal.
+    //
+    // This is what a straightforward CBF-QP filter looks like, and it is the bottom rung
+    // of the ladder the other rows climb. It prices all three together on purpose -- read
+    // `qpPlain -> qpFixed` as "our QP-side work", and use OMPL_CBF_PLAIN_QP,
+    // OMPL_CBF_SCREENING and OMPL_CBF_ACTIVE_PAIRS to separate them.
+    Filter::Parameters plainParameters = fixedParameters;
+    plainParameters.plainSolve = true;
+    plainParameters.screening = false;
+    plainParameters.activePairs = false;
 
     std::printf("\nMotionBenchMaker UR5, %d problems loaded, up to %d per scene\n",
                 static_cast<int>(problems.size()), perScene);
@@ -1258,7 +1358,8 @@ int main(int argc, char **argv)
                   "waypoints,audited_states,unsafe_states,min_clearance,min_self_overlap,"
                   "self_colliding,misses,rad_per_call,coarse_fraction,primary_samples,"
                   "productive_samples,vertices_per_sample,picard_attempts,picard_accepted,"
-                  "picard_fallbacks,hop_floored,hop_at_region,hop_edge_limited\n";
+                  "picard_fallbacks,hop_floored,hop_at_region,hop_edge_limited,"
+                  "qp_calls,qp_rows,qp_solves\n";
     }
 
     std::ofstream baselineOut, fixedOut, filteredOut, gateOut, vampOut;
@@ -1321,6 +1422,7 @@ int main(int argc, char **argv)
                               buffer < 0.0 ? Barrier::interpolationBuffer(field) : buffer,
                               selfMargin);
         const Filter fixedFilter(guard, fixedParameters);
+        const Filter plainFilter(guard, plainParameters);
         const Filter lipschitzFilter(guard, parameters);
         const ompl::demo::UR5QPFreeGate qpFreeGate(guard, parameters);
         // Row 5 of the planner comparison: the same QP as `qpAdaptive`, hopping on the
@@ -1380,6 +1482,7 @@ int main(int argc, char **argv)
             const Result skipped;
             writeCsvRow(csvOut, seed, problem, "isSafe", false, skipped);
             writeCsvRow(csvOut, seed, problem, "qpFixed", false, skipped);
+            writeCsvRow(csvOut, seed, problem, "qpPlain", false, skipped);
             writeCsvRow(csvOut, seed, problem, "qpAdaptive", false, skipped);
             writeCsvRow(csvOut, seed, problem, "l1Old", false, skipped);
             writeCsvRow(csvOut, seed, problem, "holdNew", false, skipped);
@@ -1403,6 +1506,14 @@ int main(int argc, char **argv)
                               shortcutDelta, false, picardIterations, picardWindow, picardWorkers,
                               trajectoryPrefixes, rolloutCallBudget, sampleSeed,
                               pathPrefix.empty() ? nullptr : &fixedPath)
+                : Result();
+        // Identical to qpFixed in every argument; only the filter's parameters differ,
+        // so the pair isolates this repository's QP-side work.
+        const Result plain =
+            wantRow("qpPlain")
+                ? runFiltered(problem, audited, plainFilter, stepSize, range, timeLimit, 1.0,
+                              shortcutDelta, false, picardIterations, picardWindow, picardWorkers,
+                              trajectoryPrefixes, rolloutCallBudget, sampleSeed, nullptr)
                 : Result();
         // Same QP controller as qpFixed, but allow the filter's certified duration
         // to hold the solved control beyond one integration step.
@@ -1454,6 +1565,7 @@ int main(int argc, char **argv)
         writeMotion(gateOut, problem, gatePath);
         tally.add(checkedRow, checked);
         tally.add(qpFixedRow, fixed);
+        tally.add(qpPlainRow, plain);
         tally.add(qpAdaptiveRow, qpAdaptive);
         tally.add(qpLipschitzRow, oldLipschitz);
         tally.add(qpSafeRow, rolled);
@@ -1461,6 +1573,7 @@ int main(int argc, char **argv)
         tally.add(qpEnvelopeRow, envelope);
         overall.add(checkedRow, checked);
         overall.add(qpFixedRow, fixed);
+        overall.add(qpPlainRow, plain);
         overall.add(qpAdaptiveRow, qpAdaptive);
         overall.add(qpLipschitzRow, oldLipschitz);
         overall.add(qpSafeRow, rolled);
@@ -1468,6 +1581,7 @@ int main(int argc, char **argv)
         overall.add(qpEnvelopeRow, envelope);
         writeCsvRow(csvOut, seed, problem, "isSafe", true, checked);
         writeCsvRow(csvOut, seed, problem, "qpFixed", true, fixed);
+        writeCsvRow(csvOut, seed, problem, "qpPlain", true, plain);
         writeCsvRow(csvOut, seed, problem, "qpAdaptive", true, qpAdaptive);
         writeCsvRow(csvOut, seed, problem, "l1Old", true, oldLipschitz);
         writeCsvRow(csvOut, seed, problem, "holdNew", true, rolled);
@@ -1500,6 +1614,7 @@ int main(int argc, char **argv)
                     tally.skippedSelfCollision);
         reportRow("rrtconnect", "isSafe", tally, checkedRow);
         reportRow("qp-fixed", "qpFixed", tally, qpFixedRow);
+        reportRow("qp-plain", "qpPlain", tally, qpPlainRow);
         reportRow("qp-adapt", "qpAdaptive", tally, qpAdaptiveRow);
         reportRow("l1-old", "l1Old", tally, qpLipschitzRow);
         reportRow("hold-new", "holdNew", tally, qpSafeRow);
@@ -1535,6 +1650,7 @@ int main(int argc, char **argv)
                             1e2 * median(overall.hopEdgeLimited[row]));
             };
             line("qp-fixed", "qpFixed", qpFixedRow);
+            line("qp-plain", "qpPlain", qpPlainRow);
             line("qp-adapt", "qpAdaptive", qpAdaptiveRow);
             line("l1-old", "l1Old", qpLipschitzRow);
             line("hold-new", "holdNew", qpSafeRow);
@@ -1571,6 +1687,7 @@ int main(int argc, char **argv)
                 overall.skippedSelfCollision);
     reportRow("rrtconnect", "isSafe", overall, checkedRow);
     reportRow("qp-fixed", "qpFixed", overall, qpFixedRow);
+    reportRow("qp-plain", "qpPlain", overall, qpPlainRow);
     reportRow("qp-adapt", "qpAdaptive", overall, qpAdaptiveRow);
     reportRow("l1-old", "l1Old", overall, qpLipschitzRow);
     reportRow("hold-new", "holdNew", overall, qpSafeRow);

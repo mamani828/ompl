@@ -151,6 +151,7 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
                                                                     Control &filtered,
                                                                     Diagnostics &diagnostics) const
 {
+    ++counters_.calls;
     // A non-positive step has no meaningful CBF condition, and backward
     // propagation through a projection is not defined.
     if (duration <= 0.0)
@@ -206,6 +207,7 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     diagnostics.inBounds = evaluation.inBounds;
     diagnostics.solverIterations = 0;
     diagnostics.activeRows = evaluation.active;
+    counters_.rows += static_cast<std::size_t>(evaluation.active);
     // Nothing is certified until a control has been settled on; every path that gives
     // up below leaves both at zero, which asks the caller to come back rather than run.
     // The gain is the same statement upside down, so its "certifies nothing" is
@@ -281,6 +283,7 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
             // Fixed capacity, variable occupancy: qpmad's template arguments are maxima and
             // it reads the constraint count off the matrix it is handed, so passing fewer
             // rows costs less without allocating anything.
+            ++counters_.solves;
             ScopedTimer qpTimer("qp_solve");
             const auto status = solver.backend.solve(filtered, solver.hessian, solver.objective, lower, upper,
                                                      evaluation.rows.topRows(active),

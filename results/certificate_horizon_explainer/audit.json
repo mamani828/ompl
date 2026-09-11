@@ -1,0 +1,32 @@
+{
+  "q0_rad": [
+    0.35,
+    0.85
+  ],
+  "held_control_rad_per_s": [
+    0.7,
+    -0.45
+  ],
+  "link_lengths_m": [
+    0.9,
+    0.7
+  ],
+  "arm_radius_m": 0.035,
+  "obstacle_center_m": [
+    0.21658744789346254,
+    1.3819869022712945
+  ],
+  "obstacle_radius_m": 0.15,
+  "initial_clearance_m": 0.8881301523962413,
+  "tau_lip_s": 0.6189060295444191,
+  "tau_disp_s": 1.106219236972818,
+  "motion_bound_constants": {
+    "A": 1.4349999999999998,
+    "S": 0.7570015083654975,
+    "C": 0.4847499999999999,
+    "V": 0.8049999999999999,
+    "cap_time": 0.0990170018246569
+  },
+  "certified_regions": "radial boundaries evaluated for 721 held-control directions",
+  "collision_region": "exact end-effector-sphere obstacle sampled on the displayed grid"
+}

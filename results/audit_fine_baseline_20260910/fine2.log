@@ -1,0 +1,78 @@
+
+MotionBenchMaker UR5, 689 problems loaded, up to 100 per scene
+voxel 0.003 m, margin 0.0000 m + 0.0030 m filter buffer, stepSize 0.001 s, range 2.00 rad, 10.0 s limit
+
+hop certificates: old L1 Lipschitz region and new hold-time bound
+Picard: off; trajectory prefixes: 0; sequential rollout budget: 10000 calls
+kappa 20.00 /s, certified step uncapped, self-collision margin 0.0000 m over 303 pairs
+baseline segment: 0.000325 of extent = 0.0050 rad, rollout step 0.0100 rad (overridden)
+rope shortcut off, all rows unsimplified
+
+seed 1
+  planner       solved ms(min/med/max)        samples vertices     path rad/call coarse  worst clr unsafe/audited missed worst self collide
+
+bookshelf_small  (32 problems, 8 skipped: 0 clearance, 8 self-collision)
+  rrtconnect   22/24      2.47/18.97/10000.36       9026       24    11.30        -      -     0.0015      0/140655       0     0.0011       0
+      primary samples 112, productive 21 (18.8%), vertices/sample 0.254
+
+bookshelf_tall  (31 problems, 10 skipped: 2 clearance, 8 self-collision)
+  rrtconnect   15/21      2.68/35.06/10000.32      18033       48    14.12        -      -     0.0010      0/104045       0     0.0025       0
+      primary samples 222, productive 43 (19.4%), vertices/sample 0.208
+
+bookshelf_thin  (33 problems, 12 skipped: 4 clearance, 9 self-collision)
+  rrtconnect   21/21      4.42/29.21/406.55       15326       40    15.91        -      -     0.0010      0/161855       0     0.0025       0
+      primary samples 147, productive 37 (25.2%), vertices/sample 0.192
+
+box  (34 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   34/34      2.40/9.00/50.37         4555       14    11.69        -      -     0.0000      0/200815       0     0.0025       0
+      primary samples 44, productive 10 (22.7%), vertices/sample 0.314
+
+cage  (33 problems, 1 skipped: 1 clearance, 0 self-collision)
+  rrtconnect   32/32     68.46/605.50/2851.90     302741     1015    22.50        -      -     0.0003      0/356289       0     0.0001       0
+      primary samples 9220, productive 1012 (11.0%), vertices/sample 0.112
+
+table_pick  (33 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   33/33      2.04/7.97/29.90         3954       12    10.90        -      -    -0.0000      5/173732       0     0.0025       0
+      primary samples 24, productive 7 (29.2%), vertices/sample 0.500
+
+table_under_pick  (33 problems, 11 skipped: 1 clearance, 10 self-collision)
+  rrtconnect   18/22      4.41/9.93/10000.19       5114       15    11.52        -      -     0.0003      0/113479       0     0.0025       0
+      primary samples 63, productive 10 (15.9%), vertices/sample 0.235
+
+Hop disposition -- what set the hop's length, median over problems.
+  row         floored(<1 step)    at region   edge-limited
+
+Endpoint clearance at zero margin -- min(start, goal) over all spheres.
+  scene                     min    median       max affordable   problems by margin
+  bookshelf_small       -0.0240    0.0056    0.0106   -0.0240   0: 75% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_tall        -0.0242    0.0045    0.0110   -0.0242   0: 74% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_thin        -0.0212    0.0045    0.0100   -0.0212   0: 76% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  box                    0.0127    0.0127    0.0127    0.0127   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  cage                   0.0012    0.0127    0.0127    0.0012   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_pick             0.0044    0.0079    0.0082    0.0044   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_under_pick      -0.0226    0.0079    0.0083   -0.0226   0: 70% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+
+all scenes  (229 problems, 42 skipped: 8 clearance, 35 self-collision)
+  rrtconnect  175/187     2.04/13.70/10000.36       6808       19    13.39        -      -    -0.0000      5/1250870      0     0.0001       0
+      primary samples 74, productive 15 (20.3%), vertices/sample 0.244
+
+"samples" is checked configurations for isSafe, barrier evaluations for
+the three CBF rows, and SIMD configuration lanes evaluated for VAMP. They measure
+sampling work, while wall time captures the very different per-sample costs.
+"unsafe/audited" evaluates exact primitive clearance at every state of the
+densified solution -- for each CBF row that is the rollout the planner recorded
+for each edge, replayed, so it is the motion that would actually be executed,
+sampled inside each step rather than only at its boundaries. Non-zero unsafe
+invalidates a row however fast it was.
+"missed" counts solution edges that were not on file and had to be
+re-derived; it must be zero, or the audited motion is a different trajectory
+from the one the planner found.
+
+=== CBF profiler (wall time) ===
+=== CBF filter stats ===
+  calls=0  unchanged=0 (0.0%)  filtered=0 (0.0%)  blocked=0 (0.0%)
+  active rows:       avg=0.00  max=0
+  zero-row fast path: 0 (0.0%)
+  qp iterations:     avg=0.00  max=0
+  certified duration: avg=0.00000s  min=0.00000s  max=0.00000s  (over 0 non-blocked calls)
+  required gain:     avg=0.000/s  max=0.000/s  p50=0.000/s  p90=0.000/s  p99=0.000/s  (over 0 calls, 0 uncertified)

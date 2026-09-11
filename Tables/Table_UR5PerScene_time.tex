@@ -1,0 +1,21 @@
+\begin{table}[t]
+  \centering
+  \caption{Median planning time in milliseconds. Medians are over each row's own solved problems.}
+  \label{tab:mbm-per-scene-time}
+  \small
+  \begin{tabular}{lrrrrrrr}
+    \toprule
+    Scene & Elig. & RRT-Connect & CBF-RRT & Adaptive (Fixed) & Adaptive (Lipschitz) & CBF-RRT (No QP) & Adaptive (Envelope) \\
+    \midrule
+    Small Bookshelf & 62 & 9.5 & 5.3 & 4.9 & 2.3 & 38.7 & 1.9 \\
+    Tall Bookshelf & 60 & 9.3 & 11.8 & 11.2 & 7.9 & 49.2 & 5.8 \\
+    Narrow Bookshelf & 61 & 12.1 & 6.0 & 5.7 & 3.5 & 70.1 & 2.9 \\
+    Box & 100 & 5.3 & 5.2 & 4.7 & 2.0 & 41.7 & 1.3 \\
+    Cage & 99 & 243.3 & 119.5 & 112.5 & 96.6 & 1980.9 & 81.8 \\
+    Tabletop Pick & 100 & 3.7 & 4.2 & 4.0 & 1.0 & 35.6 & 0.8 \\
+    Under-Table Pick & 71 & 5.0 & 16.3 & 15.9 & 11.7 & 41.8 & 9.2 \\
+    \midrule
+    \textbf{All} & 553 & 7.2 & 8.0 & 7.6 & 4.8 & 57.1 & 3.4 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
