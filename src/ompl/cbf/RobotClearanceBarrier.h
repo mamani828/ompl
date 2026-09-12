@@ -171,7 +171,9 @@ namespace ompl::cbf
 
         using Values = Eigen::Matrix<double, maxConstraints, 1>;
         /// Row i is dh_i/dq -- the constraint row barrier i contributes.
-        using Rows = Eigen::Matrix<double, maxConstraints, nJoints>;
+        // This table is over 170 KiB for the mobile Reachy2. Allocate it on the
+        // heap instead of embedding an oversized fixed array in every Evaluation.
+        using Rows = Eigen::Matrix<double, Eigen::Dynamic, nJoints, Eigen::RowMajor>;
         /// Defined locally rather than reused from `Robot::SphereCenters`: not
         /// every robot (`Reachy2`) defines that typedef, and this is exactly
         /// what it would say.
@@ -179,6 +181,10 @@ namespace ompl::cbf
 
         struct Evaluation
         {
+            Evaluation() : rows(maxConstraints, nJoints)
+            {
+            }
+
             Values values;   ///< h_i(q), for every screened-in constraint
             Rows rows;       ///< dh_i/dq -- only the first `active` are filled
             /// Which barrier each of the first `active` rows belongs to.
@@ -198,7 +204,8 @@ namespace ompl::cbf
         RobotClearanceBarrier(const Robot &robot, const sdf::GridSDF &field, const Configuration &reference,
                               double worldMargin = defaultWorldMargin,
                               double selfMargin = defaultSelfMargin)
-          : robot_(robot), field_(field), worldMargin_(worldMargin), selfMargin_(selfMargin)
+          : robot_(robot), field_(field), worldMargin_(worldMargin), selfMargin_(selfMargin),
+            pairLeverBounds_(nSelfPairs, nJoints)
         {
             buildLeverBounds();
             const auto kin = robot_.kinematics(reference);
@@ -713,6 +720,6 @@ namespace ompl::cbf
         double selfMargin_{defaultSelfMargin};
         std::vector<std::size_t> selfPairs_;
         Eigen::Matrix<double, nSpheres, nJoints> leverBounds_;
-        Eigen::Matrix<double, nSelfPairs, nJoints> pairLeverBounds_;
+        Eigen::Matrix<double, Eigen::Dynamic, nJoints, Eigen::RowMajor> pairLeverBounds_;
     };
 }  // namespace ompl::cbf
