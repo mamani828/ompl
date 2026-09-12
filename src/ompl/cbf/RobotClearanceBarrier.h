@@ -118,7 +118,10 @@ namespace ompl::cbf
 
         using Values = Eigen::Matrix<double, maxConstraints, 1>;
         /// Row i is dh_i/dq -- the constraint row barrier i contributes.
-        using Rows = Eigen::Matrix<double, maxConstraints, nJoints>;
+        // This table is over 170 KiB for the mobile Reachy2.  Keep its maximum
+        // dimensions known to Eigen, but allocate the rows dynamically instead
+        // of embedding an oversized fixed array in every Evaluation object.
+        using Rows = Eigen::Matrix<double, Eigen::Dynamic, nJoints, Eigen::RowMajor>;
         /// Defined locally rather than reused from `Robot::SphereCenters`: not
         /// every robot (`Reachy2`) defines that typedef, and this is exactly
         /// what it would say.
@@ -126,6 +129,10 @@ namespace ompl::cbf
 
         struct Evaluation
         {
+            Evaluation() : rows(maxConstraints, nJoints)
+            {
+            }
+
             Values values;   ///< h_i(q), for every screened-in constraint
             Rows rows;       ///< dh_i/dq -- only the first `active` are filled
             /// Which barrier each of the first `active` rows belongs to.
@@ -143,7 +150,7 @@ namespace ompl::cbf
         /// same influence mask moves as one rigid body, so its separation is
         /// invariant and needs no CBF row regardless of configuration.
         RobotClearanceBarrier(const Robot &robot, const sdf::GridSDF &field, const Configuration &reference)
-          : robot_(robot), field_(field)
+          : robot_(robot), field_(field), pairLeverBounds_(nSelfPairs, nJoints)
         {
             buildLeverBounds();
             const auto kin = robot_.kinematics(reference);
@@ -279,6 +286,46 @@ namespace ompl::cbf
             return std::max(duration, 0.0);
         }
 
+        /// How long the held control may be applied while keeping every world
+        /// and self-collision barrier non-negative.  Unlike
+        /// `certifiedDuration()`, this does not require the CBF rows to remain
+        /// inactive; it is therefore the longer safety horizon used by
+        /// `FilteredStateSpace` when safe hops are enabled.
+        ///
+        /// For a mobile wrapper, `leverBounds_ * |control|` is exactly the
+        /// paper's conservative specialization
+        ///
+        ///     |v_x| + |v_y| + rho_i |omega| + V_{i,a}.
+        ///
+        /// The base columns of `pairLeverBounds_` are zero, so common planar
+        /// base motion cancels from self-collision certificates.
+        double safeDuration(const Evaluation &evaluation, const Configuration &control,
+                            double buffer = 0.0) const
+        {
+            const Configuration speed = control.cwiseAbs();
+            const auto worldTravel = (leverBounds_ * speed).eval();
+            const double lipschitz = std::max(field_.maxGradientNorm(), 1.0);
+            double duration = std::numeric_limits<double>::infinity();
+            for (std::size_t i = 0; i < Robot::nSpheres; ++i)
+            {
+                const Eigen::Index index = static_cast<Eigen::Index>(i);
+                if (worldTravel[index] <= 0.0)
+                    continue;
+                const double clearance = std::max(evaluation.values[index] - buffer, 0.0) / lipschitz;
+                const double allowance = std::min(clearance, evaluation.boundary[index]);
+                duration = std::min(duration, allowance / worldTravel[index]);
+            }
+            for (std::size_t p = 0; p < selfPairs_.size(); ++p)
+            {
+                const double travel = pairLeverBounds_.row(static_cast<Eigen::Index>(p)).dot(speed);
+                if (travel <= 0.0)
+                    continue;
+                const Eigen::Index index = static_cast<Eigen::Index>(nSpheres) + static_cast<Eigen::Index>(p);
+                duration = std::min(duration, std::max(evaluation.values[index] - buffer, 0.0) / travel);
+            }
+            return std::max(duration, 0.0);
+        }
+
         /// The full (unscreened) safety check: worst world clearance and worst
         /// enabled self-pair clearance, both via \p world / \p self if given.
         bool safe(const Configuration &q, double *world = nullptr, double *self = nullptr) const
@@ -395,6 +442,6 @@ namespace ompl::cbf
         const sdf::GridSDF &field_;
         std::vector<std::size_t> selfPairs_;
         Eigen::Matrix<double, nSpheres, nJoints> leverBounds_;
-        Eigen::Matrix<double, nSelfPairs, nJoints> pairLeverBounds_;
+        Eigen::Matrix<double, Eigen::Dynamic, nJoints, Eigen::RowMajor> pairLeverBounds_;
     };
 }  // namespace ompl::cbf

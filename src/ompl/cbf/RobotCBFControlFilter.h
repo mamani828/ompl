@@ -258,6 +258,35 @@ namespace ompl::cbf
             return (filtered - nominal).norm() <= 1e-12 ? Status::Unchanged : Status::Filtered;
         }
 
+        Status filter(const Configuration &q, const Configuration &nominal, double dt, Configuration &filtered,
+                      double &certified, double &safe) const override
+        {
+            const Status status = filter(q, nominal, dt, filtered, certified);
+            if (status == Status::Blocked)
+            {
+                safe = 0.0;
+                return status;
+            }
+
+            safe = barrier_.safeDuration(evaluation_, filtered, integrationBuffer_);
+            // A geometric safety certificate must also remain inside the
+            // configured (non-periodic) position box.
+            for (int j = 0; j < nJoints; ++j)
+            {
+                if constexpr (nBaseJoints >= 3)
+                    if (j == 2)
+                        continue;
+                if (filtered[j] == 0.0)
+                    continue;
+                const double room = (filtered[j] > 0.0 ? upperPosition_[j] : lowerPosition_[j]) - q[j];
+                safe = std::min(safe, std::max(room / filtered[j], 0.0));
+            }
+            // The no-op duration is independently safe and must never exceed
+            // the safety-only result, apart from roundoff.
+            safe = std::max(safe, certified);
+            return status;
+        }
+
         const char *name() const override
         {
             return "robot-cbf-qp";

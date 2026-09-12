@@ -62,6 +62,16 @@ namespace
         return field;
     }
 
+    const sdf::GridSDF &farWideField()
+    {
+        static const sdf::GridSDF field(
+            sphereField(Eigen::Vector3d(5.0, 5.0, 5.0), 0.2),
+            Eigen::AlignedBox3d(Eigen::Vector3d(-20.0, -20.0, -20.0),
+                                Eigen::Vector3d(20.0, 20.0, 20.0)),
+            0.5);
+        return field;
+    }
+
     template <typename Robot>
     typename Robot::Configuration midConfiguration()
     {
@@ -532,4 +542,32 @@ BOOST_AUTO_TEST_CASE(NumericalEquivalenceWithOldMobileFilter)
         const MobileReachy2::Configuration expected = oracle::mobileFilter(barrier, q, nominal, duration, lower, upper);
         BOOST_CHECK_LE((filtered - expected).norm(), 1e-9);
     }
+}
+
+// The mobile planner asks the six-argument filter overload for the longer
+// safety-only horizon.  Before this regression test, the base-class default
+// silently copied the no-op duration into `safe`, disabling adaptive safety
+// hops even though the mobile lever-arm bounds were available.
+BOOST_AUTO_TEST_CASE(MobileFilterExposesTheLongerSafetyHorizon)
+{
+    const MobileReachy2 robot;
+    const auto q = midConfiguration<MobileReachy2>();
+    const Barrier<MobileReachy2> barrier(robot, farWideField(), q);
+    // Keep position limits from becoming the common minimum: this test is
+    // specifically about the two collision-certificate horizons.
+    const auto lower = q - MobileReachy2::Configuration::Constant(1e6);
+    const auto upper = q + MobileReachy2::Configuration::Constant(1e6);
+    const Filter<MobileReachy2> filter(barrier, lower, upper);
+
+    MobileReachy2::Configuration nominal = MobileReachy2::Configuration::Zero();
+    nominal[0] = 0.1;
+    MobileReachy2::Configuration filtered;
+    double certified = 0.0, safe = 0.0;
+    const auto status = filter.filter(q, nominal, duration, filtered, certified, safe);
+
+    BOOST_REQUIRE(status != Status<MobileReachy2>::Blocked);
+    BOOST_REQUIRE(std::isfinite(certified));
+    BOOST_REQUIRE(std::isfinite(safe));
+    BOOST_CHECK_GT(safe, certified);
+    BOOST_CHECK_GE(safe + 1e-12, certified);
 }
