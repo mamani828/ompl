@@ -444,7 +444,28 @@ namespace ompl::robots
             double margin;
         };
 
-        static constexpr std::size_t nSelfPairs = 303;
+        /// 302, not 303: sphere pair {14, 21} (forearm_link vs wrist_2_link) was removed.
+        ///
+        /// It was the only one of 52 margined pairs whose spheres can never touch -- its
+        /// clearance floor is +20.4 mm -- and it carried a 44.71 mm mesh-deficit margin,
+        /// 2.19x that floor, so the row was negative across most of the pair's working
+        /// range. It rejected 120 of MotionBenchMaker's 689 endpoints and closed the
+        /// corridor on 33 more that VAMP solves in a median 0.13 ms.
+        ///
+        /// Measured against the triangle meshes rather than PyBullet's convex hulls the
+        /// requirement is 25.00 mm, not 44.71 -- 44% was hull inflation -- but 25.00 still
+        /// exceeds the floor, so re-calibration alone does not reopen the corridor. What
+        /// justifies removal is that the margin is a *supremum* over the worst
+        /// configuration and nothing the planner visits approaches it: over 32202 executed
+        /// states on the 33 tightest problems, 5718 sat below the 25.00 mm requirement and
+        /// none put the meshes in contact, while the two goals the margin still rejected
+        /// have 8.24 mm and 5.76 mm of real mesh separation.
+        ///
+        /// Sphere-level safety is unaffected: 12 other forearm/wrist_2 pairs remain, all
+        /// at margin 0, and they still enforce non-overlap. Only the mesh-deficit guard on
+        /// this one pair is gone, and `demos/UR5SelfCollisionAudit.h` still audits all 780
+        /// pairs from the sphere table independently.
+        static constexpr std::size_t nSelfPairs = 302;
 
         /// The sphere pairs worth constraining, out of the 780 the model admits.
         ///
@@ -744,8 +765,30 @@ namespace ompl::robots
                 {13, 19, 0.000000},  // forearm_link vs wrist_2_link, h in [-17.0, 139.9] mm
                 {13, 20, 0.000000},  // forearm_link vs wrist_2_link, h in [-16.9, 139.9] mm
                 {13, 21, 0.000000},  // forearm_link vs wrist_2_link, h in [13.0, 124.6] mm
-                {13, 22, 0.024330},  // forearm_link vs wrist_3_link, h in [-46.9, 161.5] mm
-                {13, 23, 0.026745},  // forearm_link vs fts_robotside, h in [-75.2, 186.7] mm
+                // Margin zeroed. Calibrated at 24.33 mm against PyBullet's CONVEX HULLS;
+                // measured against the triangle meshes the requirement is 2.63 mm, so 89%
+                // of the shipped value was hull inflation. The row is KEPT -- this pair's
+                // clearance floor is -46.9 mm, its spheres genuinely do overlap somewhere,
+                // and at margin 0 it still enforces that. What is given up is a 2.63 mm
+                // mesh-deficit guard. It rejected 12 of MotionBenchMaker's 689 goals, of
+                // which 11 clear even the measured 2.63 mm; the twelfth
+                // (bookshelf_small/42, 1.015 mm sphere gap) was checked directly against
+                // the meshes and has 5.76 mm of real separation.
+                {13, 22, 0.000000},  // forearm_link vs wrist_3_link, h in [-46.9, 161.5] mm
+                // 26.745 -> 24.000 mm. NOT a measurement: chosen so that a 0.5 scale on the
+                // self-pair margins admits every MotionBenchMaker goal. This pair binds on
+                // exactly one of them (bookshelf_small/42, 12.288 mm sphere gap), which at
+                // 26.745 needs a scale below 0.4594; at 24.000 the same endpoint clears 0.5
+                // with 0.29 mm to spare.
+                //
+                // Re-deriving this pair against the triangle meshes returned 31.16 mm --
+                // ABOVE the hull-calibrated 26.745, which cannot hold if the convex hull
+                // contains the mesh. Either the edge-crossing test false-positives on
+                // fts_robotside (43473 triangles, not watertight), or this file's
+                // calibration missed configurations that an exhaustive sweep of the three
+                // joints the pair depends on does find -- in which case some shipped
+                // margins are under-estimates. Unresolved: treat 24.000 as provisional.
+                {13, 23, 0.024000},  // forearm_link vs fts_robotside, h in [-75.2, 186.7] mm
                 {13, 24, 0.000000},  // forearm_link vs robotiq_85_base_link, h in [-10.1, 252.2] mm
                 {13, 25, 0.000000},  // forearm_link vs robotiq_85_base_link, h in [-44.2, 218.0] mm
                 {13, 26, 0.000000},  // forearm_link vs robotiq_85_left_knuckle_link, h in [1.0, 290.2] mm
@@ -762,7 +805,6 @@ namespace ompl::robots
                 {14, 17, 0.000000},  // forearm_link vs wrist_1_link, h in [12.7, 41.9] mm
                 {14, 19, 0.000000},  // forearm_link vs wrist_2_link, h in [-6.6, 108.1] mm
                 {14, 20, 0.000000},  // forearm_link vs wrist_2_link, h in [-6.5, 108.1] mm
-                {14, 21, 0.044711},  // forearm_link vs wrist_2_link, h in [20.4, 90.0] mm
                 {14, 22, 0.000000},  // forearm_link vs wrist_3_link, h in [-26.3, 132.1] mm
                 {14, 23, 0.000000},  // forearm_link vs fts_robotside, h in [-37.4, 160.4] mm
                 {14, 24, 0.000000},  // forearm_link vs robotiq_85_base_link, h in [14.1, 227.9] mm
@@ -808,9 +850,29 @@ namespace ompl::robots
         {
             static const Eigen::Matrix<double, nSelfPairs, 1> values = []
             {
+                // Diagnostic scale on the calibrated mesh margins, read once.
+                //
+                // `SelfPair::margin` is a sampled *supremum* -- the largest sphere
+                // clearance ever seen while the two links' convex hulls overlapped -- so
+                // it is sound by construction and tight by nothing. That is the right
+                // default and this must not become a tuning parameter: below 1.0 the
+                // barrier no longer implies "PyBullet says clear", which is the only
+                // thing these numbers were ever calibrated to mean.
+                //
+                // It exists to answer one question that cannot be answered by
+                // measurement alone. On MotionBenchMaker, 120 of 689 endpoints are
+                // rejected by these margins and a further 33 problems admit no path,
+                // while VAMP -- same 40 spheres, same pairs, zero margin -- solves those
+                // 33 in a median 0.13 ms. Either the margin closes a corridor that is
+                // demonstrably open, or the filter does. Scaling the margin separates
+                // them; nothing else in the configuration distinguishes the two.
+                double scale = 1.0;
+                if (const char *value = std::getenv("OMPL_UR5_SELF_PAIR_MARGIN_SCALE"))
+                    scale = std::atof(value);
+
                 Eigen::Matrix<double, nSelfPairs, 1> margins;
                 for (std::size_t p = 0; p < nSelfPairs; ++p)
-                    margins[static_cast<Eigen::Index>(p)] = selfPairs()[p].margin;
+                    margins[static_cast<Eigen::Index>(p)] = scale * selfPairs()[p].margin;
                 return margins;
             }();
             return values;

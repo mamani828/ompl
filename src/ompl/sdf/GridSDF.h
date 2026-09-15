@@ -34,6 +34,10 @@ namespace ompl::sdf
     /// the cache is completely environment-agnostic.
     using DistanceFn = std::function<double(const Eigen::Vector3d &)>;
 
+    /// Value *and* gradient at a point, for an environment that can differentiate
+    /// itself. A union of analytic primitives can; a point cloud cannot.
+    using ValueGradientFn = std::function<ValueGradient(const Eigen::Vector3d &)>;
+
     /// A workspace signed distance field cached on a regular voxel grid.
     ///
     /// The grid is baked once, at construction, by sampling a DistanceFn at each
@@ -71,6 +75,34 @@ namespace ompl::sdf
                             distanceFn(nodePoint(i, j, k));
 
             computeLipschitzBound();
+        }
+
+        /// A field that answers from \p exact instead of from a baked grid.
+        ///
+        /// The grid exists to make an expensive environment cheap to query. When the
+        /// environment is already closed-form -- a union of boxes and cylinders -- baking
+        /// only adds error: the trilinear interpolant disagrees with the function it
+        /// sampled by up to a voxel's worth of gradient, which is exactly what
+        /// `ClearanceBarrier::interpolationBuffer()` reserves against. Here there is
+        /// nothing to reserve against, so `spacing()` is zero and that buffer comes out
+        /// zero with no special case at the call site.
+        ///
+        /// \p exact must return the signed distance to the nearest obstacle surface and
+        /// its gradient, consistently -- the barrier linearises with the gradient and
+        /// audits with the value, and a pair that describe different fields reintroduces
+        /// precisely the violations this mode exists to remove. \p bounds still fences
+        /// the workspace, since `inBounds()` and `boundaryClearance()` remain meaningful.
+        static auto exactField(ValueGradientFn exact, const Eigen::AlignedBox3d &bounds) -> GridSDF
+        {
+            if (!exact)
+                throw std::invalid_argument("ompl::sdf::GridSDF::exactField: null function");
+            return GridSDF(std::move(exact), bounds);
+        }
+
+        /// True when queries bypass the grid and go to a closed-form environment.
+        auto isExact() const -> bool
+        {
+            return static_cast<bool>(exact_);
         }
 
         auto distance(const Eigen::Vector3d &p) const -> double
@@ -455,6 +487,9 @@ namespace ompl::sdf
 
         auto interpolateValue(const Eigen::Vector3d &p) const -> double
         {
+            if (exact_)
+                return exact_(p).value;
+
             const Cell cell = locate<false>(p);
             const Corners v = corners(cell.base);
             const double x00 = lerp(v.v000, v.v100, cell.fraction[0]);
@@ -609,6 +644,17 @@ namespace ompl::sdf
         auto interpolate(const Eigen::Vector3d &p, double radius = 0.0, double margin = 0.0,
                          double threshold = std::numeric_limits<double>::infinity()) const -> ValueGradient
         {
+            if (exact_)
+            {
+                ValueGradient out = exact_(p);
+                // Same screening contract as the grid path: past the threshold the caller
+                // only reads the value, so the gradient is returned zeroed rather than
+                // computed -- keep them indistinguishable or screening changes results.
+                if (out.value - radius - margin > threshold)
+                    out.gradient.setZero();
+                return out;
+            }
+
             const Cell cell = locate<true>(p);
             const Corners v = corners(cell.base);
             const double x = cell.fraction[0];
@@ -640,6 +686,17 @@ namespace ompl::sdf
 
             return out;
         }
+        /// \see exactField
+        GridSDF(ValueGradientFn exact, const Eigen::AlignedBox3d &bounds)
+          : bounds_(bounds), origin_(bounds.min()), values_(8, 0.0), exact_(std::move(exact))
+        {
+            // A true signed distance function is 1-Lipschitz. The grid path measures a
+            // bound above 1 because the interpolant's axis derivatives are slopes along
+            // different edges; with no interpolant there is nothing to inflate.
+            maxGradientNorm_ = 1.0;
+            initializeLookupConstants();
+        }
+
         Eigen::AlignedBox3d bounds_;
         Eigen::Vector3d origin_;
         Eigen::Vector3i dims_{2, 2, 2};
@@ -649,5 +706,7 @@ namespace ompl::sdf
         std::size_t strideZ_{4};
         double maxGradientNorm_{0.0};
         std::vector<double> values_;
+        /// Set only by the exact-field constructor; empty means grid mode.
+        ValueGradientFn exact_;
     };
 }  // namespace ompl::sdf

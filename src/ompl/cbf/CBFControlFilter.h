@@ -329,6 +329,14 @@ namespace ompl::cbf
             return barrier_;
         }
 
+        /// This filter repairs a control from a linear model, so it cannot claim the
+        /// committed step is safe without checking. See `RobotControlFilter::safetyCheck`.
+        SafetyCheck safetyCheck() const override
+        {
+            const ClearanceBarrier *barrier = &barrier_;
+            return [barrier](const Configuration &q) { return barrier->isSafe(q); };
+        }
+
         /// The control box actually enforced at \p q for a step of \p duration: the
         /// speed limit intersected with what the joint limits allow over that step.
         /// Exposed because a directed control sampler wants to clamp its nominal

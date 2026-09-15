@@ -1,0 +1,84 @@
+
+MotionBenchMaker UR5, 33 problems loaded, up to 100 per scene
+voxel 0.003 m, margin 0.0000 m + 0.0000 m filter buffer, stepSize 0.001 s, range 2.00 rad, 10.0 s limit
+
+hop certificates: old L1 Lipschitz region and new hold-time bound
+Picard: off; trajectory prefixes: 0; sequential rollout budget: 10000 calls
+kappa 20.00 /s, certified step uncapped, self-collision margin 0.0000 m over 303 pairs
+baseline segment: 0.000650 of extent = 0.0100 rad, rollout step 0.0100 rad (matched to the rollout)
+rope shortcut off, all rows unsimplified
+
+seed 1
+  planner       solved ms(min/med/max)        samples vertices     path rad/call coarse  worst clr unsafe/audited missed worst self collide
+
+table_under_pick  (1 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect    0/1    10000.06/10000.06/10000.06    1627762    14863     0.00        -      -          -              -      -          -       -
+      primary samples 91663, productive 14860 (16.2%), vertices/sample 0.162
+  qp-fixed      0/1    10000.88/10000.88/10000.88     813017     2700     0.00   0.0068     0%          -              -      -          -       -
+      primary samples 3805, productive 1956 (51.4%), vertices/sample 0.710
+      qp 305.3 rows/call, 93% of calls reached the solver, 813017 calls
+  qp-adapt      0/1    10002.23/10002.23/10002.23     764147     2922     0.00   0.0078     9%          -              -      -          -       -
+      primary samples 4190, productive 2130 (50.8%), vertices/sample 0.697
+      qp 306.6 rows/call, 98% of calls reached the solver, 764147 calls
+  qp-env        0/1    10002.41/10002.41/10002.41     756117     3098     0.00   0.0085     1%          -              -      -          -       -
+      primary samples 4585, productive 2280 (49.7%), vertices/sample 0.676
+      qp 306.1 rows/call, 99% of calls reached the solver, 756117 calls
+  vamp-rrtc     1/1       0.15/0.15/0.15          3168       12    15.85        -      -     0.0004      0/794          0     0.0003       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+Hop disposition -- what set the hop's length, median over problems.
+  row         floored(<1 step)    at region   edge-limited
+  qp-fixed            100.0%         0.0%           0.0%
+  qp-adapt             90.5%         9.3%           0.2%
+  qp-env               98.7%         1.0%           0.2%
+
+Endpoint clearance at zero margin -- min(start, goal) over all spheres.
+  scene                     min    median       max affordable   problems by margin
+  table_under_pick       0.0079    0.0079    0.0079    0.0079   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+
+all scenes  (1 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect    0/1    10000.06/10000.06/10000.06    1627762    14863     0.00        -      -          -              -      -          -       -
+      primary samples 91663, productive 14860 (16.2%), vertices/sample 0.162
+  qp-fixed      0/1    10000.88/10000.88/10000.88     813017     2700     0.00   0.0068     0%          -              -      -          -       -
+      primary samples 3805, productive 1956 (51.4%), vertices/sample 0.710
+      qp 305.3 rows/call, 93% of calls reached the solver, 813017 calls
+  qp-adapt      0/1    10002.23/10002.23/10002.23     764147     2922     0.00   0.0078     9%          -              -      -          -       -
+      primary samples 4190, productive 2130 (50.8%), vertices/sample 0.697
+      qp 306.6 rows/call, 98% of calls reached the solver, 764147 calls
+  qp-env        0/1    10002.41/10002.41/10002.41     756117     3098     0.00   0.0085     1%          -              -      -          -       -
+      primary samples 4585, productive 2280 (49.7%), vertices/sample 0.676
+      qp 306.1 rows/call, 99% of calls reached the solver, 756117 calls
+  vamp-rrtc     1/1       0.15/0.15/0.15          3168       12    15.85        -      -     0.0004      0/794          0     0.0003       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+"samples" is checked configurations for isSafe, barrier evaluations for
+the three CBF rows, and SIMD configuration lanes evaluated for VAMP. They measure
+sampling work, while wall time captures the very different per-sample costs.
+"unsafe/audited" evaluates exact primitive clearance at every state of the
+densified solution -- for each CBF row that is the rollout the planner recorded
+for each edge, replayed, so it is the motion that would actually be executed,
+sampled inside each step rather than only at its boundaries. Non-zero unsafe
+invalidates a row however fast it was.
+"missed" counts solution edges that were not on file and had to be
+re-derived; it must be zero, or the audited motion is a different trajectory
+from the one the planner found.
+
+
+envelope hop: 9635 filter calls, 2.033 hold queries/call, 46.5% saturated, 100.0% longer than L1, past one step 98.6% (L1 alone 68.8%), gated 98.7%, empty-active 0.0%, screen-escalated 8.9%
+envelope bottleneck: world 50.3%, self-collision 49.0%, unbound 0.6% (horizon or screen clip), blocked 0.0%, joint-limit clamped 0.0%
+envelope binding term:
+  world rows       L1 0.0%, local-L1 3.3%, speed-capped 1.3%, isotropic-anchored 95.4% (of 4849 bound calls)
+  self-pair rows   L1 0.0%, local-L1 0.0%, speed-capped 0.0%, normal-anchored 100.0% (of 4724 bound calls)
+local-lever screen: 95748 of 122695 expensive world rows settled before the envelope (78.0%)
+span handed to the rollout, in controller steps (756114 calls):
+                   <1      1-2      2-4      4-8       8+
+  L1 only      99.12%     0.24%     0.26%     0.23%     0.15%
+  envelope     98.74%     0.06%     0.11%     0.13%     0.96%
+=== CBF profiler (wall time) ===
+=== CBF filter stats ===
+  calls=0  unchanged=0 (0.0%)  filtered=0 (0.0%)  blocked=0 (0.0%)
+  active rows:       avg=0.00  max=0
+  zero-row fast path: 0 (0.0%)
+  qp iterations:     avg=0.00  max=0
+  certified duration: avg=0.00000s  min=0.00000s  max=0.00000s  (over 0 non-blocked calls)
+  required gain:     avg=0.000/s  max=0.000/s  p50=0.000/s  p90=0.000/s  p99=0.000/s  (over 0 calls, 0 uncertified)

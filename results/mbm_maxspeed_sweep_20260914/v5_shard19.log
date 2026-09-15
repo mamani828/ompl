@@ -1,0 +1,95 @@
+
+MotionBenchMaker UR5, 60 problems loaded, up to 100 per scene
+voxel 0.003 m, margin 0.0000 m + 0.0000 m filter buffer, stepSize 0.001 s, range 2.00 rad, 10.0 s limit
+
+hop certificates: old L1 Lipschitz region and new hold-time bound
+Picard: off; trajectory prefixes: 0; sequential rollout budget: 10000 calls
+kappa 20.00 /s, certified step uncapped, self-collision margin 0.0000 m over 303 pairs
+baseline segment: 0.000325 of extent = 0.0050 rad, rollout step 0.0050 rad (matched to the rollout)
+rope shortcut off, all rows unsimplified
+
+seed 1
+  planner       solved ms(min/med/max)        samples vertices     path rad/call coarse  worst clr unsafe/audited missed worst self collide
+
+bookshelf_thin  (1 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-fixed      1/1      17.89/17.89/17.89         1571        7     8.71   0.0055     0%    -0.0052    206/1572         0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 7.000
+      qp 57.9 rows/call, 39% of calls reached the solver, 1571 calls
+  qp-adapt      1/1       8.26/8.26/8.26           665        7     8.71   0.0131     8%    -0.0052    236/941          0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 7.000
+      qp 50.8 rows/call, 92% of calls reached the solver, 665 calls
+  free-env      1/1     124.26/124.26/124.26        3407      115    15.17   0.0607    86%     0.0001      0/839          0     0.0025       0
+      primary samples 402, productive 109 (27.1%), vertices/sample 0.286
+  qp-env        1/1       6.82/6.82/6.82           553        7     8.71   0.0157     5%    -0.0049    227/860          0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 7.000
+      qp 47.8 rows/call, 96% of calls reached the solver, 553 calls
+
+table_pick  (1 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-fixed      1/1       6.80/6.80/6.80           970        6     6.25   0.0064     0%     0.0003      0/971          0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 6.000
+      qp 43.5 rows/call, 36% of calls reached the solver, 970 calls
+  qp-adapt      1/1       2.45/2.45/2.45           294        6     6.25   0.0212    32%     0.0003      0/528          0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 6.000
+      qp 51.3 rows/call, 89% of calls reached the solver, 294 calls
+  free-env      1/1       6.64/6.64/6.64           278       15    12.96   0.0815    95%     0.0072      0/671          0     0.0001       0
+      primary samples 30, productive 11 (36.7%), vertices/sample 0.500
+  qp-env        1/1       1.81/1.81/1.81           198        6     6.25   0.0315    31%     0.0003      0/456          0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 6.000
+      qp 50.6 rows/call, 93% of calls reached the solver, 198 calls
+
+Hop disposition -- what set the hop's length, median over problems.
+  row         floored(<1 step)    at region   edge-limited
+  qp-fixed            100.0%         0.0%           0.0%
+  qp-adapt             91.6%        31.3%           1.0%
+  free-env              6.7%        96.0%           4.0%
+  qp-env               94.9%        29.3%           2.0%
+
+Endpoint clearance at zero margin -- min(start, goal) over all spheres.
+  scene                     min    median       max affordable   problems by margin
+  bookshelf_thin         0.0081    0.0081    0.0081    0.0081   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_pick             0.0077    0.0077    0.0077    0.0077   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+
+all scenes  (2 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-fixed      2/2       6.80/17.89/17.89         1571        7     8.71   0.0064     0%    -0.0052    206/2543         0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 7.000
+      qp 57.9 rows/call, 39% of calls reached the solver, 2541 calls
+  qp-adapt      2/2       2.45/8.26/8.26           665        7     8.71   0.0212    32%    -0.0052    236/1469         0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 7.000
+      qp 51.3 rows/call, 92% of calls reached the solver, 959 calls
+  free-env      2/2       6.64/124.26/124.26        3407      115    15.17   0.0815    95%     0.0001      0/1510         0     0.0001       0
+      primary samples 402, productive 109 (27.1%), vertices/sample 0.500
+  qp-env        2/2       1.81/6.82/6.82           553        7     8.71   0.0315    31%    -0.0049    227/1316         0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 7.000
+      qp 50.6 rows/call, 96% of calls reached the solver, 751 calls
+
+"samples" is checked configurations for isSafe, barrier evaluations for
+the three CBF rows, and SIMD configuration lanes evaluated for VAMP. They measure
+sampling work, while wall time captures the very different per-sample costs.
+"unsafe/audited" evaluates exact primitive clearance at every state of the
+densified solution -- for each CBF row that is the rollout the planner recorded
+for each edge, replayed, so it is the motion that would actually be executed,
+sampled inside each step rather than only at its boundaries. Non-zero unsafe
+invalidates a row however fast it was.
+"missed" counts solution edges that were not on file and had to be
+re-derived; it must be zero, or the audited motion is a different trajectory
+from the one the planner found.
+
+
+envelope hop: 90 filter calls, 1.344 hold queries/call, 11.6% saturated, 100.0% longer than L1, past one step 100.0% (L1 alone 58.9%), gated 88.0%, empty-active 0.0%, screen-escalated 18.9%
+envelope bottleneck: world 94.4%, self-collision 3.3%, unbound 2.2% (horizon or screen clip), blocked 0.0%, joint-limit clamped 0.0%
+envelope binding term:
+  world rows       L1 0.0%, local-L1 3.5%, speed-capped 0.0%, isotropic-anchored 96.5% (of 85 bound calls)
+  self-pair rows   L1 0.0%, local-L1 0.0%, speed-capped 0.0%, normal-anchored 100.0% (of 3 bound calls)
+local-lever screen: 9182 of 17081 expensive world rows settled before the envelope (53.8%)
+span handed to the rollout, in controller steps (751 calls):
+                   <1      1-2      2-4      4-8       8+
+  L1 only      92.94%     2.80%     0.53%     1.33%     2.40%
+  envelope     88.02%     4.13%     1.60%     0.80%     5.46%
+=== CBF profiler (wall time) ===
+=== CBF filter stats ===
+  calls=0  unchanged=0 (0.0%)  filtered=0 (0.0%)  blocked=0 (0.0%)
+  active rows:       avg=0.00  max=0
+  zero-row fast path: 0 (0.0%)
+  qp iterations:     avg=0.00  max=0
+  certified duration: avg=0.00000s  min=0.00000s  max=0.00000s  (over 0 non-blocked calls)
+  required gain:     avg=0.000/s  max=0.000/s  p50=0.000/s  p90=0.000/s  p99=0.000/s  (over 0 calls, 0 uncertified)

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <functional>
+
+#include <cstddef>
 #include <limits>
 
 #include <Eigen/Core>
@@ -50,6 +53,25 @@ namespace ompl::cbf
             /// Implementations write a zero control in this case.
             Blocked
         };
+
+        /// A predicate that answers "is this configuration acceptable to the barrier I
+        /// enforce", or empty if this filter does not expose one.
+        ///
+        /// `FilteredStateSpace::roll()` uses it to verify a landing state before
+        /// committing it; see `OMPL_CBF_VERIFY_STEP`. A filter that accept-or-stops never
+        /// commits a control it has not already checked and can leave this empty. A
+        /// filter that *repairs* a control from a linear model cannot make that claim --
+        /// the repaired step is certified by a chord through a nonlinear kinematic map --
+        /// so it should hand back the barrier it repaired against.
+        ///
+        /// A predicate rather than the barrier itself: this class is templated on the
+        /// robot and knows nothing of `ClearanceBarrier`, and going through a base
+        /// pointer would put a virtual call on the hot path for every constraint row.
+        using SafetyCheck = std::function<bool(const Configuration &)>;
+        virtual SafetyCheck safetyCheck() const
+        {
+            return SafetyCheck();
+        }
 
         static const char *statusString(Status status)
         {
@@ -125,8 +147,32 @@ namespace ompl::cbf
             return status;
         }
 
+        /// Per-call work counters, in the units an ablation table prices a filter in.
+        ///
+        /// Separate from `FilterStats`, which is process-wide, mutex-guarded and
+        /// opt-in: these are three unsynchronised increments on the filter object
+        /// itself, cheap enough to leave on, and scoped to one filter so a benchmark
+        /// can read them per problem without resetting a global. A filter that does
+        /// not reach a QP -- the passthrough, the no-QP gate -- leaves them at zero.
+        struct Counters
+        {
+            std::size_t calls{0};   ///< `filter()` invocations
+            std::size_t rows{0};    ///< constraint rows assembled, summed over calls
+            std::size_t solves{0};  ///< calls that reached the QP solver
+        };
+
+        /// This filter's counters. A wrapper that delegates to an inner filter should
+        /// override this to report the inner one's, so the wrapped QP is priced once.
+        virtual const Counters &counters() const
+        {
+            return counters_;
+        }
+
         /// Human-readable name, for logging and benchmark labels.
         virtual const char *name() const = 0;
+
+    protected:
+        mutable Counters counters_;
     };
 
     /// A filter that does nothing. This is the A/B baseline: dropped into the same

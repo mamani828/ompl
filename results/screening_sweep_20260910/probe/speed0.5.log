@@ -1,0 +1,107 @@
+
+MotionBenchMaker UR5, 689 problems loaded, up to 2 per scene
+voxel 0.003 m, margin 0.0000 m + 0.0030 m filter buffer, stepSize 0.020 s, range 2.00 rad, 5.0 s limit
+
+hop certificates: old L1 Lipschitz region and new hold-time bound
+Picard: off; trajectory prefixes: 0; sequential rollout budget: 10000 calls
+kappa 20.00 /s, certified step uncapped, self-collision margin 0.0000 m over 303 pairs
+baseline segment: 0.000650 of extent = 0.0100 rad, rollout step 0.0100 rad (matched to the rollout)
+rope shortcut off, all rows unsimplified
+
+seed 1
+  planner       solved ms(min/med/max)        samples vertices     path rad/call coarse  worst clr unsafe/audited missed worst self collide
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+Error:   Random number generation already started. Changing seed now will not lead to deterministic sampling.
+         at line 79 in /home/ax-ml-ubu24/ompl/src/ompl/util/src/RandomNumbers.cpp
+
+bookshelf_small  (2 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-fixed      1/2       0.91/5000.13/5000.13    2087833     3842     6.29   0.0157     0%     0.0033      0/401          0     0.0025       0
+      primary samples 10236, productive 3731 (36.4%), vertices/sample 6.000
+
+bookshelf_tall  (2 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-fixed      2/2       2.73/2.87/2.87          1068        9    11.03   0.0144     0%     0.0029      0/1580         0     0.0025       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 4.500
+
+bookshelf_thin  (2 problems, 1 skipped: 0 clearance, 1 self-collision)
+  qp-fixed      1/1       3.33/3.33/3.33          1146       48    12.44   0.0113     0%    -0.0005      2/1039         0     0.0025       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 24.000
+
+box  (2 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-fixed      2/2       1.36/3.20/3.20          1094       42    12.53   0.0126     0%     0.0029      0/1482         0     0.0025       0
+      primary samples 3, productive 3 (100.0%), vertices/sample 14.000
+
+cage  (2 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-fixed      2/2      31.60/36.77/36.77        11294       98    24.64   0.0101     0%    -0.0032     17/3301         0     0.0025       0
+      primary samples 46, productive 34 (73.9%), vertices/sample 2.390
+
+table_pick  (2 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-fixed      2/2       1.73/6.81/6.81          1931       43    11.98   0.0132     0%     0.0029      0/1635         0     0.0025       0
+      primary samples 4, productive 4 (100.0%), vertices/sample 10.750
+
+table_under_pick  (2 problems, 1 skipped: 0 clearance, 1 self-collision)
+  qp-fixed      1/1       3.65/3.65/3.65          1190       12    10.21   0.0123     0%    -0.0033      8/850          0     0.0025       0
+      primary samples 4, productive 4 (100.0%), vertices/sample 3.000
+
+Hop disposition -- what set the hop's length, median over problems.
+  row         floored(<1 step)    at region   edge-limited
+  qp-fixed            100.0%         0.0%           0.0%
+
+Endpoint clearance at zero margin -- min(start, goal) over all spheres.
+  scene                     min    median       max affordable   problems by margin
+  bookshelf_small        0.0038    0.0075    0.0075    0.0038   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_tall         0.0046    0.0067    0.0067    0.0046   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_thin        -0.0174    0.0073    0.0073   -0.0174   0: 50% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  box                    0.0127    0.0127    0.0127    0.0127   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  cage                   0.0127    0.0127    0.0127    0.0127   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_pick             0.0076    0.0079    0.0079    0.0076   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_under_pick      -0.0198    0.0082    0.0082   -0.0198   0: 50% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+
+all scenes  (14 problems, 2 skipped: 0 clearance, 2 self-collision)
+  qp-fixed     11/12      0.91/3.33/5000.13       1146       42    11.03   0.0123     0%    -0.0033     27/10288        0     0.0025       0
+      primary samples 3, productive 3 (100.0%), vertices/sample 6.000
+
+"samples" is checked configurations for isSafe, barrier evaluations for
+the three CBF rows, and SIMD configuration lanes evaluated for VAMP. They measure
+sampling work, while wall time captures the very different per-sample costs.
+"unsafe/audited" evaluates exact primitive clearance at every state of the
+densified solution -- for each CBF row that is the rollout the planner recorded
+for each edge, replayed, so it is the motion that would actually be executed,
+sampled inside each step rather than only at its boundaries. Non-zero unsafe
+invalidates a row however fast it was.
+"missed" counts solution edges that were not on file and had to be
+re-derived; it must be zero, or the audited motion is a different trajectory
+from the one the planner found.
+
+=== CBF profiler (wall time) ===
+  evaluate_screened    total=   3.8104s  calls= 2117976  avg=    1.799us
+  sdf_query            total=   2.3097s  calls= 2117976  avg=    1.091us
+  qp_solve             total=   0.9511s  calls= 1552410  avg=    0.613us
+  self_collision       total=   0.5931s  calls= 2117976  avg=    0.280us
+=== CBF filter stats ===
+  calls=2117976  unchanged=125342 (5.9%)  filtered=1992616 (94.1%)  blocked=18 (0.0%)
+  active rows:       avg=7.17  max=46
+  zero-row fast path: 69414 (3.3%)
+  qp iterations:     avg=1.51  max=15
+  certified duration: avg=0.00000s  min=0.00000s  max=0.00000s  (over 2117958 non-blocked calls)
+  required gain:     avg=0.000/s  max=0.000/s  p50=0.000/s  p90=0.000/s  p99=0.000/s  (over 0 calls, 2117958 uncertified)

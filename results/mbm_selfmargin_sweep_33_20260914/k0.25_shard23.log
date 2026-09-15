@@ -1,0 +1,84 @@
+
+MotionBenchMaker UR5, 33 problems loaded, up to 100 per scene
+voxel 0.003 m, margin 0.0000 m + 0.0000 m filter buffer, stepSize 0.001 s, range 2.00 rad, 10.0 s limit
+
+hop certificates: old L1 Lipschitz region and new hold-time bound
+Picard: off; trajectory prefixes: 0; sequential rollout budget: 10000 calls
+kappa 20.00 /s, certified step uncapped, self-collision margin 0.0000 m over 303 pairs
+baseline segment: 0.000650 of extent = 0.0100 rad, rollout step 0.0100 rad (matched to the rollout)
+rope shortcut off, all rows unsimplified
+
+seed 1
+  planner       solved ms(min/med/max)        samples vertices     path rad/call coarse  worst clr unsafe/audited missed worst self collide
+
+table_under_pick  (1 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect    1/1       6.52/6.52/6.52          1146        8    10.64        -      -     0.0063      0/534          0     0.0025       0
+      primary samples 29, productive 3 (10.3%), vertices/sample 0.276
+  qp-fixed      1/1      55.99/55.99/55.99         4838       28    18.82   0.0092     0%     0.0001      0/1683         0     0.0010       0
+      primary samples 14, productive 13 (92.9%), vertices/sample 2.000
+      qp 281.9 rows/call, 95% of calls reached the solver, 4838 calls
+  qp-adapt      1/1      42.57/42.57/42.57         3483       28    18.83   0.0127    25%     0.0001      0/1430         0     0.0010       0
+      primary samples 14, productive 13 (92.9%), vertices/sample 2.000
+      qp 284.5 rows/call, 98% of calls reached the solver, 3483 calls
+  qp-env        1/1      32.98/32.98/32.98         2606       28    18.83   0.0173    20%     0.0001      0/1307         0     0.0010       0
+      primary samples 14, productive 13 (92.9%), vertices/sample 2.000
+      qp 285.5 rows/call, 99% of calls reached the solver, 2606 calls
+  vamp-rrtc     1/1       0.09/0.09/0.09          1898        8    10.64        -      -     0.0063      0/534          0     0.0025       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+Hop disposition -- what set the hop's length, median over problems.
+  row         floored(<1 step)    at region   edge-limited
+  qp-fixed            100.0%         0.0%           0.0%
+  qp-adapt             75.3%        24.3%           0.3%
+  qp-env               80.0%        19.4%           0.6%
+
+Endpoint clearance at zero margin -- min(start, goal) over all spheres.
+  scene                     min    median       max affordable   problems by margin
+  table_under_pick       0.0080    0.0080    0.0080    0.0080   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+
+all scenes  (1 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect    1/1       6.52/6.52/6.52          1146        8    10.64        -      -     0.0063      0/534          0     0.0025       0
+      primary samples 29, productive 3 (10.3%), vertices/sample 0.276
+  qp-fixed      1/1      55.99/55.99/55.99         4838       28    18.82   0.0092     0%     0.0001      0/1683         0     0.0010       0
+      primary samples 14, productive 13 (92.9%), vertices/sample 2.000
+      qp 281.9 rows/call, 95% of calls reached the solver, 4838 calls
+  qp-adapt      1/1      42.57/42.57/42.57         3483       28    18.83   0.0127    25%     0.0001      0/1430         0     0.0010       0
+      primary samples 14, productive 13 (92.9%), vertices/sample 2.000
+      qp 284.5 rows/call, 98% of calls reached the solver, 3483 calls
+  qp-env        1/1      32.98/32.98/32.98         2606       28    18.83   0.0173    20%     0.0001      0/1307         0     0.0010       0
+      primary samples 14, productive 13 (92.9%), vertices/sample 2.000
+      qp 285.5 rows/call, 99% of calls reached the solver, 2606 calls
+  vamp-rrtc     1/1       0.09/0.09/0.09          1898        8    10.64        -      -     0.0063      0/534          0     0.0025       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+"samples" is checked configurations for isSafe, barrier evaluations for
+the three CBF rows, and SIMD configuration lanes evaluated for VAMP. They measure
+sampling work, while wall time captures the very different per-sample costs.
+"unsafe/audited" evaluates exact primitive clearance at every state of the
+densified solution -- for each CBF row that is the rollout the planner recorded
+for each edge, replayed, so it is the motion that would actually be executed,
+sampled inside each step rather than only at its boundaries. Non-zero unsafe
+invalidates a row however fast it was.
+"missed" counts solution edges that were not on file and had to be
+re-derived; it must be zero, or the audited motion is a different trajectory
+from the one the planner found.
+
+
+envelope hop: 553 filter calls, 1.143 hold queries/call, 12.2% saturated, 100.0% longer than L1, past one step 94.0% (L1 alone 50.3%), gated 78.8%, empty-active 0.0%, screen-escalated 0.4%
+envelope bottleneck: world 98.4%, self-collision 1.6%, unbound 0.0% (horizon or screen clip), blocked 0.0%, joint-limit clamped 0.0%
+envelope binding term:
+  world rows       L1 0.0%, local-L1 0.6%, speed-capped 11.6%, isotropic-anchored 87.9% (of 544 bound calls)
+  self-pair rows   L1 0.0%, local-L1 0.0%, speed-capped 0.0%, normal-anchored 100.0% (of 9 bound calls)
+local-lever screen: 1734 of 3291 expensive world rows settled before the envelope (52.7%)
+span handed to the rollout, in controller steps (2606 calls):
+                   <1      1-2      2-4      4-8       8+
+  L1 only      89.33%     7.44%     2.19%     0.81%     0.23%
+  envelope     80.05%     5.30%     8.21%     3.61%     2.84%
+=== CBF profiler (wall time) ===
+=== CBF filter stats ===
+  calls=0  unchanged=0 (0.0%)  filtered=0 (0.0%)  blocked=0 (0.0%)
+  active rows:       avg=0.00  max=0
+  zero-row fast path: 0 (0.0%)
+  qp iterations:     avg=0.00  max=0
+  certified duration: avg=0.00000s  min=0.00000s  max=0.00000s  (over 0 non-blocked calls)
+  required gain:     avg=0.000/s  max=0.000/s  p50=0.000/s  p90=0.000/s  p99=0.000/s  (over 0 calls, 0 uncertified)

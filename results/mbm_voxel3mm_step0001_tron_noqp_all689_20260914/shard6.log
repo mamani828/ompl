@@ -1,0 +1,79 @@
+
+MotionBenchMaker UR5, 689 problems loaded, up to 100 per scene
+voxel 0.003 m, margin 0.0000 m + 0.0000 m filter buffer, stepSize 0.001 s, range 2.00 rad, 10.0 s limit
+
+hop certificates: old L1 Lipschitz region and new hold-time bound
+Picard: off; trajectory prefixes: 0; sequential rollout budget: 10000 calls
+kappa 20.00 /s, certified step uncapped, self-collision margin 0.0000 m over 303 pairs
+baseline segment: 0.000650 of extent = 0.0100 rad, rollout step 0.0100 rad (matched to the rollout)
+rope shortcut off, all rows unsimplified
+
+seed 1
+  planner       solved ms(min/med/max)        samples vertices     path rad/call coarse  worst clr unsafe/audited missed worst self collide
+
+bookshelf_small  (14 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-free       7/14      9.27/10000.02/10000.40    1136370    15902    14.89   0.0128     0%     0.0052      0/8588         0     0.0025       0
+      primary samples 137583, productive 15900 (11.6%), vertices/sample 0.129
+
+bookshelf_tall  (13 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-free       3/13     23.61/10000.06/10000.41    1184801    17222    14.28   0.0117     0%     0.0059      0/3059         0     0.0025       0
+      primary samples 168329, productive 17220 (10.2%), vertices/sample 0.100
+
+bookshelf_thin  (14 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-free      10/14     34.69/171.49/10000.23      23987      202    16.07   0.0132     0%     0.0025      0/10983        0     0.0025       0
+      primary samples 1220, productive 199 (16.3%), vertices/sample 0.175
+
+box  (14 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-free      14/14     12.83/43.67/194.28        6061       52    18.27   0.0135     0%     0.0128      0/18056        0     0.0025       0
+      primary samples 187, productive 46 (24.6%), vertices/sample 0.262
+
+cage  (14 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-free       1/14   2562.03/10000.03/10000.40    1213894    17437    18.50   0.0118     0%     0.0198      0/1325         0     0.0025       0
+      primary samples 172497, productive 17432 (10.1%), vertices/sample 0.101
+
+table_pick  (15 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-free      15/15      7.70/76.07/490.50       10770       98    18.41   0.0133     0%     0.0035      0/19935        0     0.0025       0
+      primary samples 432, productive 92 (21.3%), vertices/sample 0.216
+
+table_under_pick  (14 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-free      10/14     13.05/48.05/10000.23       6454       57    20.67   0.0133     0%     0.0077      0/14103        0     0.0025       0
+      primary samples 260, productive 53 (20.4%), vertices/sample 0.208
+
+Hop disposition -- what set the hop's length, median over problems.
+  row         floored(<1 step)    at region   edge-limited
+  qp-free             100.0%         0.0%           0.0%
+
+Endpoint clearance at zero margin -- min(start, goal) over all spheres.
+  scene                     min    median       max affordable   problems by margin
+  bookshelf_small       -0.0240    0.0057    0.0090   -0.0240   0: 64% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_tall        -0.0243   -0.0116    0.0073   -0.0243   0: 38% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_thin        -0.0215    0.0051    0.0109   -0.0215   0: 79% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  box                    0.0082    0.0127    0.0127    0.0082   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  cage                   0.0099    0.0127    0.0127    0.0099   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_pick             0.0045    0.0079    0.0081    0.0045   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_under_pick      -0.0226    0.0080    0.0083   -0.0226   0: 79% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+
+all scenes  (98 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-free      60/98      7.70/189.25/10000.41      24773      214    17.31   0.0130     0%     0.0025      0/76049        0     0.0025       0
+      primary samples 1220, productive 210 (17.2%), vertices/sample 0.166
+
+"samples" is checked configurations for isSafe, barrier evaluations for
+the three CBF rows, and SIMD configuration lanes evaluated for VAMP. They measure
+sampling work, while wall time captures the very different per-sample costs.
+"unsafe/audited" evaluates exact primitive clearance at every state of the
+densified solution -- for each CBF row that is the rollout the planner recorded
+for each edge, replayed, so it is the motion that would actually be executed,
+sampled inside each step rather than only at its boundaries. Non-zero unsafe
+invalidates a row however fast it was.
+"missed" counts solution edges that were not on file and had to be
+re-derived; it must be zero, or the audited motion is a different trajectory
+from the one the planner found.
+
+=== CBF profiler (wall time) ===
+=== CBF filter stats ===
+  calls=0  unchanged=0 (0.0%)  filtered=0 (0.0%)  blocked=0 (0.0%)
+  active rows:       avg=0.00  max=0
+  zero-row fast path: 0 (0.0%)
+  qp iterations:     avg=0.00  max=0
+  certified duration: avg=0.00000s  min=0.00000s  max=0.00000s  (over 0 non-blocked calls)
+  required gain:     avg=0.000/s  max=0.000/s  p50=0.000/s  p90=0.000/s  p99=0.000/s  (over 0 calls, 0 uncertified)

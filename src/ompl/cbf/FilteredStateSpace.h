@@ -7,6 +7,8 @@
 #include <cstring>
 #include <deque>
 #include <functional>
+#include <cstdlib>
+#include <type_traits>
 #include <limits>
 #include <memory>
 #include <unordered_map>
@@ -31,6 +33,35 @@ namespace ompl::cbf
     /// travel, so a wide motion needs many short edges and the tree grows deep:
     /// measured at ~110-770 vertices where `geometric::RRTConnect` needs 5 on the same
     /// scene. Putting the rollout behind `interpolate()` lets a *geometric* planner
+    namespace detail
+    {
+        /// Verify each landing state against the enforced barrier and refuse the step
+        /// that fails, keeping the last verified state instead. Off by default.
+        ///
+        /// A CBF gives forward invariance in continuous time. Enforced at samples by an
+        /// optimiser that maximises progress subject to h >= 0, the solution sits *on*
+        /// the constraint by construction and the finite step can land under it. Measured
+        /// on MotionBenchMaker: the rows that solve a QP put a real collision in 3.6-7.7%
+        /// of returned paths -- up to a third of one trajectory inside an obstacle -- and
+        /// the rows that only accept-or-stop put one in none of 564852 audited states.
+        /// Neither a 3 mm buffer nor a 10x smaller step closed that gap.
+        ///
+        /// This makes the QP's guarantee checked rather than assumed, at the cost of one
+        /// barrier evaluation per committed step against the ~343 constraint rows the
+        /// filter already assembles per call.
+        /// 0 off, 1 verify every committed landing, 2 verify only the landings a
+        /// certificate does not already cover -- see the call site.
+        inline int verifyLandingMode()
+        {
+            static const int value = []
+            {
+                const char *v = std::getenv("OMPL_CBF_VERIFY_STEP");
+                return v != nullptr ? std::atoi(v) : 0;
+            }();
+            return value;
+        }
+    }  // namespace detail
+
     /// take long-range extensions while every intermediate state is still certified by
     /// the barrier.
     ///
@@ -217,7 +248,10 @@ namespace ompl::cbf
         /// As above, with explicit runtime bounds (notably a mobile base workspace).
         RobotFilteredStateSpace(const Filter &filter, double stepSize, const Control &maxSpeed,
                                 const Configuration &lower, const Configuration &upper)
-          : base::RealVectorStateSpace(dimension), filter_(filter), stepSize_(stepSize),
+          : base::RealVectorStateSpace(dimension), filter_(filter),
+            verifyLanding_(detail::verifyLandingMode() != 0 ? filter.safetyCheck()
+                                                          : typename Filter::SafetyCheck()),
+            stepSize_(stepSize),
             maxSpeed_(maxSpeed)
         {
             if (stepSize <= 0.0)
@@ -383,6 +417,25 @@ namespace ompl::cbf
                 // rounding away from it, which is what the ledger keys on.
                 if (Operations::difference(landing, to).cwiseAbs().maxCoeff() <= negligibleAngle)
                     landing = Operations::normalize(to);
+
+                // Verify before committing. `landing` is where the step actually ends;
+                // if the enforced barrier is negative there, the linear model that
+                // certified the step was wrong, so keep `previous` -- already verified,
+                // since it is either `from` or a landing that passed this same test --
+                // and let the caller have the shorter rollout. This is what the gates do
+                // implicitly and what the QP rows were missing.
+                // `span` exceeds `reach` only through the `max(stepSize_, ...)` floor
+                // above: every other hop runs no longer than the duration the filter
+                // certified, over which the barrier provably stays non-negative, so
+                // checking it re-derives a guarantee already in hand. Mode 2 skips those.
+                // Measured on MotionBenchMaker, that is ~44% of qpAdaptive's hops and
+                // ~45% of qpEnvelope's; qpFixed is floored on every hop and saves nothing.
+                if (verifyLanding_ && (verifyLandingMode_ == 1 || span > reach) &&
+                    !verifyLanding_(landing))
+                {
+                    terminal = true;
+                    break;
+                }
 
                 elapsed += span;
                 // With early termination disabled, a cornered-but-feasible zero control
@@ -1008,6 +1061,9 @@ namespace ompl::cbf
         }
 
         const Filter &filter_;
+        /// Empty unless OMPL_CBF_VERIFY_STEP is set and the filter exposes a check.
+        typename Filter::SafetyCheck verifyLanding_;
+        const int verifyLandingMode_{detail::verifyLandingMode()};
         double stepSize_;
         Control maxSpeed_;
         double reachTolerance_{-1.0};

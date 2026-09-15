@@ -1,0 +1,37 @@
+{
+  "urdf": "/home/ax-ml-ubu24/ompl/external/vamp/resources/ur5/ur5_spherized.urdf",
+  "q0_rad": [
+    -1.1,
+    -1.02,
+    1.28,
+    -1.38,
+    -0.92,
+    0.48
+  ],
+  "u_rad_per_s": [
+    0.48,
+    -0.36,
+    0.56,
+    0.3,
+    -0.34,
+    0.24
+  ],
+  "horizon_s": 1.6,
+  "derived_obstacle_center_m": [
+    -0.051683455535223174,
+    0.3166586793751634,
+    1.0065245096200501
+  ],
+  "obstacle_radius_m": 0.065,
+  "target_sphere": 34,
+  "binding_sphere": 2,
+  "binding_link": "upper_arm_link",
+  "binding_radius_m": 0.08,
+  "binding_initial_clearance_m": 0.05029001053249467,
+  "certified_hold_s": 0.4210058763251755,
+  "first_sampled_collision_s": 1.018,
+  "minimum_true_clearance_on_certified_prefix_m": 0.05029001053249467,
+  "max_true_displacement_minus_envelope_m": 0.0,
+  "samples": 801,
+  "statement": "For every sphere i, h_i(t) >= h_i(0)-D_i(t); tau is the minimum root across all world rows."
+}

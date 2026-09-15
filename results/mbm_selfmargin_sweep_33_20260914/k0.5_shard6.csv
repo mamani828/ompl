@@ -1,0 +1,11 @@
+seed,scene,problem,method,eligible,solved,seconds,samples,vertices,path_length,waypoints,audited_states,unsafe_states,min_clearance,min_self_overlap,self_colliding,misses,rad_per_call,coarse_fraction,primary_samples,productive_samples,vertices_per_sample,picard_attempts,picard_accepted,picard_fallbacks,hop_floored,hop_at_region,hop_edge_limited,qp_calls,qp_rows,qp_solves
+1,bookshelf_tall,39,isSafe,1,0,10.0001,1878517,17712,0,0,0,0,inf,inf,0,0,0,0,111004,17709,0.159562,0,0,0,0,0,0,0,0,0
+1,bookshelf_tall,39,qpFixed,1,0,10.0006,1072580,3407,0,0,0,0,inf,inf,0,0,0.00659721,0,5124,2543,0.66491,0,0,0,1,0,0,1072580,327318269,999726
+1,bookshelf_tall,39,qpAdaptive,1,0,10.0001,995063,3645,0,0,0,0,inf,inf,0,0,0.00762338,0.091762,5565,2735,0.654987,0,0,0,0.907621,0.0906067,0.00177276,995063,305146923,978730
+1,bookshelf_tall,39,qpEnvelope,1,0,10.0006,983007,3948,0,0,0,0,inf,inf,0,0,0.00843295,0.0134384,6193,2992,0.637494,0,0,0,0.986301,0.0113519,0.00234689,983007,301410475,977414
+1,bookshelf_tall,39,VAMP,1,1,5.053e-05,784,8,8.20208,6,412,0,0.00317061,0.000221205,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+1,bookshelf_small,37,isSafe,1,0,10.0001,3181049,32892,0,0,0,0,inf,inf,0,0,0,0,207911,32890,0.158202,0,0,0,0,0,0,0,0,0
+1,bookshelf_small,37,qpFixed,1,0,10.0017,1590197,4790,0,0,0,0,inf,inf,0,0,0.00631606,0,7895,3717,0.606713,0,0,0,1,0,0,1590197,485519563,1487912
+1,bookshelf_small,37,qpAdaptive,1,0,10.0011,1471154,5025,0,0,0,0,inf,inf,0,0,0.00717832,0.0828778,8381,3925,0.59957,0,0,0,0.916568,0.081751,0.001681,1471154,451413506,1448043
+1,bookshelf_small,37,qpEnvelope,1,0,10,1450595,5383,0,0,0,0,inf,inf,0,0,0.00786689,0.0118207,9158,4226,0.587792,0,0,0,0.987942,0.00984701,0.00221082,1450595,444825810,1442709
+1,bookshelf_small,37,VAMP,1,1,7.3691e-05,2896,15,13.1352,8,658,0,0.00387295,0.00220213,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0

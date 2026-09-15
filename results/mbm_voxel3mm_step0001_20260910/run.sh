@@ -4,7 +4,7 @@
 # one-step floor to 0.01 rad so the hold certificate actually binds (at-region hops
 # 6% -> 24%), which is what gives envelope-vs-L1 any resolution.
 #
-# Five rows: RRT-Connect (isSafe), QP fixed step, QP L1 certificate (qpAdaptive),
+# Six rows: RRT-Connect (isSafe), plain CBF-RRT (qpPlain), QP fixed step, QP L1 certificate (qpAdaptive),
 # no-QP CBF gate (qpFreeGate), QP envelope certificate (qpEnvelope).
 # Screening on, RRT-Connect range 2.0 rad, margin 0 and filter buffer 0.
 #
@@ -20,7 +20,7 @@ OUT=results/mbm_voxel3mm_step0001_20260910
 SCENES=$OUT/scenes_all.txt
 
 export OMPL_CBF_SCREENING=1
-export OMPL_MBM_ROWS=isSafe,qpFixed,qpAdaptive,qpFreeGate,qpEnvelope
+export OMPL_MBM_ROWS=isSafe,qpPlain,qpFixed,qpAdaptive,qpFreeGate,qpEnvelope
 export OMPL_SDF_BAKE_THREADS=$(( $(nproc) / SHARDS ))
 # Lift the Constant(0.5) placeholder cap so it is not the binding constraint. It cannot
 # be zero: FilteredStateSpace rejects non-positive speeds and the QP needs a bounded

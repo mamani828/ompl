@@ -1,0 +1,109 @@
+
+MotionBenchMaker UR5, 60 problems loaded, up to 100 per scene
+voxel 0.003 m, margin 0.0000 m + 0.0000 m filter buffer, stepSize 0.001 s, range 2.00 rad, 10.0 s limit
+
+hop certificates: old L1 Lipschitz region and new hold-time bound
+Picard: off; trajectory prefixes: 0; sequential rollout budget: 10000 calls
+kappa 20.00 /s, certified step uncapped, self-collision margin 0.0000 m over 303 pairs
+baseline segment: 0.000325 of extent = 0.0050 rad, rollout step 0.0050 rad (matched to the rollout)
+rope shortcut off, all rows unsimplified
+
+seed 1
+  planner       solved ms(min/med/max)        samples vertices     path rad/call coarse  worst clr unsafe/audited missed worst self collide
+
+bookshelf_small  (1 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-fixed      1/1       9.23/9.23/9.23          1516        8    10.01   0.0066     0%     0.0000      0/1517         0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 8.000
+      qp 92.4 rows/call, 62% of calls reached the solver, 1516 calls
+  qp-adapt      1/1       7.27/7.27/7.27           988        8    10.01   0.0101    12%     0.0000      0/1178         0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 8.000
+      qp 65.9 rows/call, 93% of calls reached the solver, 988 calls
+  free-env      1/1      27.94/27.94/27.94         1740       61    23.12   0.0579    86%     0.0041      0/1202         0     0.0000       0
+      primary samples 190, productive 55 (28.9%), vertices/sample 0.321
+  qp-env        1/1       5.20/5.20/5.20           768        8    10.01   0.0130     7%     0.0000      0/1024         0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 8.000
+      qp 63.4 rows/call, 94% of calls reached the solver, 768 calls
+
+bookshelf_thin  (1 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-fixed      1/1      18.62/18.62/18.62         1591        8     5.94   0.0058     0%    -0.0049     24/868          0     0.0025       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 4.000
+      qp 42.6 rows/call, 40% of calls reached the solver, 1591 calls
+  qp-adapt      1/1       8.10/8.10/8.10           639        8     5.94   0.0144    22%    -0.0047     22/437          0     0.0025       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 4.000
+      qp 44.9 rows/call, 93% of calls reached the solver, 639 calls
+  free-env      1/1       4.14/4.14/4.14            99       11    13.28   0.1633    95%     0.0087      0/688          0     0.0025       0
+      primary samples 9, productive 6 (66.7%), vertices/sample 1.222
+  qp-env        1/1       6.80/6.80/6.80           464        8     5.95   0.0199    10%    -0.0047     21/346          0     0.0025       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 4.000
+      qp 44.0 rows/call, 95% of calls reached the solver, 464 calls
+
+cage  (1 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-fixed      1/1     456.65/456.65/456.65       66881      169    20.24   0.0046     0%    -0.0000     24/3161         0     0.0025       0
+      primary samples 139, productive 101 (72.7%), vertices/sample 1.216
+      qp 117.9 rows/call, 90% of calls reached the solver, 66881 calls
+  qp-adapt      1/1     386.85/386.85/386.85       52141      169    20.25   0.0059    15%    -0.0000     26/2082         0     0.0025       0
+      primary samples 139, productive 101 (72.7%), vertices/sample 1.216
+      qp 119.8 rows/call, 98% of calls reached the solver, 52141 calls
+  free-env      1/1     358.57/358.57/358.57       23288      729    28.60   0.0485    79%     0.0001      0/1530         0     0.0000       0
+      primary samples 2701, productive 696 (25.8%), vertices/sample 0.270
+  qp-env        1/1     335.64/335.64/335.64       44553      169    20.29   0.0069    12%    -0.0000     31/1855         0     0.0025       0
+      primary samples 139, productive 101 (72.7%), vertices/sample 1.216
+      qp 118.1 rows/call, 99% of calls reached the solver, 44553 calls
+
+Hop disposition -- what set the hop's length, median over problems.
+  row         floored(<1 step)    at region   edge-limited
+  qp-fixed            100.0%         0.0%           0.0%
+  qp-adapt             85.1%        14.8%           0.3%
+  free-env              6.4%        89.8%           3.7%
+  qp-env               90.3%         8.6%           0.4%
+
+Endpoint clearance at zero margin -- min(start, goal) over all spheres.
+  scene                     min    median       max affordable   problems by margin
+  bookshelf_small        0.0041    0.0041    0.0041    0.0041   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_thin         0.0087    0.0087    0.0087    0.0087   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  cage                   0.0127    0.0127    0.0127    0.0127   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+
+all scenes  (3 problems, 0 skipped: 0 clearance, 0 self-collision)
+  qp-fixed      3/3       9.23/18.62/456.65        1591        8    10.01   0.0058     0%    -0.0049     48/5546         0     0.0025       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 4.000
+      qp 92.4 rows/call, 62% of calls reached the solver, 69988 calls
+  qp-adapt      3/3       7.27/8.10/386.85         988        8    10.01   0.0101    15%    -0.0047     48/3697         0     0.0025       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 4.000
+      qp 65.9 rows/call, 93% of calls reached the solver, 53768 calls
+  free-env      3/3       4.14/27.94/358.57        1740       61    23.12   0.0579    86%     0.0001      0/3420         0     0.0000       0
+      primary samples 190, productive 55 (28.9%), vertices/sample 0.321
+  qp-env        3/3       5.20/6.80/335.64         768        8    10.01   0.0130    10%    -0.0047     52/3225         0     0.0025       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 4.000
+      qp 63.4 rows/call, 95% of calls reached the solver, 45785 calls
+
+"samples" is checked configurations for isSafe, barrier evaluations for
+the three CBF rows, and SIMD configuration lanes evaluated for VAMP. They measure
+sampling work, while wall time captures the very different per-sample costs.
+"unsafe/audited" evaluates exact primitive clearance at every state of the
+densified solution -- for each CBF row that is the rollout the planner recorded
+for each edge, replayed, so it is the motion that would actually be executed,
+sampled inside each step rather than only at its boundaries. Non-zero unsafe
+invalidates a row however fast it was.
+"missed" counts solution edges that were not on file and had to be
+re-derived; it must be zero, or the audited motion is a different trajectory
+from the one the planner found.
+
+
+envelope hop: 6046 filter calls, 1.139 hold queries/call, 10.6% saturated, 100.0% longer than L1, past one step 89.3% (L1 alone 52.5%), gated 86.8%, empty-active 0.0%, screen-escalated 1.8%
+envelope bottleneck: world 98.3%, self-collision 1.7%, unbound 0.0% (horizon or screen clip), blocked 0.0%, joint-limit clamped 0.0%
+envelope binding term:
+  world rows       L1 0.0%, local-L1 0.2%, speed-capped 14.8%, isotropic-anchored 85.0% (of 5943 bound calls)
+  self-pair rows   L1 0.0%, local-L1 0.0%, speed-capped 0.0%, normal-anchored 100.0% (of 100 bound calls)
+local-lever screen: 57641 of 107242 expensive world rows settled before the envelope (53.7%)
+span handed to the rollout, in controller steps (45785 calls):
+                   <1      1-2      2-4      4-8       8+
+  L1 only      93.07%     4.30%     1.59%     0.64%     0.41%
+  envelope     88.21%     4.27%     3.80%     2.07%     1.65%
+=== CBF profiler (wall time) ===
+=== CBF filter stats ===
+  calls=0  unchanged=0 (0.0%)  filtered=0 (0.0%)  blocked=0 (0.0%)
+  active rows:       avg=0.00  max=0
+  zero-row fast path: 0 (0.0%)
+  qp iterations:     avg=0.00  max=0
+  certified duration: avg=0.00000s  min=0.00000s  max=0.00000s  (over 0 non-blocked calls)
+  required gain:     avg=0.000/s  max=0.000/s  p50=0.000/s  p90=0.000/s  p99=0.000/s  (over 0 calls, 0 uncertified)

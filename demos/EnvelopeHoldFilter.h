@@ -356,6 +356,25 @@ namespace ompl::demo
             return status;
         }
 
+        /// The wrapped QP is the only thing here that assembles rows or calls a
+        /// solver, so the honest count is its own -- reporting this wrapper's would
+        /// read zero and make the envelope look like it skipped work it did pay for.
+        const Counters &counters() const override
+        {
+            return inner_.counters();
+        }
+
+        /// Same contract as `CBFControlFilter`: this filter repairs a control from a
+        /// linear model, so the committed step is certified by a chord through a
+        /// nonlinear kinematic map and has to be checked, not assumed. The hold-time
+        /// certificate changes how long the control runs, not whether the model was
+        /// right. See `OMPL_CBF_VERIFY_STEP`.
+        SafetyCheck safetyCheck() const override
+        {
+            const Barrier *barrier = &barrier_;
+            return [barrier](const Configuration &q) { return barrier->isSafe(q); };
+        }
+
         const char *name() const override
         {
             return "cbf-qp + envelope hold";

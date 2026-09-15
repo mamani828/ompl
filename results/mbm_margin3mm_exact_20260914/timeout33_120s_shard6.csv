@@ -1,0 +1,9 @@
+seed,scene,problem,method,eligible,solved,seconds,samples,vertices,path_length,waypoints,audited_states,unsafe_states,min_clearance,min_self_overlap,self_colliding,misses,rad_per_call,coarse_fraction,primary_samples,productive_samples,vertices_per_sample,picard_attempts,picard_accepted,picard_fallbacks,hop_floored,hop_at_region,hop_edge_limited,qp_calls,qp_rows,qp_solves
+1,bookshelf_tall,39,isSafe,1,0,120,11508252,165609,0,0,0,0,inf,inf,0,0,0,0,1464211,165607,0.113105,0,0,0,0,0,0,0,0,0
+1,bookshelf_tall,39,qpAdaptive,1,0,120.002,13152465,22863,0,0,0,0,inf,inf,0,0,0.00466911,0.0597396,77923,22744,0.293405,0,0,0,0.939963,0.0589625,0.00107478,13152465,3984126690,13038395
+1,bookshelf_tall,98,isSafe,1,0,120,10819598,154012,0,0,0,0,inf,inf,0,0,0,0,1437101,154010,0.107169,0,0,0,0,0,0,0,0,0
+1,bookshelf_tall,98,qpAdaptive,1,0,120.002,13262251,22779,0,0,0,0,inf,inf,0,0,0.00462765,0.061105,79293,22667,0.287276,0,0,0,0.938586,0.0603647,0.00104922,13262251,4019165150,13152171
+1,table_under_pick,53,isSafe,1,0,120,11688748,168713,0,0,0,0,inf,inf,0,0,0,0,1425183,168711,0.11838,0,0,0,0,0,0,0,0,0
+1,table_under_pick,53,qpAdaptive,1,0,120,13360951,23528,0,0,0,0,inf,inf,0,0,0.00469906,0.0649199,80095,23406,0.293751,0,0,0,0.934771,0.0640851,0.00114348,13360951,4044363835,13243592
+1,table_under_pick,96,isSafe,1,0,120,11799066,170027,0,0,0,0,inf,inf,0,0,0,0,1470143,170025,0.115653,0,0,0,0,0,0,0,0,0
+1,table_under_pick,96,qpAdaptive,1,0,120.001,13201398,23101,0,0,0,0,inf,inf,0,0,0.0046674,0.0599661,79068,22988,0.292166,0,0,0,0.939746,0.0591433,0.00111057,13201398,3998995253,13092063

@@ -1306,7 +1306,36 @@ namespace ompl::cbf
 
         bool isSafe(const Configuration &q) const
         {
-            return worstValue(q) >= 0.0;
+            return safeEarlyExit(q);
+        }
+
+        /// `isSafe` without building the 343-entry `Values` temporary or scoring rows
+        /// after the answer is known.
+        ///
+        /// World spheres first, then self pairs: a `Values` sweep costs both unconditionally,
+        /// and on MotionBenchMaker every violation observed was a world row while the self
+        /// rows never went negative once across 564852 audited states. Same answer as
+        /// `worstValue(q) >= 0`, reached sooner when it is false.
+        bool safeEarlyExit(const Configuration &q) const
+        {
+            const Robot::Kinematics kin = robot_.kinematics(q);
+            Robot::SphereCenters centers;
+            for (std::size_t i = 0; i < Robot::nSpheres; ++i)
+                centers.col(static_cast<Eigen::Index>(i)) = Robot::sphereCenter(kin, i);
+
+            Eigen::Matrix<double, nSpheres, 1> distances;
+            field_.distanceBatch(centers, distances);
+            const auto &allSpheres = Robot::spheres();
+            for (std::size_t i = 0; i < Robot::nSpheres; ++i)
+                if (distances[static_cast<Eigen::Index>(i)] - allSpheres[i].radius - margin_ < 0.0)
+                    return false;
+
+            const auto &margins = Robot::selfPairMargins();
+            for (std::size_t p = 0; p < Robot::nSelfPairs; ++p)
+                if (Robot::selfPairClearance(centers, p) -
+                        margins[static_cast<Eigen::Index>(p)] - selfMargin_ < 0.0)
+                    return false;
+            return true;
         }
 
         double margin() const

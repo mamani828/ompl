@@ -1,0 +1,239 @@
+
+MotionBenchMaker UR5, 689 problems loaded, up to 100 per scene
+voxel 0.003 m, margin 0.0000 m + 0.0000 m filter buffer, stepSize 0.001 s, range 2.00 rad, 10.0 s limit
+
+hop certificates: old L1 Lipschitz region and new hold-time bound
+Picard: off; trajectory prefixes: 0; sequential rollout budget: 10000 calls
+kappa 20.00 /s, certified step uncapped, self-collision margin 0.0000 m over 302 pairs
+baseline segment: 0.000650 of extent = 0.0100 rad, rollout step 0.0100 rad (matched to the rollout)
+rope shortcut off, all rows unsimplified
+
+seed 1
+  planner       solved ms(min/med/max)        samples vertices     path rad/call coarse  worst clr unsafe/audited missed worst self collide
+
+bookshelf_small  (4 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect    4/4       2.96/4.05/29.19         1611       10    13.98        -      -     0.0020      0/2524         0     0.0025       0
+      primary samples 19, productive 7 (36.8%), vertices/sample 0.900
+  qp-fixed      4/4       3.80/6.15/8.64           753        7     9.54   0.0149     0%     0.0020      0/2637         0     0.0024       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 7.000
+      qp 270.8 rows/call, 40% of calls reached the solver, 2886 calls
+  qp-plain      4/4       3.90/6.39/9.21           753        7     9.54   0.0149     0%     0.0020      0/2637         0     0.0024       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 7.000
+      qp 342.0 rows/call, 100% of calls reached the solver, 2886 calls
+  qp-adapt      4/4       0.94/1.85/3.55           248        7     9.54   0.0371    62%     0.0020      0/2183         0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 7.000
+      qp 299.2 rows/call, 79% of calls reached the solver, 1047 calls
+  qp-free       4/4       5.76/26.37/167.37        5129       19    12.89   0.0056     0%     0.0020      0/4535         0     0.0024       0
+      primary samples 38, productive 14 (36.8%), vertices/sample 0.731
+  free-env      4/4       0.55/6.04/15.30          459       31    15.32   0.1140    97%     0.0002      0/2647         0     0.0025       0
+      primary samples 67, productive 24 (35.8%), vertices/sample 0.474
+  qp-env        4/4       0.55/0.73/1.28            81        7     9.54   0.1445    61%     0.0020      0/1932         0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 7.000
+      qp 298.9 rows/call, 79% of calls reached the solver, 338 calls
+  vamp-rrtc     4/4       0.03/0.04/0.36          1362       10    13.98        -      -     0.0020      0/2923         0     0.0025       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+bookshelf_tall  (4 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect    4/4       9.44/29.83/501.26        6157       33    16.14        -      -     0.0019      0/3155         0     0.0025       0
+      primary samples 85, productive 28 (32.9%), vertices/sample 0.388
+  qp-fixed      4/4      11.08/26.81/32.71         2014       15    14.79   0.0122     0%     0.0002      0/4317         0     0.0000       0
+      primary samples 6, productive 4 (66.7%), vertices/sample 4.500
+      qp 278.6 rows/call, 55% of calls reached the solver, 6822 calls
+  qp-plain      4/4      11.80/27.18/33.44         2014       15    14.79   0.0122     0%     0.0002      0/4317         0     0.0000       0
+      primary samples 6, productive 4 (66.7%), vertices/sample 4.500
+      qp 342.0 rows/call, 100% of calls reached the solver, 6822 calls
+  qp-adapt      4/4       2.31/9.83/20.67          879       15    14.80   0.0325    56%     0.0002      0/3543         0     0.0000       0
+      primary samples 6, productive 4 (66.7%), vertices/sample 4.500
+      qp 302.3 rows/call, 86% of calls reached the solver, 3278 calls
+  qp-free       4/4      12.43/196.85/1511.03      27240       75    13.39   0.0053     0%     0.0035      0/5813         0     0.0007       0
+      primary samples 206, productive 63 (30.6%), vertices/sample 0.655
+  free-env      4/4       5.93/63.35/218.38        3192      140    17.74   0.1042    94%     0.0003      0/3361         0     0.0000       0
+      primary samples 445, productive 128 (28.8%), vertices/sample 0.484
+  qp-env        4/4       1.09/5.23/16.20          384       15    14.85   0.0744    42%     0.0002      0/3251         0     0.0000       0
+      primary samples 6, productive 4 (66.7%), vertices/sample 4.500
+      qp 308.3 rows/call, 91% of calls reached the solver, 1893 calls
+  vamp-rrtc     4/4       0.08/0.21/6.47          4994       33    16.14        -      -     0.0019      0/3321         0     0.0016       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+bookshelf_thin  (5 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect    5/5       8.95/30.98/103.19        4774       26    16.44        -      -     0.0031      0/3870         0     0.0002       0
+      primary samples 68, productive 22 (32.4%), vertices/sample 0.280
+  qp-fixed      5/5       6.57/20.16/70.45         1262       15    11.30   0.0112     0%     0.0001      0/3982         0     0.0002       0
+      primary samples 4, productive 4 (100.0%), vertices/sample 3.750
+      qp 268.1 rows/call, 66% of calls reached the solver, 8260 calls
+  qp-plain      5/5       6.89/20.75/71.18         1262       15    11.30   0.0112     0%     0.0001      0/3982         0     0.0002       0
+      primary samples 4, productive 4 (100.0%), vertices/sample 3.750
+      qp 342.0 rows/call, 100% of calls reached the solver, 8260 calls
+  qp-adapt      5/5       1.99/7.62/37.13          545       14    11.32   0.0276    31%     0.0001      0/3268         0     0.0002       0
+      primary samples 4, productive 4 (100.0%), vertices/sample 3.750
+      qp 275.3 rows/call, 90% of calls reached the solver, 4272 calls
+  qp-free       5/5      22.16/90.49/430.90       10360       36    16.31   0.0054     0%     0.0030      0/6950         0     0.0002       0
+      primary samples 68, productive 30 (44.1%), vertices/sample 0.451
+  free-env      5/5       3.82/14.69/81.95          534       34    17.06   0.0980    97%     0.0004      0/4318         0     0.0002       0
+      primary samples 68, productive 30 (44.1%), vertices/sample 0.471
+  qp-env        5/5       0.88/4.29/27.75          267       15    11.37   0.0511    13%     0.0001      0/2972         0     0.0002       0
+      primary samples 4, productive 4 (100.0%), vertices/sample 3.750
+      qp 269.3 rows/call, 93% of calls reached the solver, 2751 calls
+  vamp-rrtc     5/5       0.07/0.13/0.87          3645       15    14.60        -      -     0.0028      0/3750         0     0.0002       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+box  (4 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect    4/4       5.95/12.95/27.03         5166       27    19.36        -      -     0.0077      0/3436         0     0.0025       0
+      primary samples 67, productive 23 (34.3%), vertices/sample 0.403
+  qp-fixed      4/4       3.11/6.79/15.48          854        8     8.32   0.0127     0%     0.0003      0/2702         0     0.0025       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 6.000
+      qp 260.8 rows/call, 61% of calls reached the solver, 3590 calls
+  qp-plain      4/4       3.21/7.64/16.02          854        8     8.32   0.0127     0%     0.0003      0/2702         0     0.0025       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 6.000
+      qp 342.0 rows/call, 100% of calls reached the solver, 3590 calls
+  qp-adapt      4/4       0.52/1.80/8.21           249        8     8.33   0.0466    74%     0.0003      0/2152         0     0.0025       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 6.000
+      qp 276.5 rows/call, 89% of calls reached the solver, 1451 calls
+  qp-free       4/4      13.19/64.71/247.77       12463       43    19.07   0.0050     0%     0.0096      0/6737         0     0.0025       0
+      primary samples 67, productive 32 (47.8%), vertices/sample 0.642
+  free-env      4/4       3.75/8.33/30.60          677       43    19.51   0.0919    94%     0.0005      0/4347         0     0.0025       0
+      primary samples 67, productive 32 (47.8%), vertices/sample 0.642
+  qp-env        4/4       0.29/0.97/6.59           117        8     8.30   0.1001    60%     0.0003      0/1996         0     0.0025       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 6.000
+      qp 282.1 rows/call, 91% of calls reached the solver, 942 calls
+  vamp-rrtc     4/4       0.07/0.13/0.37          5285       28    21.37        -      -     0.0031      0/3736         0     0.0005       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+cage  (4 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect    4/4      42.59/458.77/1421.80     165599      994    21.10        -      -     0.0029      0/3952         0     0.0025       0
+      primary samples 6194, productive 991 (16.0%), vertices/sample 0.179
+  qp-fixed      4/4      20.74/127.20/411.34       13616       80    22.77   0.0100     0%     0.0000      0/6776         0     0.0001       0
+      primary samples 53, productive 41 (77.4%), vertices/sample 2.083
+      qp 270.8 rows/call, 89% of calls reached the solver, 65920 calls
+  qp-plain      4/4      21.63/132.06/421.92       13616       80    22.77   0.0100     0%     0.0000      0/6776         0     0.0001       0
+      primary samples 53, productive 41 (77.4%), vertices/sample 2.083
+      qp 342.0 rows/call, 100% of calls reached the solver, 65920 calls
+  qp-adapt      4/4       7.90/72.89/275.54        8093       79    22.81   0.0211    53%     0.0000      0/5589         0     0.0001       0
+      primary samples 53, productive 39 (73.6%), vertices/sample 2.083
+      qp 272.5 rows/call, 97% of calls reached the solver, 42165 calls
+  qp-free       4/4     502.18/2410.68/6729.99     483975     1041    25.14   0.0041     0%     0.0011      0/10429        0     0.0018       0
+      primary samples 3878, productive 1001 (25.8%), vertices/sample 0.282
+  free-env      4/4      33.85/576.44/636.00       43259     1902    22.73   0.0676    92%     0.0007      0/4405         0     0.0000       0
+      primary samples 7872, productive 1858 (23.6%), vertices/sample 0.260
+  qp-env        4/4       4.05/122.59/235.39       12230      159    26.24   0.0360    39%     0.0000      0/5617         0     0.0000       0
+      primary samples 113, productive 81 (71.7%), vertices/sample 2.125
+      qp 271.8 rows/call, 99% of calls reached the solver, 38716 calls
+  vamp-rrtc     4/4       0.09/11.89/59.57       336340     1083    21.10        -      -     0.0029      0/4005         0     0.0025       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+table_pick  (4 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect    4/4       3.59/12.52/31.20         3398       18     9.45        -      -     0.0006      0/1798         0     0.0025       0
+      primary samples 54, productive 14 (25.9%), vertices/sample 0.875
+  qp-fixed      4/4       4.08/7.06/21.41          654        7     8.06   0.0134     0%     0.0005      0/2067         0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 6.000
+      qp 254.2 rows/call, 49% of calls reached the solver, 3484 calls
+  qp-plain      4/4       4.21/7.36/22.48          654        7     8.06   0.0134     0%     0.0005      0/2067         0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 6.000
+      qp 342.0 rows/call, 100% of calls reached the solver, 3484 calls
+  qp-adapt      4/4       0.51/3.05/7.46           286        7     8.08   0.1068    72%     0.0005      0/1688         0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 6.000
+      qp 288.0 rows/call, 85% of calls reached the solver, 1077 calls
+  qp-free       4/4       6.80/48.11/110.43        7616       27    10.52   0.0070     0%     0.0018      0/2872         0     0.0025       0
+      primary samples 55, productive 21 (38.2%), vertices/sample 0.583
+  free-env      4/4       1.34/7.63/15.46          444       26    10.67   0.1138    97%     0.0018      0/1902         0     0.0025       0
+      primary samples 55, productive 20 (36.4%), vertices/sample 0.583
+  qp-env        4/4       0.31/2.30/6.35           201        7     8.13   0.1995   100%     0.0004      0/1572         0     0.0025       0
+      primary samples 1, productive 1 (100.0%), vertices/sample 6.000
+      qp 287.7 rows/call, 94% of calls reached the solver, 770 calls
+  vamp-rrtc     4/4       0.04/0.14/0.23          3939       19     9.45        -      -     0.0006      0/1883         0     0.0024       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+table_under_pick  (4 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect    4/4       3.18/5.63/9.40          1502       10    12.74        -      -     0.0004      0/2466         0     0.0024       0
+      primary samples 12, productive 4 (33.3%), vertices/sample 0.833
+  qp-fixed      4/4       4.07/21.55/51.20         1924       16    10.80   0.0132     0%     0.0017      0/2987         0     0.0001       0
+      primary samples 4, productive 4 (100.0%), vertices/sample 6.000
+      qp 288.5 rows/call, 87% of calls reached the solver, 7390 calls
+  qp-plain      4/4       4.15/21.61/49.60         1924       16    10.80   0.0132     0%     0.0017      0/2987         0     0.0001       0
+      primary samples 4, productive 4 (100.0%), vertices/sample 6.000
+      qp 342.0 rows/call, 100% of calls reached the solver, 7390 calls
+  qp-adapt      4/4       2.35/8.87/27.60          849       16    10.79   0.0253    42%     0.0016      0/2574         0     0.0001       0
+      primary samples 4, productive 4 (100.0%), vertices/sample 6.000
+      qp 283.9 rows/call, 94% of calls reached the solver, 4072 calls
+  qp-free       4/4       9.20/64.49/76.68        10404       30    14.85   0.0051     0%     0.0018      0/4708         0     0.0025       0
+      primary samples 54, productive 26 (48.1%), vertices/sample 0.889
+  free-env      4/4       1.35/4.06/12.10          246       18    12.28   0.1034    96%     0.0018      0/2427         0     0.0025       0
+      primary samples 22, productive 12 (54.5%), vertices/sample 0.818
+  qp-env        4/4       0.74/6.83/15.86          572       16    12.42   0.0559    64%     0.0008      0/2356         0     0.0009       0
+      primary samples 4, productive 4 (100.0%), vertices/sample 6.000
+      qp 285.4 rows/call, 96% of calls reached the solver, 2098 calls
+  vamp-rrtc     4/4       0.03/0.04/0.12           952        9    13.90        -      -     0.0004      0/2523         0     0.0001       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+Hop disposition -- what set the hop's length, median over problems.
+  row         floored(<1 step)    at region   edge-limited
+  qp-fixed            100.0%         0.0%           0.0%
+  qp-plain            100.0%         0.0%           0.0%
+  qp-adapt             57.1%        41.2%           1.6%
+  qp-free             100.0%         0.0%           0.0%
+  free-env              2.8%        83.2%          13.6%
+  qp-env               59.3%        37.8%           4.7%
+
+Endpoint clearance at zero margin -- min(start, goal) over all spheres.
+  scene                     min    median       max affordable   problems by margin
+  bookshelf_small        0.0020    0.0063    0.0077    0.0020   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_tall         0.0067    0.0079    0.0082    0.0067   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  bookshelf_thin         0.0002    0.0036    0.0073    0.0002   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  box                    0.0127    0.0127    0.0127    0.0127   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  cage                   0.0127    0.0127    0.0127    0.0127   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_pick             0.0080    0.0082    0.0082    0.0080   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+  table_under_pick       0.0079    0.0080    0.0082    0.0079   0:100% 0.02:  0% 0.04:  0% 0.06:  0% 0.09:  0%
+
+all scenes  (29 problems, 0 skipped: 0 clearance, 0 self-collision)
+  rrtconnect   29/29      2.96/12.95/1421.80       3724       20    14.60        -      -     0.0004      0/21201        0     0.0002       0
+      primary samples 67, productive 14 (20.9%), vertices/sample 0.351
+  qp-fixed     29/29      3.11/11.08/411.34        1042       13    10.54   0.0119     0%     0.0000      0/25468        0     0.0000       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 4.500
+      qp 266.4 rows/call, 61% of calls reached the solver, 98352 calls
+  qp-plain     29/29      3.21/11.80/421.92        1042       13    10.54   0.0119     0%     0.0000      0/25468        0     0.0000       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 4.500
+      qp 342.0 rows/call, 100% of calls reached the solver, 98352 calls
+  qp-adapt     29/29      0.51/3.55/275.54         474       13    10.55   0.0301    43%     0.0000      0/20997        0     0.0000       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 4.500
+      qp 276.9 rows/call, 87% of calls reached the solver, 57362 calls
+  qp-free      29/29      5.76/64.49/6729.99      10360       30    14.85   0.0050     0%     0.0011      0/42044        0     0.0002       0
+      primary samples 55, productive 26 (47.3%), vertices/sample 0.491
+  free-env     29/29      0.55/9.65/636.00         482       31    16.44   0.0966    95%     0.0002      0/23407        0     0.0000       0
+      primary samples 67, productive 24 (35.8%), vertices/sample 0.473
+  qp-env       29/29      0.29/2.30/235.39         201       13    10.64   0.0587    41%     0.0000      0/19696        0     0.0000       0
+      primary samples 2, productive 2 (100.0%), vertices/sample 4.500
+      qp 280.6 rows/call, 91% of calls reached the solver, 47508 calls
+  vamp-rrtc    29/29      0.03/0.12/59.57         3939       19    14.60        -      -     0.0004      0/22141        0     0.0001       0
+      primary samples 0, productive 0 (0.0%), vertices/sample 0.000
+
+"samples" is checked configurations for isSafe, barrier evaluations for
+the three CBF rows, and SIMD configuration lanes evaluated for VAMP. They measure
+sampling work, while wall time captures the very different per-sample costs.
+"unsafe/audited" evaluates exact primitive clearance at every state of the
+densified solution -- for each CBF row that is the rollout the planner recorded
+for each edge, replayed, so it is the motion that would actually be executed,
+sampled inside each step rather than only at its boundaries. Non-zero unsafe
+invalidates a row however fast it was.
+"missed" counts solution edges that were not on file and had to be
+re-derived; it must be zero, or the audited motion is a different trajectory
+from the one the planner found.
+
+
+envelope hop: 13103 filter calls, 1.202 hold queries/call, 15.5% saturated, 100.0% longer than L1, past one step 90.1% (L1 alone 52.1%), gated 72.4%, empty-active 0.0%, screen-escalated 1.6%
+envelope bottleneck: world 97.4%, self-collision 2.5%, unbound 0.1% (horizon or screen clip), blocked 0.0%, joint-limit clamped 0.0%
+envelope binding term:
+  world rows       L1 0.0%, local-L1 0.5%, speed-capped 13.3%, isotropic-anchored 86.1% (of 12768 bound calls)
+  self-pair rows   L1 0.0%, local-L1 0.0%, speed-capped 0.3%, normal-anchored 99.7% (of 325 bound calls)
+local-lever screen: 536363 of 884315 expensive world rows settled before the envelope (60.7%)
+span handed to the rollout, in controller steps (47507 calls):
+                   <1      1-2      2-4      4-8       8+
+  L1 only      85.62%     7.07%     4.24%     1.83%     1.24%
+  envelope     75.15%     6.93%     6.89%     5.38%     5.65%
+=== CBF profiler (wall time) ===
+=== CBF filter stats ===
+  calls=0  unchanged=0 (0.0%)  filtered=0 (0.0%)  blocked=0 (0.0%)
+  active rows:       avg=0.00  max=0
+  zero-row fast path: 0 (0.0%)
+  qp iterations:     avg=0.00  max=0
+  certified duration: avg=0.00000s  min=0.00000s  max=0.00000s  (over 0 non-blocked calls)
+  required gain:     avg=0.000/s  max=0.000/s  p50=0.000/s  p90=0.000/s  p99=0.000/s  (over 0 calls, 0 uncertified)

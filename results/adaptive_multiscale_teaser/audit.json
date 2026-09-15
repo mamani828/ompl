@@ -1,0 +1,57 @@
+{
+  "ur5": {
+    "joint_step_min_rad": 0.010909686331883247,
+    "joint_step_max_rad": 0.246669205875973,
+    "small_step_color_threshold_rad": 0.017664030780577496
+  },
+  "planar": {
+    "q0": [
+      0.2,
+      -0.95
+    ],
+    "q1": [
+      0.31298524171182424,
+      -0.8692962559201255
+    ],
+    "certificate0": [
+      [
+        0.02756612820143106,
+        -0.95
+      ],
+      [
+        0.2,
+        -1.3441345641110147
+      ],
+      [
+        0.37243387179856896,
+        -0.95
+      ],
+      [
+        0.2,
+        -0.5558654358889852
+      ]
+    ],
+    "certificate1": [
+      [
+        0.20163821629939652,
+        -0.8692962559201255
+      ],
+      [
+        0.31298524171182424,
+        -1.1238037425771032
+      ],
+      [
+        0.424332267124252,
+        -0.8692962559201255
+      ],
+      [
+        0.31298524171182424,
+        -0.6147887692631477
+      ]
+    ],
+    "minimum_sampled_region_clearance_m": 0.07982050796715635,
+    "minimum_dense_path_clearance_m": 0.11934637658639531,
+    "hop_utilization": 0.86
+  },
+  "scope": "UR5: existing sphere-model environment-certified RRT. Planar: exact capsule-circle environment geometry; two joint coordinates; adjacent links share an elbow."
+}

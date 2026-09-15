@@ -71,6 +71,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <random>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -126,10 +127,33 @@ namespace
     constexpr int qpFreeRow = 5;
     constexpr int qpEnvelopeRow = 6;
     constexpr int vampRow = 7;
-    constexpr int comparisonRows = 8;
+    /// The unassisted QP: `qpFixed`'s controller with every QP-side optimization off.
+    constexpr int qpPlainRow = 8;
+    constexpr int qpFreeEnvelopeRow = 9;
+    constexpr int comparisonRows = 10;
 
     /// Joint-space spacing all rows are audited at, in radians. Finer than the rollout
     /// step so the audit is not merely re-reading the filter's own decisions.
+    /// The goal region's radius, in radians. The baseline and VAMP rows have always used
+    /// 0.05 and the filtered rows 0.1 -- a filtered rollout cannot land exactly on a
+    /// target, so it was given slack. That slack is an asymmetry in the CBF rows' favour
+    /// on both solve time and path length, so it is overridable: set
+    /// `OMPL_MBM_GOAL_TOLERANCE` to charge every row the same radius.
+    double goalTolerance(double fallback)
+    {
+        static const double override_ = []
+        {
+            if (const char *v = std::getenv("OMPL_MBM_GOAL_TOLERANCE"))
+            {
+                const double parsed = std::atof(v);
+                if (parsed > 0.0)
+                    return parsed;
+            }
+            return -1.0;
+        }();
+        return override_ > 0.0 ? override_ : fallback;
+    }
+
     /// Overridable because the audit's own spacing bounds what the audit can say. At
     /// 0.02 rad a sample is up to ~2 cm of workspace motion at a 1 m lever arm -- an
     /// order of magnitude more than the millimetre-scale margins under test -- so
@@ -183,6 +207,75 @@ namespace
             const Eigen::Vector2d d(q.head<2>().norm() - radius, std::abs(q.z()) - halfLength);
             return d.cwiseMax(0.0).norm() + std::min(d.maxCoeff(), 0.0);
         }
+
+        /// The same distance and its gradient, differentiated in closed form.
+        ///
+        /// The grid path gets its gradient by differentiating the interpolant, so value
+        /// and gradient agree with each other but not with this function. Here they agree
+        /// with the geometry, which is what lets the filter run with no interpolation
+        /// buffer. Kept beside `distance()` deliberately: the two must not drift, and the
+        /// demo asserts they agree against central differences under
+        /// `OMPL_MBM_EXACT_FIELD=2`.
+        sdf::ValueGradient valueAndGradient(const Eigen::Vector3d &p) const
+        {
+            const Eigen::Vector3d q = rotation.transpose() * (p - position);
+            sdf::ValueGradient out;
+            Eigen::Vector3d local = Eigen::Vector3d::Zero();
+
+            if (kind == Kind::Box)
+            {
+                const Eigen::Vector3d d = q.cwiseAbs() - halfExtents;
+                const Eigen::Vector3d clamped = d.cwiseMax(0.0);
+                const double inside = d.maxCoeff();
+                out.value = clamped.norm() + std::min(inside, 0.0);
+                if (inside > 0.0)
+                {
+                    // Outside: the gradient of |max(d, 0)|, chain-ruled through |q|.
+                    const double norm = clamped.norm();
+                    for (int i = 0; i < 3; ++i)
+                        local[i] = (clamped[i] / norm) * (q[i] < 0.0 ? -1.0 : 1.0);
+                }
+                else
+                {
+                    // Inside: the value is the largest (least negative) face distance, so
+                    // only that axis moves it.
+                    int axis = 0;
+                    d.maxCoeff(&axis);
+                    local[axis] = q[axis] < 0.0 ? -1.0 : 1.0;
+                }
+            }
+            else
+            {
+                const double rho = q.head<2>().norm();
+                const double dr = rho - radius;
+                const double dz = std::abs(q.z()) - halfLength;
+                const Eigen::Vector2d d(dr, dz);
+                const Eigen::Vector2d clamped = d.cwiseMax(0.0);
+                const double inside = d.maxCoeff();
+                out.value = clamped.norm() + std::min(inside, 0.0);
+
+                // On the axis the radial direction is undefined; anything unit will do,
+                // because there dr = -radius is strictly the smaller of the two and the
+                // z term is what carries the gradient.
+                Eigen::Vector3d radial(1.0, 0.0, 0.0);
+                if (rho > 0.0)
+                    radial << q.x() / rho, q.y() / rho, 0.0;
+                const Eigen::Vector3d axial(0.0, 0.0, q.z() < 0.0 ? -1.0 : 1.0);
+
+                if (inside > 0.0)
+                {
+                    const double norm = clamped.norm();
+                    local = (clamped[0] / norm) * radial + (clamped[1] / norm) * axial;
+                }
+                else
+                {
+                    local = dr > dz ? radial : axial;
+                }
+            }
+
+            out.gradient = rotation * local;
+            return out;
+        }
     };
 
     struct Problem
@@ -205,6 +298,27 @@ namespace
                 return distance;
             };
         }
+
+        /// The same union, differentiated: the gradient of a min is the gradient of
+        /// whichever solid attains it. Ties are broken toward the first solid, matching
+        /// the strict `<` the grid's `std::min` does, so the two fields agree on value
+        /// everywhere and can be compared row for row.
+        sdf::ValueGradientFn exactField() const
+        {
+            const std::vector<Obstacle> solids = obstacles;
+            return [solids](const Eigen::Vector3d &p)
+            {
+                sdf::ValueGradient best;
+                best.value = std::numeric_limits<double>::infinity();
+                for (const Obstacle &solid : solids)
+                {
+                    const sdf::ValueGradient vg = solid.valueAndGradient(p);
+                    if (vg.value < best.value)
+                        best = vg;
+                }
+                return best;
+            };
+        }
     };
 
     /// The per-joint speed limit the filter, the state space and the baseline's edge
@@ -215,10 +329,17 @@ namespace
     /// It cannot be zero or unbounded. `FilteredStateSpace` rejects non-positive entries,
     /// and the QP's control box is what makes its feasible set bounded. Raising it is
     /// therefore how "no velocity limit" is expressed, and it moves three things at once:
-    /// the QP's box, `decreaseRates` (so every certificate length), and -- because
-    /// `FilteredStateSpace` measures distance in *seconds* -- the meaning of the planner's
-    /// range. Pass an explicit `segmentFraction` alongside it, or the baseline's
-    /// collision-check spacing is derived from this and silently coarsens with it.
+    /// the QP's box and `decreaseRates`, and so every certificate length. It does *not*
+    /// change what the planner's range means: `Operations::distance` takes a speed
+    /// argument and discards it, returning radians, so `range` is radians for every row;
+    /// `Operations::duration` is the seconds-valued one and only sets a rollout's
+    /// horizon. It does change `defaultReachTolerance`, which is `maxSpeed.norm() *
+    /// stepSize` -- at 10 rad/s and a 10 ms step that is 0.245 rad of slack on "did the
+    /// rollout arrive", and the audit failure it caused (worst clearance -34.8 mm) is why
+    /// a run that raises this should set the tolerance explicitly.
+    ///
+    /// Pass an explicit `segmentFraction` alongside it, or the baseline's collision-check
+    /// spacing is derived from this and silently coarsens with it.
     const UR5::Configuration &effectiveMaxSpeed()
     {
         static const UR5::Configuration value = []
@@ -242,7 +363,7 @@ namespace
     /// deselected row is absent from both, rather than present as a line of zeros that
     /// reads as a row which ran and solved nothing. Names are the CSV's own `method`
     /// values -- `isSafe`, `qpFixed`, `qpAdaptive`, `l1Old`, `holdNew`, `qpFreeGate`,
-    /// `qpEnvelope`, `VAMP`.
+    /// `qpEnvelope`, `VAMP`, `qpPlain`.
     bool wantRow(const char *name)
     {
         static const std::string selection = []
@@ -365,6 +486,17 @@ namespace
         std::size_t unsafeStates{0};
         std::size_t auditedStates{0};
         std::size_t misses{0};  ///< solution edges re-derived rather than replayed
+        /// QP work this row actually did, as deltas over its own planning call -- see
+        /// ControlFilter::Counters. `qpRows` is summed over calls, so `qpRows / qpCalls`
+        /// is the program size the filter assembled per call, which is the quantity
+        /// screening and the active-set pair traversal are supposed to move; and
+        /// `qpSolves / qpCalls` is the share of calls that got past the feasibility
+        /// bypass and the closed-form projection to reach qpmad. A row that never builds
+        /// a QP -- `isSafe`, `qpFreeGate` -- leaves all three at zero, which is the
+        /// honest reading of "no QP" rather than a missing measurement.
+        std::size_t qpCalls{0};
+        std::size_t qpRows{0};
+        std::size_t qpSolves{0};
         /// Joint-space radians per filter call, and the share of calls that ran past
         /// stepSize on a certificate. Meaningless for the baseline, whose "evaluation"
         /// is a collision check at a fixed resolution rather than a step.
@@ -505,7 +637,7 @@ namespace
             goal[j] = problem.goal[j];
         }
         auto pdef = std::make_shared<ob::ProblemDefinition>(si);
-        pdef->setStartAndGoalStates(start, goal, 0.05);
+        pdef->setStartAndGoalStates(start, goal, goalTolerance(0.05));
 
         Result result;
         // Re-seed the global seed generator immediately before the planner is built.
@@ -680,7 +812,7 @@ namespace
             goal[j] = problem.goal[j];
         }
         auto pdef = std::make_shared<ob::ProblemDefinition>(si);
-        pdef->setStartAndGoalStates(start, goal, 0.05);
+        pdef->setStartAndGoalStates(start, goal, goalTolerance(0.05));
         // Re-seed the global seed generator immediately before the planner is built.
         // `RRTConnect` holds its own `RNG`, which draws `nextSeed()` from that generator
         // at construction, so without this a planner's stream depends on how many RNGs
@@ -789,7 +921,7 @@ namespace
         auto pdef = std::make_shared<ob::ProblemDefinition>(si);
         // A rollout cannot be asked to land on an exact state next to an obstacle, so the
         // goal gets a tolerance. Kept small enough that "solved" still means solved.
-        pdef->setStartAndGoalStates(start, goal, 0.1);
+        pdef->setStartAndGoalStates(start, goal, goalTolerance(0.1));
 
         Result result;
         // Re-seed the global seed generator immediately before the planner is built.
@@ -822,11 +954,20 @@ namespace
         planner->setProblemDefinition(pdef);
         planner->setup();
 
+        // Cumulative on the filter object, and `lipschitzFilter` is handed to three
+        // rows, so a row's own QP work is the delta across its solve rather than the
+        // running total. Copied, not bound: `counters()` returns a reference into the
+        // live filter, which the solve below is about to advance.
+        const ompl::cbf::ControlFilter::Counters qpBefore = filter.counters();
         const ompl::time::point begin = ompl::time::now();
         const ob::PlannerStatus status = planner->solve(ob::timedPlannerTerminationCondition(timeLimit));
         result.seconds = ompl::time::seconds(ompl::time::now() - begin);
         result.solved = (status == ob::PlannerStatus::EXACT_SOLUTION);
         result.evaluations = space->statistics().steps;
+        const ompl::cbf::ControlFilter::Counters &qpAfter = filter.counters();
+        result.qpCalls = qpAfter.calls - qpBefore.calls;
+        result.qpRows = qpAfter.rows - qpBefore.rows;
+        result.qpSolves = qpAfter.solves - qpBefore.solves;
         if (picard)
         {
             result.picardAttempts = picard->statistics().attempts;
@@ -898,6 +1039,11 @@ namespace
         std::array<std::vector<double>, rows> radPerCall;
         std::array<std::vector<double>, rows> coarse;
         std::array<std::vector<double>, rows> hopFloored, hopAtRegion, hopEdgeLimited;
+        /// Per-problem QP program size and solver-hit rate, pushed only by rows that
+        /// build a QP, so a row without one reports an empty distribution rather than a
+        /// zero that reads as "assembled nothing" next to rows that assembled plenty.
+        std::array<std::vector<double>, rows> qpRowsPerCall, qpSolveShare;
+        std::array<std::size_t, rows> qpCalls{};
         std::array<std::size_t, rows> unsafe{};
         std::array<std::size_t, rows> audited{};
         std::array<std::size_t, rows> misses{};
@@ -930,6 +1076,13 @@ namespace
             hopFloored[row].push_back(result.hopFloored);
             hopAtRegion[row].push_back(result.hopAtRegion);
             hopEdgeLimited[row].push_back(result.hopEdgeLimited);
+            qpCalls[row] += result.qpCalls;
+            if (result.qpCalls > 0)
+            {
+                const double calls = static_cast<double>(result.qpCalls);
+                qpRowsPerCall[row].push_back(static_cast<double>(result.qpRows) / calls);
+                qpSolveShare[row].push_back(static_cast<double>(result.qpSolves) / calls);
+            }
             unsafe[row] += result.unsafeStates;
             audited[row] += result.auditedStates;
             misses[row] += result.misses;
@@ -1015,6 +1168,14 @@ namespace
         std::printf("      primary samples %.0f, productive %.0f (%.1f%%), vertices/sample %.3f\n",
                     primary, productive, primary > 0.0 ? 1e2 * productive / primary : 0.0,
                     median(tally.verticesPerSample[row]));
+        // Medians of per-problem ratios, not ratios of totals: a single hard problem
+        // makes far more filter calls than an easy one, and a pooled ratio would report
+        // that problem's QP rather than the row's.
+        if (tally.qpCalls[row] > 0)
+            std::printf("      qp %.1f rows/call, %.0f%% of calls reached the solver,"
+                        " %zu calls\n",
+                        median(tally.qpRowsPerCall[row]),
+                        1e2 * median(tally.qpSolveShare[row]), tally.qpCalls[row]);
     }
 
     void writeCsvRow(std::ofstream &out, unsigned long seed, const Problem &problem,
@@ -1034,7 +1195,8 @@ namespace
                     : 0.0)
             << ',' << result.picardAttempts << ',' << result.picardAccepted << ','
             << result.picardFallbacks << ',' << result.hopFloored << ','
-            << result.hopAtRegion << ',' << result.hopEdgeLimited << '\n';
+            << result.hopAtRegion << ',' << result.hopEdgeLimited << ',' << result.qpCalls
+            << ',' << result.qpRows << ',' << result.qpSolves << '\n';
     }
 }  // namespace
 
@@ -1097,6 +1259,34 @@ int main(int argc, char **argv)
     // arm against itself. The independent audit column is unaffected either way, so it
     // says what turning them off costs.
     const double selfMargin = argc > 12 ? std::atof(argv[12]) : Barrier::defaultSelfMargin;
+    const double selfBuffer = []()
+    {
+        const char *value = std::getenv("OMPL_MBM_SELF_BUFFER");
+        return value ? std::atof(value) : Barrier::defaultSelfBuffer;
+    }();
+    // Query the scene's closed-form distance directly instead of a baked grid.
+    //
+    // These scenes are 12-15 boxes and cylinders with exact signed distance, so the grid
+    // is a speed cache, not a model. Paying for it costs accuracy exactly where this
+    // benchmark can least afford it: `interpolationBuffer()` reserves one voxel (3 mm at
+    // the usual setting) against the interpolant's disagreement with the function it
+    // sampled, and MotionBenchMaker's goals sit a median 8 mm off the shelf. Exact means
+    // that buffer is zero rather than small. Set to 2 to additionally check every
+    // analytic gradient against central differences before running.
+    const int exactFieldMode = []
+    {
+        const char *value = std::getenv("OMPL_MBM_EXACT_FIELD");
+        return value ? std::atoi(value) : 0;
+    }();
+    // Benchmarking escape hatch: attempt every upstream problem even when an endpoint
+    // lies outside the guarded set. This is intentionally opt-in because forward
+    // invariance is not meaningful from an unsafe root, but it is useful when the
+    // experiment asks for coverage of the complete upstream corpus.
+    const bool ignoreEligibility = []
+    {
+        const char *value = std::getenv("OMPL_MBM_IGNORE_ELIGIBILITY");
+        return value && std::atoi(value) != 0;
+    }();
     // Where to dump the audited motions, one file per row (`<prefix>.cbf`, `<prefix>.rrtc`).
     // The `collide` column is a statement about the 40 spheres and nothing else; these
     // files are what lets ur5_experiments/scripts/audit_self_collision.py repeat the count
@@ -1168,6 +1358,74 @@ int main(int argc, char **argv)
     ompl::msg::setLogLevel(ompl::msg::LOG_ERROR);
 
     const std::vector<Problem> problems = readProblems(path);
+
+    // One place that decides how a problem's field is built, so the reported buffer and
+    // the field the filter actually reads can never disagree.
+    const auto makeField = [&](const Problem &problem)
+    {
+        return exactFieldMode != 0
+                   ? sdf::GridSDF::exactField(problem.exactField(), UR5::reachableBounds())
+                   : sdf::GridSDF::bakeConcurrent(problem.field(), UR5::reachableBounds(), voxel,
+                                                  bakeThreads);
+    };
+
+    // The exact field's whole value is that its gradient describes the same surface its
+    // value does. That is an assertion about hand-differentiated code, so check it rather
+    // than assert it: central differences over every scene, inside and outside the
+    // solids, before a single problem runs.
+    if (exactFieldMode >= 2)
+    {
+        std::mt19937 rng(12345u);
+        const Eigen::AlignedBox3d box = UR5::reachableBounds();
+        std::uniform_real_distribution<double> ux(box.min().x(), box.max().x());
+        std::uniform_real_distribution<double> uy(box.min().y(), box.max().y());
+        std::uniform_real_distribution<double> uz(box.min().z(), box.max().z());
+        const double step = 1e-6;
+        double worst = 0.0;
+        std::size_t checked = 0, skipped = 0;
+        for (const Problem &problem : problems)
+        {
+            const sdf::ValueGradientFn exact = problem.exactField();
+            const sdf::DistanceFn plain = problem.field();
+            for (int trial = 0; trial < 400; ++trial)
+            {
+                Eigen::Vector3d p(ux(rng), uy(rng), uz(rng));
+                // Bias half the samples onto a solid's surface, where the gradient
+                // switches branch and a sign error would actually show.
+                if (trial % 2 == 0 && !problem.obstacles.empty())
+                {
+                    const Obstacle &solid =
+                        problem.obstacles[static_cast<std::size_t>(trial / 2) % problem.obstacles.size()];
+                    p = solid.position + 0.25 * Eigen::Vector3d(ux(rng), uy(rng), uz(rng)).normalized();
+                }
+                const sdf::ValueGradient vg = exact(p);
+                if (std::abs(vg.value - plain(p)) > 1e-12)
+                    throw ompl::Exception("exact field value disagrees with distance()");
+                Eigen::Vector3d numeric;
+                for (int d = 0; d < 3; ++d)
+                {
+                    Eigen::Vector3d lo = p, hi = p;
+                    lo[d] -= step;
+                    hi[d] += step;
+                    numeric[d] = (plain(hi) - plain(lo)) / (2.0 * step);
+                }
+                // A point equidistant from two solids, or on an edge of one, has no
+                // gradient; central differences straddle the kink and neither answer is
+                // wrong. Those are measure zero and the barrier never relies on them.
+                if ((numeric.norm() - 1.0) > 1e-3 || numeric.norm() < 0.9)
+                {
+                    ++skipped;
+                    continue;
+                }
+                worst = std::max(worst, (numeric - vg.gradient).norm());
+                ++checked;
+            }
+        }
+        std::printf("exact-field gradient check: %zu points, worst |analytic - central| = %.3e"
+                    " (%zu skipped at kinks)\n", checked, worst, skipped);
+        if (worst > 1e-4)
+            throw ompl::Exception("exact field gradient disagrees with central differences");
+    }
     const UR5 robot;
 
     Filter::Parameters parameters;
@@ -1178,6 +1436,20 @@ int main(int argc, char **argv)
     // isolates the effect of additionally constraining one Euler step inside the QP.
     if (const char *v = std::getenv("OMPL_CBF_JOINT_LIMITS"))
         parameters.respectJointLimits = std::atoi(v) != 0;
+    // On for the QP rows -- `qpFixed`, `qpAdaptive` and `qpEnvelope`. `qpPlain` keeps it
+    // off along with the rest of the QP-side work, so it stays the unassisted reference.
+    //
+    // Unlike screening this is *not* solution-preserving: it caps the certificate at
+    // `pairRelevance * max(dt, 1/kappa)`, so it moves the certificate rows' results and
+    // not merely their speed. Against the arm-length L1 table the cap barely bites
+    // (`qpAdaptive` 1,523 to 1,525); against the tightened lever-arm table it does
+    // (1,482 to 1,495), so a sweep using it has to say which L1 it ran. It is sound with
+    // the envelope: a dropped pair is proven clear for `relevance * scale` while
+    // `EnvelopeHoldFilter` clips at `1 * scale`, which is conservative.
+    //
+    // `qpFreeGate` is unaffected either way -- it never touches the QP solver, so it
+    // reads none of this.
+    parameters.activePairs = true;
     // Process-isolated ablation switch for the active-set pair traversal, in the style
     // of OMPL_UR5_LEVER_BOUNDS. See ClearanceBarrier::ActiveSet.
     if (const char *v = std::getenv("OMPL_CBF_ACTIVE_PAIRS"))
@@ -1211,15 +1483,28 @@ int main(int argc, char **argv)
     Filter::Parameters fixedParameters = parameters;
     fixedParameters.certificates = false;
 
+    // The unassisted reference: `qpFixed`'s controller -- fixed step, no hold certificate
+    // -- solved by qpmad with none of this repository's QP-side work. `plainSolve` drops
+    // the feasibility bypass, the closed-form one-row projection and the pre-inverted
+    // Cholesky factor; `screening` drops the row screen, so every sphere and pair
+    // contributes a constraint whether or not it could bind; `activePairs` drops the
+    // active-set pair traversal.
+    //
+    // This is what a straightforward CBF-QP filter looks like, and it is the bottom rung
+    // of the ladder the other rows climb. It prices all three together on purpose -- read
+    // `qpPlain -> qpFixed` as "our QP-side work", and use OMPL_CBF_PLAIN_QP,
+    // OMPL_CBF_SCREENING and OMPL_CBF_ACTIVE_PAIRS to separate them.
+    Filter::Parameters plainParameters = fixedParameters;
+    plainParameters.plainSolve = true;
+    plainParameters.screening = false;
+    plainParameters.activePairs = false;
+
     std::printf("\nMotionBenchMaker UR5, %d problems loaded, up to %d per scene\n",
                 static_cast<int>(problems.size()), perScene);
     std::printf("voxel %.3f m, margin %.4f m + %.4f m filter buffer, stepSize %.3f s, "
                 "range %.2f rad, %.1f s limit\n\n",
                 voxel, margin,
-                buffer < 0.0 ? Barrier::interpolationBuffer(
-                                   sdf::GridSDF::bakeConcurrent(problems.front().field(),
-                                                                UR5::reachableBounds(), voxel))
-                             : buffer,
+                buffer < 0.0 ? Barrier::interpolationBuffer(makeField(problems.front())) : buffer,
                 stepSize, range, timeLimit);
     std::printf("hop certificates: old L1 Lipschitz region and new hold-time bound\n");
     if (picardIterations > 0)
@@ -1258,7 +1543,8 @@ int main(int argc, char **argv)
                   "waypoints,audited_states,unsafe_states,min_clearance,min_self_overlap,"
                   "self_colliding,misses,rad_per_call,coarse_fraction,primary_samples,"
                   "productive_samples,vertices_per_sample,picard_attempts,picard_accepted,"
-                  "picard_fallbacks,hop_floored,hop_at_region,hop_edge_limited\n";
+                  "picard_fallbacks,hop_floored,hop_at_region,hop_edge_limited,"
+                  "qp_calls,qp_rows,qp_solves\n";
     }
 
     std::ofstream baselineOut, fixedOut, filteredOut, gateOut, vampOut;
@@ -1310,19 +1596,20 @@ int main(int argc, char **argv)
 
         // Threaded bake: bit-identical to the serial one, but a 3 mm grid is 463 M
         // nodes and 11.2 s single-threaded, paid once per problem. See bakeConcurrent.
-        const sdf::GridSDF field =
-            sdf::GridSDF::bakeConcurrent(problem.field(), UR5::reachableBounds(), voxel,
-                                         bakeThreads);
+        // Under OMPL_MBM_EXACT_FIELD this bakes nothing and queries the scene directly.
+        const sdf::GridSDF field = makeField(problem);
         // The barrier the assertions use, and the thicker one the filter guards so that
         // auditing against the first one passes. See ClearanceBarrier::guarding().
         const Barrier audited(robot, field, margin, selfMargin);
         const Barrier guard =
             Barrier::guarding(robot, field, margin,
                               buffer < 0.0 ? Barrier::interpolationBuffer(field) : buffer,
-                              selfMargin);
+                              selfMargin, selfBuffer);
         const Filter fixedFilter(guard, fixedParameters);
+        const Filter plainFilter(guard, plainParameters);
         const Filter lipschitzFilter(guard, parameters);
         const ompl::demo::UR5QPFreeGate qpFreeGate(guard, parameters);
+        const ompl::demo::UR5QPFreeEnvelopeGate qpFreeEnvelopeGate(guard, parameters);
         // Row 5 of the planner comparison: the same QP as `qpAdaptive`, hopping on the
         // motion-envelope certificate instead of the L1 lever-arm one. One object apart.
         const ompl::demo::EnvelopeHoldFilter envelopeFilter(guard, parameters);
@@ -1360,10 +1647,10 @@ int main(int argc, char **argv)
         // skip count read zero.
         const double guardBuffer = buffer < 0.0 ? Barrier::interpolationBuffer(field) : buffer;
         const Barrier worldOnly(robot, field, margin + guardBuffer, -1e6);
-        const Barrier selfOnly(robot, field, -1e6, selfMargin + Barrier::defaultSelfBuffer);
+        const Barrier selfOnly(robot, field, -1e6, selfMargin + selfBuffer);
         const bool worldUnsafe = !worldOnly.isSafe(problem.start) || !worldOnly.isSafe(problem.goal);
         const bool selfUnsafe = !selfOnly.isSafe(problem.start) || !selfOnly.isSafe(problem.goal);
-        if (worldUnsafe || selfUnsafe)
+        if (!ignoreEligibility && (worldUnsafe || selfUnsafe))
         {
             ++tally.skipped;
             ++overall.skipped;
@@ -1380,10 +1667,12 @@ int main(int argc, char **argv)
             const Result skipped;
             writeCsvRow(csvOut, seed, problem, "isSafe", false, skipped);
             writeCsvRow(csvOut, seed, problem, "qpFixed", false, skipped);
+            writeCsvRow(csvOut, seed, problem, "qpPlain", false, skipped);
             writeCsvRow(csvOut, seed, problem, "qpAdaptive", false, skipped);
             writeCsvRow(csvOut, seed, problem, "l1Old", false, skipped);
             writeCsvRow(csvOut, seed, problem, "holdNew", false, skipped);
             writeCsvRow(csvOut, seed, problem, "qpFreeGate", false, skipped);
+            writeCsvRow(csvOut, seed, problem, "qpFreeEnvelope", false, skipped);
             writeCsvRow(csvOut, seed, problem, "qpEnvelope", false, skipped);
 #ifdef OMPL_MBM_HAVE_VAMP
             writeCsvRow(csvOut, seed, problem, "VAMP", false, skipped);
@@ -1403,6 +1692,14 @@ int main(int argc, char **argv)
                               shortcutDelta, false, picardIterations, picardWindow, picardWorkers,
                               trajectoryPrefixes, rolloutCallBudget, sampleSeed,
                               pathPrefix.empty() ? nullptr : &fixedPath)
+                : Result();
+        // Identical to qpFixed in every argument; only the filter's parameters differ,
+        // so the pair isolates this repository's QP-side work.
+        const Result plain =
+            wantRow("qpPlain")
+                ? runFiltered(problem, audited, plainFilter, stepSize, range, timeLimit, 1.0,
+                              shortcutDelta, false, picardIterations, picardWindow, picardWorkers,
+                              trajectoryPrefixes, rolloutCallBudget, sampleSeed, nullptr)
                 : Result();
         // Same QP controller as qpFixed, but allow the filter's certified duration
         // to hold the solved control beyond one integration step.
@@ -1441,6 +1738,12 @@ int main(int argc, char **argv)
                               trajectoryPrefixes, rolloutCallBudget, sampleSeed,
                               pathPrefix.empty() ? nullptr : &gatePath)
                 : Result();
+        const Result freeEnvelope =
+            wantRow("qpFreeEnvelope")
+                ? runFiltered(problem, audited, qpFreeEnvelopeGate, stepSize, range, timeLimit,
+                              maxStepScale, shortcutDelta, true, 0, picardWindow, picardWorkers,
+                              trajectoryPrefixes, rolloutCallBudget, sampleSeed, nullptr)
+                : Result();
 #ifdef OMPL_MBM_HAVE_VAMP
         std::vector<UR5::Configuration> vampPath;
         const Result vamp =
@@ -1454,24 +1757,30 @@ int main(int argc, char **argv)
         writeMotion(gateOut, problem, gatePath);
         tally.add(checkedRow, checked);
         tally.add(qpFixedRow, fixed);
+        tally.add(qpPlainRow, plain);
         tally.add(qpAdaptiveRow, qpAdaptive);
         tally.add(qpLipschitzRow, oldLipschitz);
         tally.add(qpSafeRow, rolled);
         tally.add(qpFreeRow, gated);
+        tally.add(qpFreeEnvelopeRow, freeEnvelope);
         tally.add(qpEnvelopeRow, envelope);
         overall.add(checkedRow, checked);
         overall.add(qpFixedRow, fixed);
+        overall.add(qpPlainRow, plain);
         overall.add(qpAdaptiveRow, qpAdaptive);
         overall.add(qpLipschitzRow, oldLipschitz);
         overall.add(qpSafeRow, rolled);
         overall.add(qpFreeRow, gated);
+        overall.add(qpFreeEnvelopeRow, freeEnvelope);
         overall.add(qpEnvelopeRow, envelope);
         writeCsvRow(csvOut, seed, problem, "isSafe", true, checked);
         writeCsvRow(csvOut, seed, problem, "qpFixed", true, fixed);
+        writeCsvRow(csvOut, seed, problem, "qpPlain", true, plain);
         writeCsvRow(csvOut, seed, problem, "qpAdaptive", true, qpAdaptive);
         writeCsvRow(csvOut, seed, problem, "l1Old", true, oldLipschitz);
         writeCsvRow(csvOut, seed, problem, "holdNew", true, rolled);
         writeCsvRow(csvOut, seed, problem, "qpFreeGate", true, gated);
+        writeCsvRow(csvOut, seed, problem, "qpFreeEnvelope", true, freeEnvelope);
         writeCsvRow(csvOut, seed, problem, "qpEnvelope", true, envelope);
 #ifdef OMPL_MBM_HAVE_VAMP
         tally.add(vampRow, vamp);
@@ -1500,10 +1809,12 @@ int main(int argc, char **argv)
                     tally.skippedSelfCollision);
         reportRow("rrtconnect", "isSafe", tally, checkedRow);
         reportRow("qp-fixed", "qpFixed", tally, qpFixedRow);
+        reportRow("qp-plain", "qpPlain", tally, qpPlainRow);
         reportRow("qp-adapt", "qpAdaptive", tally, qpAdaptiveRow);
         reportRow("l1-old", "l1Old", tally, qpLipschitzRow);
         reportRow("hold-new", "holdNew", tally, qpSafeRow);
         reportRow("qp-free", "qpFreeGate", tally, qpFreeRow);
+        reportRow("free-env", "qpFreeEnvelope", tally, qpFreeEnvelopeRow);
         reportRow("qp-env", "qpEnvelope", tally, qpEnvelopeRow);
 #ifdef OMPL_MBM_HAVE_VAMP
         reportRow("vamp-rrtc", "VAMP", tally, vampRow);
@@ -1535,10 +1846,12 @@ int main(int argc, char **argv)
                             1e2 * median(overall.hopEdgeLimited[row]));
             };
             line("qp-fixed", "qpFixed", qpFixedRow);
+            line("qp-plain", "qpPlain", qpPlainRow);
             line("qp-adapt", "qpAdaptive", qpAdaptiveRow);
             line("l1-old", "l1Old", qpLipschitzRow);
             line("hold-new", "holdNew", qpSafeRow);
             line("qp-free", "qpFreeGate", qpFreeRow);
+            line("free-env", "qpFreeEnvelope", qpFreeEnvelopeRow);
             line("qp-env", "qpEnvelope", qpEnvelopeRow);
         }
     }
@@ -1571,10 +1884,12 @@ int main(int argc, char **argv)
                 overall.skippedSelfCollision);
     reportRow("rrtconnect", "isSafe", overall, checkedRow);
     reportRow("qp-fixed", "qpFixed", overall, qpFixedRow);
+    reportRow("qp-plain", "qpPlain", overall, qpPlainRow);
     reportRow("qp-adapt", "qpAdaptive", overall, qpAdaptiveRow);
     reportRow("l1-old", "l1Old", overall, qpLipschitzRow);
     reportRow("hold-new", "holdNew", overall, qpSafeRow);
     reportRow("qp-free", "qpFreeGate", overall, qpFreeRow);
+    reportRow("free-env", "qpFreeEnvelope", overall, qpFreeEnvelopeRow);
     reportRow("qp-env", "qpEnvelope", overall, qpEnvelopeRow);
 #ifdef OMPL_MBM_HAVE_VAMP
     reportRow("vamp-rrtc", "VAMP", overall, vampRow);

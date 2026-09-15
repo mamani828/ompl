@@ -1,0 +1,6 @@
+seed,scene,problem,method,eligible,solved,seconds,samples,vertices,path_length,waypoints,audited_states,unsafe_states,min_clearance,min_self_overlap,self_colliding,misses,rad_per_call,coarse_fraction,primary_samples,productive_samples,vertices_per_sample,picard_attempts,picard_accepted,picard_fallbacks,hop_floored,hop_at_region,hop_edge_limited,qp_calls,qp_rows,qp_solves
+1,bookshelf_tall,76,isSafe,1,0,10.0005,1232147,11587,0,0,0,0,inf,inf,0,0,0,0,99443,11585,0.116519,0,0,0,0,0,0,0,0,0
+1,bookshelf_tall,76,qpFixed,1,0,10.0015,708773,1472,0,0,0,0,inf,inf,0,0,0.00589444,0,3086,1374,0.476993,0,0,0,1,0,0,708773,211798639,674532
+1,bookshelf_tall,76,qpAdaptive,1,0,10.0021,691075,1561,0,0,0,0,inf,inf,0,0,0.00640901,0.0488239,3314,1463,0.471032,0,0,0,0.950927,0.0481831,0.000889922,691075,206738061,683332
+1,bookshelf_tall,76,qpEnvelope,1,0,10,683285,1598,0,0,0,0,inf,inf,0,0,0.00666965,0.00677902,3433,1499,0.465482,0,0,0,0.993181,0.00588484,0.00093373,683285,204318656,680867
+1,bookshelf_tall,76,VAMP,1,1,0.00028961,2806,19,16.1968,10,811,0,0.00759192,0.00249477,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0

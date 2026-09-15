@@ -10,6 +10,8 @@
 #include <ompl/cbf/CBFControlFilter.h>
 #include <ompl/cbf/ControlFilter.h>
 
+#include "HoldTimeCertificate.h"
+
 namespace ompl::demo
 {
     /// UR5 adaptation of LQR-CBF-RRT*'s no-QP local safety decision.
@@ -197,5 +199,73 @@ namespace ompl::demo
         mutable std::size_t repaired_{0};
         mutable std::size_t rows_{0};
         bool repair_;
+    };
+
+    /// The no-QP gate above, with its accepted control held for as long as the
+    /// motion-envelope certificate proves safe. The envelope only certifies the hold;
+    /// control selection remains the closed-form scaling gate and never invokes a QP.
+    class UR5QPFreeEnvelopeGate final : public cbf::ControlFilter
+    {
+    public:
+        using Barrier = cbf::ClearanceBarrier;
+        using QPFilter = cbf::CBFControlFilter;
+
+        UR5QPFreeEnvelopeGate(const Barrier &barrier, const QPFilter::Parameters &parameters)
+          : gate_(barrier, parameters), engine_(barrier), parameters_(parameters)
+        {
+        }
+
+        Status filter(const Configuration &q, const Control &nominal, double duration,
+                      Control &applied) const override
+        {
+            return gate_.filter(q, nominal, duration, applied);
+        }
+
+        Status filter(const Configuration &q, const Control &nominal, double duration,
+                      Control &applied, double &certified, double &safe) const override
+        {
+            const Status status = gate_.filter(q, nominal, duration, applied);
+            certified = 0.0;
+            safe = status == Status::Blocked ? 0.0 : duration;
+            if (status == Status::Blocked || !parameters_.certificates ||
+                !(applied.cwiseAbs().maxCoeff() > 0.0))
+                return status;
+
+            double horizon = 4.0 * duration;
+            double best = safe;
+            for (int attempt = 0; attempt < 3; ++attempt)
+            {
+                const double span = engine_.holdScale(q, applied, horizon);
+                best = std::max(best, span);
+                if (span < horizon * (1.0 - 1e-9))
+                    break;
+                horizon *= 4.0;
+            }
+
+            if (parameters_.respectJointLimits)
+            {
+                const Configuration lower = robots::UR5::lowerBounds();
+                const Configuration upper = robots::UR5::upperBounds();
+                for (Eigen::Index j = 0; j < static_cast<Eigen::Index>(robots::UR5::nJoints); ++j)
+                {
+                    if (applied[j] == 0.0)
+                        continue;
+                    const double room = (applied[j] > 0.0 ? upper[j] : lower[j]) - q[j];
+                    best = std::min(best, std::max(room / applied[j], 0.0));
+                }
+            }
+            safe = std::max(duration, best);
+            return status;
+        }
+
+        const char *name() const override
+        {
+            return "ur5-qp-free-cbf-gate + envelope hold";
+        }
+
+    private:
+        UR5QPFreeGate gate_;
+        mutable holdtime::HoldEngine engine_;
+        QPFilter::Parameters parameters_;
     };
 }  // namespace ompl::demo
