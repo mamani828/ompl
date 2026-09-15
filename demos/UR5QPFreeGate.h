@@ -60,7 +60,7 @@ namespace ompl::demo
         Status filter(const Configuration &q, const Control &nominal, double duration,
                       Control &applied) const override
         {
-            ++calls_;
+            ++counters_.calls;
             applied.setZero();
             if (!(duration > 0.0))
                 return reject();
@@ -86,7 +86,7 @@ namespace ompl::demo
                 cachedHorizon_ = horizon;
             }
             barrier_.evaluateScreened(q, threshold_, evaluation_);
-            rows_ += static_cast<std::size_t>(evaluation_.active);
+            counters_.rows += static_cast<std::size_t>(evaluation_.active);
             if (!evaluation_.inBounds)
             {
                 applied.setZero();
@@ -133,7 +133,7 @@ namespace ompl::demo
                     return reject();
                 }
                 applied *= scale;
-                ++repaired_;
+                ++counters_.repaired;
             }
 
             return applied.isApprox(nominal, 0.0) ? Status::Unchanged : Status::Filtered;
@@ -146,23 +146,25 @@ namespace ompl::demo
 
         std::size_t calls() const
         {
-            return calls_;
+            return counters_.calls;
         }
 
         std::size_t rejected() const
         {
-            return rejected_;
+            return counters_.blocked;
         }
 
         double meanRows() const
         {
-            return calls_ ? static_cast<double>(rows_) / static_cast<double>(calls_) : 0.0;
+            return counters_.calls ? static_cast<double>(counters_.rows) /
+                                         static_cast<double>(counters_.calls)
+                                   : 0.0;
         }
 
         /// How many calls were repaired by scaling rather than passed or rejected.
         std::size_t repaired() const
         {
-            return repaired_;
+            return counters_.repaired;
         }
 
     private:
@@ -172,7 +174,7 @@ namespace ompl::demo
 
         Status reject() const
         {
-            ++rejected_;
+            ++counters_.blocked;
             return Status::Blocked;
         }
 
@@ -194,10 +196,6 @@ namespace ompl::demo
         mutable Barrier::Values threshold_;
         mutable Barrier::Evaluation evaluation_;
         mutable double cachedHorizon_{-1.0};
-        mutable std::size_t calls_{0};
-        mutable std::size_t rejected_{0};
-        mutable std::size_t repaired_{0};
-        mutable std::size_t rows_{0};
         bool repair_;
     };
 
@@ -261,6 +259,14 @@ namespace ompl::demo
         const char *name() const override
         {
             return "ur5-qp-free-cbf-gate + envelope hold";
+        }
+
+        /// Control selection is the inner gate's, so the accept/brake/refuse split is
+        /// the inner gate's too. Reporting it from here keeps this row priced once --
+        /// the envelope adds a hold length, not a decision.
+        const Counters &counters() const override
+        {
+            return gate_.counters();
         }
 
     private:

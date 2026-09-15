@@ -150,15 +150,23 @@ namespace ompl::cbf
         /// Per-call work counters, in the units an ablation table prices a filter in.
         ///
         /// Separate from `FilterStats`, which is process-wide, mutex-guarded and
-        /// opt-in: these are three unsynchronised increments on the filter object
-        /// itself, cheap enough to leave on, and scoped to one filter so a benchmark
-        /// can read them per problem without resetting a global. A filter that does
-        /// not reach a QP -- the passthrough, the no-QP gate -- leaves them at zero.
+        /// opt-in: these are a handful of unsynchronised increments on the filter
+        /// object itself, cheap enough to leave on, and scoped to one filter so a
+        /// benchmark can read them per problem without resetting a global. A filter
+        /// that does not reach a QP -- the passthrough, the no-QP gate -- leaves
+        /// `solves` at zero.
+        ///
+        /// `blocked` and `repaired` split what the caller sees as a non-`Unchanged`
+        /// return. They are what separates "the gate stopped the rollout" from "the
+        /// gate slowed it down", and without them a short filtered edge cannot be
+        /// attributed to either.
         struct Counters
         {
-            std::size_t calls{0};   ///< `filter()` invocations
-            std::size_t rows{0};    ///< constraint rows assembled, summed over calls
-            std::size_t solves{0};  ///< calls that reached the QP solver
+            std::size_t calls{0};     ///< `filter()` invocations
+            std::size_t rows{0};      ///< constraint rows assembled, summed over calls
+            std::size_t solves{0};    ///< calls that reached the QP solver
+            std::size_t blocked{0};   ///< calls that returned `Status::Blocked`
+            std::size_t repaired{0};  ///< calls that changed the control and let it through
         };
 
         /// This filter's counters. A wrapper that delegates to an inner filter should

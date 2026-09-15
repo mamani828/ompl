@@ -1,0 +1,366 @@
+diff --git a/demos/RobotQPFreeGate.h b/demos/RobotQPFreeGate.h
+index 24057b62..047ff9a6 100644
+--- a/demos/RobotQPFreeGate.h
++++ b/demos/RobotQPFreeGate.h
+@@ -77,7 +77,7 @@ namespace ompl::demo
+         Status filter(const Configuration &q, const Control &nominal, double duration,
+                       Control &applied) const override
+         {
+-            ++calls_;
++            ++this->counters_.calls;
+             applied.setZero();
+             if (!(duration > 0.0))
+                 return reject();
+@@ -105,7 +105,7 @@ namespace ompl::demo
+                 cachedHorizon_ = horizon;
+             }
+             barrier_.evaluateScreened(q, threshold_, evaluation_);
+-            rows_ += static_cast<std::size_t>(evaluation_.active);
++            this->counters_.rows += static_cast<std::size_t>(evaluation_.active);
+             if (!evaluation_.inBounds)
+             {
+                 applied.setZero();
+@@ -152,7 +152,7 @@ namespace ompl::demo
+                     return reject();
+                 }
+                 applied *= scale;
+-                ++repaired_;
++                ++this->counters_.repaired;
+             }
+ 
+             return applied.isApprox(nominal, 0.0) ? Status::Unchanged : Status::Filtered;
+@@ -165,23 +165,25 @@ namespace ompl::demo
+ 
+         std::size_t calls() const
+         {
+-            return calls_;
++            return this->counters_.calls;
+         }
+ 
+         std::size_t rejected() const
+         {
+-            return rejected_;
++            return this->counters_.blocked;
+         }
+ 
+         double meanRows() const
+         {
+-            return calls_ ? static_cast<double>(rows_) / static_cast<double>(calls_) : 0.0;
++            return this->counters_.calls ? static_cast<double>(this->counters_.rows) /
++                                               static_cast<double>(this->counters_.calls)
++                                         : 0.0;
+         }
+ 
+         /// How many calls were repaired by scaling rather than passed or rejected.
+         std::size_t repaired() const
+         {
+-            return repaired_;
++            return this->counters_.repaired;
+         }
+ 
+     private:
+@@ -191,7 +193,7 @@ namespace ompl::demo
+ 
+         Status reject() const
+         {
+-            ++rejected_;
++            ++this->counters_.blocked;
+             return Status::Blocked;
+         }
+ 
+@@ -214,10 +216,6 @@ namespace ompl::demo
+         mutable typename Barrier::Values threshold_;
+         mutable typename Barrier::Evaluation evaluation_;
+         mutable double cachedHorizon_{-1.0};
+-        mutable std::size_t calls_{0};
+-        mutable std::size_t rejected_{0};
+-        mutable std::size_t repaired_{0};
+-        mutable std::size_t rows_{0};
+         bool repair_{true};
+     };
+ }  // namespace ompl::demo
+diff --git a/demos/UR5MBMBenchmark.cpp b/demos/UR5MBMBenchmark.cpp
+index f62e00f5..e8cc6465 100644
+--- a/demos/UR5MBMBenchmark.cpp
++++ b/demos/UR5MBMBenchmark.cpp
+@@ -492,11 +492,24 @@ namespace
+         /// screening and the active-set pair traversal are supposed to move; and
+         /// `qpSolves / qpCalls` is the share of calls that got past the feasibility
+         /// bypass and the closed-form projection to reach qpmad. A row that never builds
+-        /// a QP -- `isSafe`, `qpFreeGate` -- leaves all three at zero, which is the
++        /// a QP -- `isSafe`, `qpFreeGate` -- leaves `qpSolves` at zero, which is the
+         /// honest reading of "no QP" rather than a missing measurement.
+         std::size_t qpCalls{0};
+         std::size_t qpRows{0};
+         std::size_t qpSolves{0};
++        /// How the filter disposed of the calls it was given: refused outright, or let
++        /// a modified control through. The rest passed unchanged. Every filtering row
++        /// reports both, the QP rows included, so a zero here is a measurement.
++        ///
++        /// This is the column that separates the two ways a filtered extension ends up
++        /// short. `gateBlocked` is the rollout being stopped -- no admissible multiple
++        /// of the requested direction exists, so RRT-Connect keeps a prefix and has to
++        /// resample. `gateRepaired` is the rollout being slowed -- the step is taken,
++        /// but shorter than asked. For `qpFreeGate` the repair is a brake and the two
++        /// are the whole story; for the QP rows a repair is a deflection, which is why
++        /// those rows keep travelling where this one stalls.
++        std::size_t gateBlocked{0};
++        std::size_t gateRepaired{0};
+         /// Joint-space radians per filter call, and the share of calls that ran past
+         /// stepSize on a certificate. Meaningless for the baseline, whose "evaluation"
+         /// is a collision check at a fixed resolution rather than a step.
+@@ -968,6 +981,8 @@ namespace
+         result.qpCalls = qpAfter.calls - qpBefore.calls;
+         result.qpRows = qpAfter.rows - qpBefore.rows;
+         result.qpSolves = qpAfter.solves - qpBefore.solves;
++        result.gateBlocked = qpAfter.blocked - qpBefore.blocked;
++        result.gateRepaired = qpAfter.repaired - qpBefore.repaired;
+         if (picard)
+         {
+             result.picardAttempts = picard->statistics().attempts;
+@@ -1044,6 +1059,11 @@ namespace
+         /// zero that reads as "assembled nothing" next to rows that assembled plenty.
+         std::array<std::vector<double>, rows> qpRowsPerCall, qpSolveShare;
+         std::array<std::size_t, rows> qpCalls{};
++        /// Per-problem share of filter calls refused and repaired, pushed by every row
++        /// that runs a filter -- a row that repairs nothing is a real zero here, unlike
++        /// the QP distributions above, and worth showing as one.
++        std::array<std::vector<double>, rows> gateBlockedShare, gateRepairedShare;
++        std::array<std::size_t, rows> gateBlocked{}, gateRepaired{};
+         std::array<std::size_t, rows> unsafe{};
+         std::array<std::size_t, rows> audited{};
+         std::array<std::size_t, rows> misses{};
+@@ -1077,11 +1097,15 @@ namespace
+             hopAtRegion[row].push_back(result.hopAtRegion);
+             hopEdgeLimited[row].push_back(result.hopEdgeLimited);
+             qpCalls[row] += result.qpCalls;
++            gateBlocked[row] += result.gateBlocked;
++            gateRepaired[row] += result.gateRepaired;
+             if (result.qpCalls > 0)
+             {
+                 const double calls = static_cast<double>(result.qpCalls);
+                 qpRowsPerCall[row].push_back(static_cast<double>(result.qpRows) / calls);
+                 qpSolveShare[row].push_back(static_cast<double>(result.qpSolves) / calls);
++                gateBlockedShare[row].push_back(static_cast<double>(result.gateBlocked) / calls);
++                gateRepairedShare[row].push_back(static_cast<double>(result.gateRepaired) / calls);
+             }
+             unsafe[row] += result.unsafeStates;
+             audited[row] += result.auditedStates;
+@@ -1176,6 +1200,14 @@ namespace
+                         " %zu calls\n",
+                         median(tally.qpRowsPerCall[row]),
+                         1e2 * median(tally.qpSolveShare[row]), tally.qpCalls[row]);
++        // Printed whenever the row runs a filter at all, zeros included: "this filter
++        // refused nothing" is a result about the row, not a missing measurement.
++        if (tally.qpCalls[row] > 0)
++            std::printf("      gate %.1f%% of calls refused, %.1f%% repaired,"
++                        " %zu refused / %zu repaired\n",
++                        1e2 * median(tally.gateBlockedShare[row]),
++                        1e2 * median(tally.gateRepairedShare[row]), tally.gateBlocked[row],
++                        tally.gateRepaired[row]);
+     }
+ 
+     void writeCsvRow(std::ofstream &out, unsigned long seed, const Problem &problem,
+@@ -1196,7 +1228,8 @@ namespace
+             << ',' << result.picardAttempts << ',' << result.picardAccepted << ','
+             << result.picardFallbacks << ',' << result.hopFloored << ','
+             << result.hopAtRegion << ',' << result.hopEdgeLimited << ',' << result.qpCalls
+-            << ',' << result.qpRows << ',' << result.qpSolves << '\n';
++            << ',' << result.qpRows << ',' << result.qpSolves << ',' << result.gateBlocked
++            << ',' << result.gateRepaired << '\n';
+     }
+ }  // namespace
+ 
+@@ -1544,7 +1577,7 @@ int main(int argc, char **argv)
+                   "self_colliding,misses,rad_per_call,coarse_fraction,primary_samples,"
+                   "productive_samples,vertices_per_sample,picard_attempts,picard_accepted,"
+                   "picard_fallbacks,hop_floored,hop_at_region,hop_edge_limited,"
+-                  "qp_calls,qp_rows,qp_solves\n";
++                  "qp_calls,qp_rows,qp_solves,gate_blocked,gate_repaired\n";
+     }
+ 
+     std::ofstream baselineOut, fixedOut, filteredOut, gateOut, vampOut;
+diff --git a/demos/UR5QPFreeGate.h b/demos/UR5QPFreeGate.h
+index ed0cdc26..86797fdb 100644
+--- a/demos/UR5QPFreeGate.h
++++ b/demos/UR5QPFreeGate.h
+@@ -60,7 +60,7 @@ namespace ompl::demo
+         Status filter(const Configuration &q, const Control &nominal, double duration,
+                       Control &applied) const override
+         {
+-            ++calls_;
++            ++counters_.calls;
+             applied.setZero();
+             if (!(duration > 0.0))
+                 return reject();
+@@ -86,7 +86,7 @@ namespace ompl::demo
+                 cachedHorizon_ = horizon;
+             }
+             barrier_.evaluateScreened(q, threshold_, evaluation_);
+-            rows_ += static_cast<std::size_t>(evaluation_.active);
++            counters_.rows += static_cast<std::size_t>(evaluation_.active);
+             if (!evaluation_.inBounds)
+             {
+                 applied.setZero();
+@@ -133,7 +133,7 @@ namespace ompl::demo
+                     return reject();
+                 }
+                 applied *= scale;
+-                ++repaired_;
++                ++counters_.repaired;
+             }
+ 
+             return applied.isApprox(nominal, 0.0) ? Status::Unchanged : Status::Filtered;
+@@ -146,23 +146,25 @@ namespace ompl::demo
+ 
+         std::size_t calls() const
+         {
+-            return calls_;
++            return counters_.calls;
+         }
+ 
+         std::size_t rejected() const
+         {
+-            return rejected_;
++            return counters_.blocked;
+         }
+ 
+         double meanRows() const
+         {
+-            return calls_ ? static_cast<double>(rows_) / static_cast<double>(calls_) : 0.0;
++            return counters_.calls ? static_cast<double>(counters_.rows) /
++                                         static_cast<double>(counters_.calls)
++                                   : 0.0;
+         }
+ 
+         /// How many calls were repaired by scaling rather than passed or rejected.
+         std::size_t repaired() const
+         {
+-            return repaired_;
++            return counters_.repaired;
+         }
+ 
+     private:
+@@ -172,7 +174,7 @@ namespace ompl::demo
+ 
+         Status reject() const
+         {
+-            ++rejected_;
++            ++counters_.blocked;
+             return Status::Blocked;
+         }
+ 
+@@ -194,10 +196,6 @@ namespace ompl::demo
+         mutable Barrier::Values threshold_;
+         mutable Barrier::Evaluation evaluation_;
+         mutable double cachedHorizon_{-1.0};
+-        mutable std::size_t calls_{0};
+-        mutable std::size_t rejected_{0};
+-        mutable std::size_t repaired_{0};
+-        mutable std::size_t rows_{0};
+         bool repair_;
+     };
+ 
+@@ -263,6 +261,14 @@ namespace ompl::demo
+             return "ur5-qp-free-cbf-gate + envelope hold";
+         }
+ 
++        /// Control selection is the inner gate's, so the accept/brake/refuse split is
++        /// the inner gate's too. Reporting it from here keeps this row priced once --
++        /// the envelope adds a hold length, not a decision.
++        const Counters &counters() const override
++        {
++            return gate_.counters();
++        }
++
+     private:
+         UR5QPFreeGate gate_;
+         mutable holdtime::HoldEngine engine_;
+diff --git a/src/ompl/cbf/ControlFilter.h b/src/ompl/cbf/ControlFilter.h
+index 464cdf51..de2da8f1 100644
+--- a/src/ompl/cbf/ControlFilter.h
++++ b/src/ompl/cbf/ControlFilter.h
+@@ -150,15 +150,23 @@ namespace ompl::cbf
+         /// Per-call work counters, in the units an ablation table prices a filter in.
+         ///
+         /// Separate from `FilterStats`, which is process-wide, mutex-guarded and
+-        /// opt-in: these are three unsynchronised increments on the filter object
+-        /// itself, cheap enough to leave on, and scoped to one filter so a benchmark
+-        /// can read them per problem without resetting a global. A filter that does
+-        /// not reach a QP -- the passthrough, the no-QP gate -- leaves them at zero.
++        /// opt-in: these are a handful of unsynchronised increments on the filter
++        /// object itself, cheap enough to leave on, and scoped to one filter so a
++        /// benchmark can read them per problem without resetting a global. A filter
++        /// that does not reach a QP -- the passthrough, the no-QP gate -- leaves
++        /// `solves` at zero.
++        ///
++        /// `blocked` and `repaired` split what the caller sees as a non-`Unchanged`
++        /// return. They are what separates "the gate stopped the rollout" from "the
++        /// gate slowed it down", and without them a short filtered edge cannot be
++        /// attributed to either.
+         struct Counters
+         {
+-            std::size_t calls{0};   ///< `filter()` invocations
+-            std::size_t rows{0};    ///< constraint rows assembled, summed over calls
+-            std::size_t solves{0};  ///< calls that reached the QP solver
++            std::size_t calls{0};     ///< `filter()` invocations
++            std::size_t rows{0};      ///< constraint rows assembled, summed over calls
++            std::size_t solves{0};    ///< calls that reached the QP solver
++            std::size_t blocked{0};   ///< calls that returned `Status::Blocked`
++            std::size_t repaired{0};  ///< calls that changed the control and let it through
+         };
+ 
+         /// This filter's counters. A wrapper that delegates to an inner filter should
+diff --git a/src/ompl/cbf/src/CBFControlFilter.cpp b/src/ompl/cbf/src/CBFControlFilter.cpp
+index 63f57e1a..01e0fe5c 100644
+--- a/src/ompl/cbf/src/CBFControlFilter.cpp
++++ b/src/ompl/cbf/src/CBFControlFilter.cpp
+@@ -158,6 +158,7 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
+     {
+         filtered.setZero();
+         FilterStats::instance().record(FilterOutcome::Blocked, 0, 0, 0.0);
++        ++counters_.blocked;
+         return Status::Blocked;
+     }
+ 
+@@ -222,6 +223,7 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
+     {
+         filtered.setZero();
+         FilterStats::instance().record(FilterOutcome::Blocked, diagnostics.activeRows, 0, 0.0);
++        ++counters_.blocked;
+         return Status::Blocked;
+     }
+ 
+@@ -295,7 +297,8 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
+                 filtered.setZero();
+                 FilterStats::instance().record(FilterOutcome::Blocked, diagnostics.activeRows,
+                                                diagnostics.solverIterations, 0.0);
+-                return Status::Blocked;
++                ++counters_.blocked;
++        return Status::Blocked;
+             }
+         }
+         catch (const std::exception &)
+@@ -305,7 +308,8 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
+             filtered.setZero();
+             FilterStats::instance().record(FilterOutcome::Blocked, diagnostics.activeRows,
+                                            diagnostics.solverIterations, 0.0);
+-            return Status::Blocked;
++            ++counters_.blocked;
++        return Status::Blocked;
+         }
+     }
+ 
+@@ -356,6 +360,12 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
+ 
+     const Status status = (filtered - nominal).norm() <= unchangedTolerance ? Status::Unchanged
+                                                                              : Status::Filtered;
++    // Counted where the gate counts its brake, so `repaired` means the same thing on
++    // every row: the filter handed back a control the caller did not ask for. What it
++    // does not say is *how* -- this row deflects, the no-QP gate can only slow down --
++    // and that is exactly the comparison the two columns are there to support.
++    if (status == Status::Filtered)
++        ++counters_.repaired;
+     FilterStats::instance().record(status == Status::Unchanged ? FilterOutcome::Unchanged
+                                                                 : FilterOutcome::Filtered,
+                                    diagnostics.activeRows, diagnostics.solverIterations,

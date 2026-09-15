@@ -77,7 +77,7 @@ namespace ompl::demo
         Status filter(const Configuration &q, const Control &nominal, double duration,
                       Control &applied) const override
         {
-            ++calls_;
+            ++this->counters_.calls;
             applied.setZero();
             if (!(duration > 0.0))
                 return reject();
@@ -105,7 +105,7 @@ namespace ompl::demo
                 cachedHorizon_ = horizon;
             }
             barrier_.evaluateScreened(q, threshold_, evaluation_);
-            rows_ += static_cast<std::size_t>(evaluation_.active);
+            this->counters_.rows += static_cast<std::size_t>(evaluation_.active);
             if (!evaluation_.inBounds)
             {
                 applied.setZero();
@@ -152,7 +152,7 @@ namespace ompl::demo
                     return reject();
                 }
                 applied *= scale;
-                ++repaired_;
+                ++this->counters_.repaired;
             }
 
             return applied.isApprox(nominal, 0.0) ? Status::Unchanged : Status::Filtered;
@@ -165,23 +165,25 @@ namespace ompl::demo
 
         std::size_t calls() const
         {
-            return calls_;
+            return this->counters_.calls;
         }
 
         std::size_t rejected() const
         {
-            return rejected_;
+            return this->counters_.blocked;
         }
 
         double meanRows() const
         {
-            return calls_ ? static_cast<double>(rows_) / static_cast<double>(calls_) : 0.0;
+            return this->counters_.calls ? static_cast<double>(this->counters_.rows) /
+                                               static_cast<double>(this->counters_.calls)
+                                         : 0.0;
         }
 
         /// How many calls were repaired by scaling rather than passed or rejected.
         std::size_t repaired() const
         {
-            return repaired_;
+            return this->counters_.repaired;
         }
 
     private:
@@ -191,7 +193,7 @@ namespace ompl::demo
 
         Status reject() const
         {
-            ++rejected_;
+            ++this->counters_.blocked;
             return Status::Blocked;
         }
 
@@ -214,10 +216,6 @@ namespace ompl::demo
         mutable typename Barrier::Values threshold_;
         mutable typename Barrier::Evaluation evaluation_;
         mutable double cachedHorizon_{-1.0};
-        mutable std::size_t calls_{0};
-        mutable std::size_t rejected_{0};
-        mutable std::size_t repaired_{0};
-        mutable std::size_t rows_{0};
         bool repair_{true};
     };
 }  // namespace ompl::demo

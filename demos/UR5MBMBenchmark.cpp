@@ -492,11 +492,24 @@ namespace
         /// screening and the active-set pair traversal are supposed to move; and
         /// `qpSolves / qpCalls` is the share of calls that got past the feasibility
         /// bypass and the closed-form projection to reach qpmad. A row that never builds
-        /// a QP -- `isSafe`, `qpFreeGate` -- leaves all three at zero, which is the
+        /// a QP -- `isSafe`, `qpFreeGate` -- leaves `qpSolves` at zero, which is the
         /// honest reading of "no QP" rather than a missing measurement.
         std::size_t qpCalls{0};
         std::size_t qpRows{0};
         std::size_t qpSolves{0};
+        /// How the filter disposed of the calls it was given: refused outright, or let
+        /// a modified control through. The rest passed unchanged. Every filtering row
+        /// reports both, the QP rows included, so a zero here is a measurement.
+        ///
+        /// This is the column that separates the two ways a filtered extension ends up
+        /// short. `gateBlocked` is the rollout being stopped -- no admissible multiple
+        /// of the requested direction exists, so RRT-Connect keeps a prefix and has to
+        /// resample. `gateRepaired` is the rollout being slowed -- the step is taken,
+        /// but shorter than asked. For `qpFreeGate` the repair is a brake and the two
+        /// are the whole story; for the QP rows a repair is a deflection, which is why
+        /// those rows keep travelling where this one stalls.
+        std::size_t gateBlocked{0};
+        std::size_t gateRepaired{0};
         /// Joint-space radians per filter call, and the share of calls that ran past
         /// stepSize on a certificate. Meaningless for the baseline, whose "evaluation"
         /// is a collision check at a fixed resolution rather than a step.
@@ -968,6 +981,8 @@ namespace
         result.qpCalls = qpAfter.calls - qpBefore.calls;
         result.qpRows = qpAfter.rows - qpBefore.rows;
         result.qpSolves = qpAfter.solves - qpBefore.solves;
+        result.gateBlocked = qpAfter.blocked - qpBefore.blocked;
+        result.gateRepaired = qpAfter.repaired - qpBefore.repaired;
         if (picard)
         {
             result.picardAttempts = picard->statistics().attempts;
@@ -1044,6 +1059,11 @@ namespace
         /// zero that reads as "assembled nothing" next to rows that assembled plenty.
         std::array<std::vector<double>, rows> qpRowsPerCall, qpSolveShare;
         std::array<std::size_t, rows> qpCalls{};
+        /// Per-problem share of filter calls refused and repaired, pushed by every row
+        /// that runs a filter -- a row that repairs nothing is a real zero here, unlike
+        /// the QP distributions above, and worth showing as one.
+        std::array<std::vector<double>, rows> gateBlockedShare, gateRepairedShare;
+        std::array<std::size_t, rows> gateBlocked{}, gateRepaired{};
         std::array<std::size_t, rows> unsafe{};
         std::array<std::size_t, rows> audited{};
         std::array<std::size_t, rows> misses{};
@@ -1077,11 +1097,15 @@ namespace
             hopAtRegion[row].push_back(result.hopAtRegion);
             hopEdgeLimited[row].push_back(result.hopEdgeLimited);
             qpCalls[row] += result.qpCalls;
+            gateBlocked[row] += result.gateBlocked;
+            gateRepaired[row] += result.gateRepaired;
             if (result.qpCalls > 0)
             {
                 const double calls = static_cast<double>(result.qpCalls);
                 qpRowsPerCall[row].push_back(static_cast<double>(result.qpRows) / calls);
                 qpSolveShare[row].push_back(static_cast<double>(result.qpSolves) / calls);
+                gateBlockedShare[row].push_back(static_cast<double>(result.gateBlocked) / calls);
+                gateRepairedShare[row].push_back(static_cast<double>(result.gateRepaired) / calls);
             }
             unsafe[row] += result.unsafeStates;
             audited[row] += result.auditedStates;
@@ -1176,6 +1200,14 @@ namespace
                         " %zu calls\n",
                         median(tally.qpRowsPerCall[row]),
                         1e2 * median(tally.qpSolveShare[row]), tally.qpCalls[row]);
+        // Printed whenever the row runs a filter at all, zeros included: "this filter
+        // refused nothing" is a result about the row, not a missing measurement.
+        if (tally.qpCalls[row] > 0)
+            std::printf("      gate %.1f%% of calls refused, %.1f%% repaired,"
+                        " %zu refused / %zu repaired\n",
+                        1e2 * median(tally.gateBlockedShare[row]),
+                        1e2 * median(tally.gateRepairedShare[row]), tally.gateBlocked[row],
+                        tally.gateRepaired[row]);
     }
 
     void writeCsvRow(std::ofstream &out, unsigned long seed, const Problem &problem,
@@ -1196,7 +1228,8 @@ namespace
             << ',' << result.picardAttempts << ',' << result.picardAccepted << ','
             << result.picardFallbacks << ',' << result.hopFloored << ','
             << result.hopAtRegion << ',' << result.hopEdgeLimited << ',' << result.qpCalls
-            << ',' << result.qpRows << ',' << result.qpSolves << '\n';
+            << ',' << result.qpRows << ',' << result.qpSolves << ',' << result.gateBlocked
+            << ',' << result.gateRepaired << '\n';
     }
 }  // namespace
 
@@ -1544,7 +1577,7 @@ int main(int argc, char **argv)
                   "self_colliding,misses,rad_per_call,coarse_fraction,primary_samples,"
                   "productive_samples,vertices_per_sample,picard_attempts,picard_accepted,"
                   "picard_fallbacks,hop_floored,hop_at_region,hop_edge_limited,"
-                  "qp_calls,qp_rows,qp_solves\n";
+                  "qp_calls,qp_rows,qp_solves,gate_blocked,gate_repaired\n";
     }
 
     std::ofstream baselineOut, fixedOut, filteredOut, gateOut, vampOut;

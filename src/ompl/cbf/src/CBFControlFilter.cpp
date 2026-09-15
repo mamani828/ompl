@@ -158,6 +158,7 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     {
         filtered.setZero();
         FilterStats::instance().record(FilterOutcome::Blocked, 0, 0, 0.0);
+        ++counters_.blocked;
         return Status::Blocked;
     }
 
@@ -222,6 +223,7 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
     {
         filtered.setZero();
         FilterStats::instance().record(FilterOutcome::Blocked, diagnostics.activeRows, 0, 0.0);
+        ++counters_.blocked;
         return Status::Blocked;
     }
 
@@ -295,7 +297,8 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
                 filtered.setZero();
                 FilterStats::instance().record(FilterOutcome::Blocked, diagnostics.activeRows,
                                                diagnostics.solverIterations, 0.0);
-                return Status::Blocked;
+                ++counters_.blocked;
+        return Status::Blocked;
             }
         }
         catch (const std::exception &)
@@ -305,7 +308,8 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
             filtered.setZero();
             FilterStats::instance().record(FilterOutcome::Blocked, diagnostics.activeRows,
                                            diagnostics.solverIterations, 0.0);
-            return Status::Blocked;
+            ++counters_.blocked;
+        return Status::Blocked;
         }
     }
 
@@ -356,6 +360,12 @@ ompl::cbf::ControlFilter::Status ompl::cbf::CBFControlFilter::filter(const Confi
 
     const Status status = (filtered - nominal).norm() <= unchangedTolerance ? Status::Unchanged
                                                                              : Status::Filtered;
+    // Counted where the gate counts its brake, so `repaired` means the same thing on
+    // every row: the filter handed back a control the caller did not ask for. What it
+    // does not say is *how* -- this row deflects, the no-QP gate can only slow down --
+    // and that is exactly the comparison the two columns are there to support.
+    if (status == Status::Filtered)
+        ++counters_.repaired;
     FilterStats::instance().record(status == Status::Unchanged ? FilterOutcome::Unchanged
                                                                 : FilterOutcome::Filtered,
                                    diagnostics.activeRows, diagnostics.solverIterations,
